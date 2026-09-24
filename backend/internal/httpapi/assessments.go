@@ -1,0 +1,426 @@
+package httpapi
+
+import (
+	"net/http"
+	"sort"
+
+	"github.com/gin-gonic/gin"
+
+	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/marking"
+)
+
+var validAssessmentTypes = map[string]bool{
+	domain.TypeExercise: true, domain.TypeHomework: true, domain.TypeQuiz: true,
+	domain.TypeClassTest: true, domain.TypeMidTerm: true, domain.TypeEndTerm: true,
+	domain.TypeMock: true, domain.TypeDiagnostic: true, domain.TypeRemedial: true,
+	domain.TypeVacation: true,
+}
+
+// listAssessments returns assessments, scoped for students/parents to their
+// own class and for teachers to their class (doc §16).
+func (s *Server) listAssessments(c *gin.Context) {
+	u := currentUser(c)
+	all := s.store.Assessments()
+	if u.IsSchoolStaff() {
+		if subj := c.Query("subject"); subj != "" {
+			var filtered []domain.Assessment
+			for _, a := range all {
+				if a.SubjectID == subj {
+					filtered = append(filtered, a)
+				}
+			}
+			sendJSON(c, filtered)
+			return
+		}
+		sendJSON(c, all)
+		return
+	}
+	viewClassID := s.viewClassID(u)
+	subj := c.Query("subject")
+	var mine []domain.Assessment
+	for _, a := range all {
+		if subj != "" && a.SubjectID != subj {
+			continue
+		}
+		if a.ClassID == viewClassID {
+			mine = append(mine, a)
+		}
+	}
+	sendJSON(c, mine)
+}
+
+// viewClassID returns the class a non-staff viewer should see (their own for
+// students, their child's for parents).
+func (s *Server) viewClassID(u domain.User) string {
+	switch u.Role {
+	case domain.RoleStudent:
+		if st, ok := s.store.StudentByID(stringToStudentID(u.ID)); ok {
+			return st.ClassID
+		}
+	case domain.RoleParent:
+		for _, id := range u.StudentIDs {
+			if st, ok := s.store.StudentByID(id); ok && st.ClassID != "" {
+				return st.ClassID
+			}
+		}
+	}
+	return ""
+}
+
+// createAssessment adds a complete assessment (doc §16).
+func (s *Server) createAssessment(c *gin.Context) {
+	u := currentUser(c)
+	var body domain.Assessment
+	if !bind(c, &body) {
+		return
+	}
+	if !validAssessmentTypes[body.Type] {
+		fail(c, http.StatusBadRequest, "Unknown assessment type")
+		return
+	}
+	if body.Title == "" {
+		fail(c, http.StatusBadRequest, "title is required")
+		return
+	}
+	if !validSubject(body.SubjectID) {
+		fail(c, http.StatusBadRequest, "Unknown subjectId")
+		return
+	}
+	if body.ClassID == "" {
+		fail(c, http.StatusBadRequest, "classId is required")
+		return
+	}
+	if _, ok := s.store.ClassByID(body.ClassID); !ok {
+		fail(c, http.StatusBadRequest, "classId does not exist")
+		return
+	}
+	if len(body.Questions) == 0 {
+		fail(c, http.StatusBadRequest, "at least one question is required")
+		return
+	}
+	a := domain.Assessment{
+		ID:        newID("ASSMT"),
+		Title:     body.Title,
+		Type:      body.Type,
+		SubjectID: body.SubjectID,
+		ClassID:   body.ClassID,
+		Date:      firstNonEmpty(body.Date, today()),
+		CreatedBy: firstNonEmpty(body.CreatedBy, u.Name),
+		Questions: body.Questions,
+	}
+	s.store.SaveAssessment(a)
+	s.audit(c, "assessment.create", a.ID, "Created "+a.Type+" assessment "+a.Title, "")
+	sendCreated(c, a)
+}
+
+// assessmentDetail returns the assessment and the current user's submission if
+// one exists.
+func (s *Server) assessmentDetail(c *gin.Context) {
+	a, ok := s.store.AssessmentByID(c.Param("id"))
+	if !ok {
+		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	u := currentUser(c)
+	if !u.IsSchoolStaff() && a.ClassID != s.viewClassID(u) {
+		fail(c, http.StatusForbidden, "You may only view your own class assessments")
+		return
+	}
+	view := gin.H{"assessment": a}
+	if u.Role == domain.RoleStudent || u.Role == domain.RoleParent {
+		sid := ""
+		switch u.Role {
+		case domain.RoleStudent:
+			sid = stringToStudentID(u.ID)
+		case domain.RoleParent:
+			for _, id := range u.StudentIDs {
+				if st, ok := s.store.StudentByID(id); ok && st.ClassID == a.ClassID {
+					sid = st.ID
+					break
+				}
+			}
+		}
+		if sid != "" {
+			if sub, found := s.store.SubmissionFor(a.ID, sid); found {
+				view["submission"] = sub
+			}
+		}
+	}
+	sendJSON(c, view)
+}
+
+type blueprintRequest struct {
+	Topic      string `json:"topic"`
+	SubjectID  string `json:"subjectId"`
+	Count      int    `json:"count"`
+	ClassID    string `json:"classId"`
+	Difficulty string `json:"difficulty"`
+}
+
+// blueprintGenerate picks questions from the bank using the same rules as the
+// app's blueprintPick and returns a draft assessment with rounded marks
+// (doc §18).
+func (s *Server) blueprintGenerate(c *gin.Context) {
+	id := c.Param("id")
+	a, ok := s.store.AssessmentByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	var req blueprintRequest
+	if !bind(c, &req) {
+		return
+	}
+	from := s.store.Questions()
+	req.Topic = firstNonEmpty(req.Topic, a.SubjectID)
+	if req.SubjectID == "" {
+		req.SubjectID = a.SubjectID
+	}
+	if req.Count <= 0 {
+		req.Count = 10
+	}
+	picked := marking.BlueprintPick(from, req.Topic, req.SubjectID, req.Count)
+	a.Questions = picked
+	draft := a
+	draft.ID = newID("ASSMT")
+	draft.Title = a.Title + " — Blueprint Draft"
+	s.audit(c, "assessment.blueprint", a.ID, "Generated blueprint picking "+itoa(len(picked))+" questions", "")
+	sendJSON(c, draft)
+}
+
+type submitRequest struct {
+	StudentID    string            `json:"studentId"`
+	Answers      map[string]string `json:"answers"`
+	ClassID      string            `json:"classId"`
+	Date         string            `json:"date"`
+	DraftPaperID string            `json:"draftPaperId,omitempty"`
+}
+
+// submitAssessment marks objective answers instantly (computeEarned) and
+// stores the submission pending manual verdicts for subjective questions
+// (doc §26, §54).
+func (s *Server) submitAssessment(c *gin.Context) {
+	id := c.Param("id")
+	a, ok := s.store.AssessmentByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	var body submitRequest
+	if !bind(c, &body) {
+		return
+	}
+	u := currentUser(c)
+	studentID := body.StudentID
+	if studentID == "" {
+		if u.Role == domain.RoleStudent {
+			studentID = stringToStudentID(u.ID)
+		} else {
+			fail(c, http.StatusBadRequest, "studentId is required")
+			return
+		}
+	}
+	st, ok := s.store.StudentByID(studentID)
+	if !ok {
+		fail(c, http.StatusNotFound, "Student not found")
+		return
+	}
+	if !u.IsSchoolStaff() && a.ClassID != st.ClassID {
+		fail(c, http.StatusForbidden, "You may only submit your own class assessments")
+		return
+	}
+	earned := marking.ComputeEarned(a.Questions, body.Answers, nil)
+	sub := domain.Submission{
+		ID:           newID("SUB"),
+		AssessmentID: a.ID,
+		StudentID:    st.ID,
+		ClassID:      firstNonEmpty(body.ClassID, st.ClassID),
+		Date:         firstNonEmpty(body.Date, today()),
+		Answers:      body.Answers,
+		TeacherMarks: map[string]float64{},
+		Earned:       earned,
+	}
+	s.store.SaveSubmission(sub)
+
+	hasSubjective := hasSubjectiveQuestions(a.Questions)
+	if hasSubjective {
+		s.notifySubjective(c, a, st, sub)
+	} else {
+		s.notifyAssessmentComplete(a, st, sub)
+	}
+	s.audit(c, "submission.submit", sub.ID, "Submitted "+a.Title+" by "+st.FullName(), "")
+
+	resp := gin.H{"submission": sub, "autoMarked": earned}
+	if hasSubjective {
+		resp["pendingVerdicts"] = subjectiveNeedingVerdict(a.Questions, sub)
+	}
+	sendCreated(c, resp)
+}
+
+// markVerdicts records teacher marks per question and recomputes earned
+// (doc §26 "mark paper", §54 verdicts).
+func (s *Server) markVerdicts(c *gin.Context) {
+	id := c.Param("id")
+	a, ok := s.store.AssessmentByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	var body struct {
+		StudentID    string             `json:"studentId"`
+		TeacherMarks map[string]float64 `json:"teacherMarks"`
+	}
+	if !bind(c, &body) {
+		return
+	}
+	if body.TeacherMarks == nil {
+		body.TeacherMarks = map[string]float64{}
+	}
+	sub, ok := s.store.SubmissionFor(a.ID, body.StudentID)
+	if !ok {
+		fail(c, http.StatusNotFound, "No submission for this assessment/student")
+		return
+	}
+	sub.TeacherMarks = clampMarks(a.Questions, body.TeacherMarks)
+	remaining := subjectiveNeedingVerdict(a.Questions, sub)
+	if len(remaining) > 0 {
+		sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
+		s.store.SaveSubmission(sub)
+		fail(c, http.StatusUnprocessableEntity, "Still "+itoa(len(remaining))+" questions lacking verdicts")
+		return
+	}
+	sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
+	s.store.SaveSubmission(sub)
+
+	st, _ := s.store.StudentByID(sub.StudentID)
+	var pct float64
+	if tm := a.TotalMarks(); tm > 0 {
+		pct = 100 * sub.Earned / tm
+	}
+	if st.ParentUserID != "" {
+		s.notify(st.ParentUserID, domain.NotifMarking, a.Title+" marked",
+			st.FullName()+" scored "+itoa(int(sub.Earned))+"/"+itoa(int(a.TotalMarks()))+" ("+marking.GradeLetter(pct)+").",
+			st.ID)
+	}
+	s.audit(c, "marking.verdicts", sub.ID, "Marked "+a.Title+" for "+st.FullName(), "")
+	sendJSON(c, sub)
+}
+
+// assessmentResults groups per-student results with distribution (doc §26).
+func (s *Server) assessmentResults(c *gin.Context) {
+	a, ok := s.store.AssessmentByID(c.Param("id"))
+	if !ok {
+		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	type row struct {
+		Student domain.Student `json:"student"`
+		Earned  float64        `json:"earned"`
+		Total   float64        `json:"total"`
+		Percent float64        `json:"percent"`
+		Grade   string         `json:"grade"`
+	}
+	total := a.TotalMarks()
+	var rows []row
+	dist := map[string]int{}
+	for _, st := range s.store.Students() {
+		sub, found := s.store.SubmissionFor(a.ID, st.ID)
+		if !found {
+			continue
+		}
+		pct := 0.0
+		if total > 0 {
+			pct = 100 * sub.Earned / total
+		}
+		g := marking.GradeLetter(pct)
+		dist[g]++
+		rows = append(rows, row{Student: st, Earned: sub.Earned, Total: total, Percent: pct, Grade: g})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Percent > rows[j].Percent })
+	avg := 0.0
+	if len(rows) > 0 {
+		for _, r := range rows {
+			avg += r.Percent
+		}
+		avg /= float64(len(rows))
+	}
+	sendJSON(c, gin.H{
+		"assessment":   a,
+		"rows":         rows,
+		"distribution": dist,
+		"average":      avg,
+		"submitted":    len(rows),
+		"totalMarks":   total,
+	})
+}
+
+// --- helpers ---
+
+func hasSubjectiveQuestions(qs []domain.Question) bool {
+	for _, q := range qs {
+		if !q.IsObjective() {
+			return true
+		}
+	}
+	return false
+}
+
+// subjectiveNeedingVerdict returns question ids still lacking a verdict.
+func subjectiveNeedingVerdict(qs []domain.Question, sub domain.Submission) []string {
+	var out []string
+	for _, q := range qs {
+		if !q.IsObjective() {
+			if _, ok := sub.TeacherMarks[q.ID]; !ok {
+				out = append(out, q.ID)
+			}
+		}
+	}
+	return out
+}
+
+// clampMarks caps teacher marks at each question's max marks.
+func clampMarks(qs []domain.Question, marks map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	max := map[string]float64{}
+	for _, q := range qs {
+		max[q.ID] = q.Marks
+	}
+	for id, v := range marks {
+		m, ok := max[id]
+		if !ok {
+			continue
+		}
+		if v > m {
+			v = m
+		}
+		if v < 0 {
+			v = 0
+		}
+		out[id] = v
+	}
+	return out
+}
+
+// notifyAssessmentComplete pushes the result notification to the student's
+// parent (doc §36).
+func (s *Server) notifyAssessmentComplete(a domain.Assessment, st domain.Student, sub domain.Submission) {
+	pct := 0.0
+	if tm := a.TotalMarks(); tm > 0 {
+		pct = 100 * sub.Earned / tm
+	}
+	if st.ParentUserID != "" {
+		s.notify(st.ParentUserID, domain.NotifAssessment, a.Title+" — result available",
+			st.FullName()+" scored "+itoa(int(sub.Earned))+"/"+itoa(int(a.TotalMarks()))+" ("+marking.GradeLetter(pct)+").",
+			st.ID)
+	}
+}
+
+func (s *Server) notifySubjective(c *gin.Context, a domain.Assessment, st domain.Student, sub domain.Submission) {
+	_ = c
+	_ = sub
+	if st.ParentUserID != "" {
+		s.notify(st.ParentUserID, domain.NotifMarking, a.Title+" awaiting marking",
+			st.FullName()+" has submitted "+a.Title+". Subjective answers will be reviewed shortly.", st.ID)
+	}
+}
