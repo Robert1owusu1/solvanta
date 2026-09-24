@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../admin/parent_linking_screen.dart';
 import '../admin/school_admin_screen.dart';
@@ -314,3 +315,28 @@ class StaffDashboard extends StatelessWidget {
     );
   }
 }
+
+/// The module set a role may reach — the single source of truth that
+/// [`dashboardFor`] uses. Mirrors the backend's per-route role gates.
+List<Module> modulesFor(AppRole role) => switch (role) {
+      AppRole.superAdmin ||
+      AppRole.schoolAdmin ||
+      AppRole.headteacher =>
+        _adminModules,
+      AppRole.teacher => _teacherModules,
+      AppRole.parent => _parentModules,
+      AppRole.student => _studentModules,
+      AppRole.staff || AppRole.educationAuthority => _staffModules,
+    };
+
+/// The dashboard widget for a signed-in [user].
+Widget dashboardFor(User user) => switch (user.role) {
+      AppRole.superAdmin ||
+      AppRole.schoolAdmin ||
+      AppRole.headteacher =>
+        AdminDashboard(user: user),
+      AppRole.teacher => TeacherDashboard(user: user),
+      AppRole.parent => ParentDashboard(user: user),
+      AppRole.student => StudentDashboard(user: user),
+      AppRole.staff || AppRole.educationAuthority => StaffDashboard(user: user),
+    };

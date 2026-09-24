@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 
+import 'core/models/app_notification.dart';
 import 'core/models/user.dart';
+import 'core/notifications/deep_link.dart';
 import 'core/notifications/notifications.dart';
 import 'core/settings/app_settings.dart';
+import 'core/storage/local_store.dart';
 import 'core/sync/sync.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/register_screen.dart';
+import 'features/home/dashboards.dart';
 import 'features/home/home_shell.dart';
+import 'features/home/widgets/dashboard_scaffold.dart';
 import 'features/security/security.dart';
 
 class SolvantaApp extends StatefulWidget {
@@ -21,6 +26,11 @@ class SolvantaApp extends StatefulWidget {
 class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
   final _auth = AuthRepository();
   final _settings = AppSettings.instance;
+
+  /// App-wide navigator so notification taps can deep-link into a module
+  /// screen from outside the widget tree (background / cold start).
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -37,11 +47,48 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
   }
 
   /// Route a tapped notification payload to its destination in-app.
+  ///
+  /// Payloads are notification ids (`NOTIF-*`). The kind of the tapped
+  /// notification is resolved to the module the current user should land on
+  /// (role-aware), and that module's own screen builder is pushed — one
+  /// registry, no second router to keep in sync. Silently no-ops when the
+  /// session isn't ready (app cold-starting, no logged-in user yet), which
+  /// is the safe behaviour while the Inbox stays the catch-all.
   void _onNotificationOpened(String? payload) {
     if (payload == null || payload.isEmpty) return;
-    // Payloads are simple route names for now (e.g. `inbox`, `reports`).
-    // A deep-link router can replace this when the app grows one.
-    debugPrint('SOLVANTA: notification opened → $payload');
+    _routeNotification(payload).ignore(); // fire-and-forget
+  }
+
+  Future<void> _routeNotification(String payload) async {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null || !navigator.mounted) return;
+
+    final user = await _auth.currentUser();
+    if (user == null) return;
+
+    AppNotification? tapped;
+    for (final n in await LocalStore().loadNotifications()) {
+      if (n.id == payload) {
+        tapped = n;
+        break;
+      }
+    }
+    if (tapped == null) return;
+
+    final label = notificationDestination(tapped.kind, user.role);
+    Module? module;
+    if (label != null) {
+      for (final m in modulesFor(user.role)) {
+        if (m.label == label) {
+          module = m;
+          break;
+        }
+      }
+    }
+    if (module?.builder == null || !navigator.mounted) return;
+
+    await navigator.push(MaterialPageRoute(builder: module!.builder!));
+    if (context.mounted) setState(() {}); // refresh the Inbox badge etc.
   }
 
   @override
@@ -69,6 +116,7 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
         return MaterialApp(
           title: 'SOLVANTA',
           debugShowCheckedModeBanner: false,
+          navigatorKey: navigatorKey,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,

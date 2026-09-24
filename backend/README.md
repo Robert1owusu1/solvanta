@@ -45,6 +45,22 @@ TEST_POSTGRES_DSN="postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable" 
 go vet ./...
 ```
 
+### Local PostgreSQL (this machine, no sudo)
+
+The system has no passwordless sudo, so a self-contained PostgreSQL 18 runs
+entirely from the external drive — extracted binaries plus a managed data dir,
+no system packages installed:
+
+```sh
+/mnt/devdrive/DevTools/postgresql/manage.sh start    # boot on 127.0.0.1:5433
+/mnt/devdrive/DevTools/postgresql/manage.sh stop
+# DSN (user solvanta, trust auth — local dev only):
+POSTGRES_DSN="postgres://solvanta@127.0.0.1:5433/solvanta?sslmode=disable" \
+  SEED=true go run ./cmd/server
+
+TEST_POSTGRES_DSN="postgres://solvanta@127.0.0.1:5433/solvanta?sslmode=disable" go test ./...
+```
+
 Environment variables:
 
 | Var               | Default | Purpose                                              |
@@ -104,13 +120,21 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
   production.
 - **CORS:** `ALLOWED_ORIGINS` allow-list only; disallowed origins never receive
   CORS headers and preflight is only honoured for allowed origins.
-- **Authorization:** role middleware (`requireRole`) gates privileged actions;
-  per-record scoping lets staff read any record, students only their own
-  (self-only `check-in`), and parents only their own children. `listUsers`
-  hides super-admin rows from non-super-admins.
+- **Authorization:** role middleware (`requireRole`) gates privileged actions.
+  Every school *management* gate lists `RoleSuperAdmin` explicitly (the
+  platform operator may act anywhere, mirroring `schoolScope`), while purely
+  student-self gates (assignment completion, assessment submission) stay
+  student-only so an operator can never pollute a learner's records. Per-record
+  scoping lets staff read any record, students only their own (self-only
+  `check-in`), and parents only their own children. `listUsers` hides
+  super-admin rows from non-super-admins.
 - Tests: `internal/security` (primitives) and `internal/httpapi/security_test.go`
   (login rate-limit → 429, tampered/expired/revoked tokens → 401, password
   non-leak, oversized body → 413, CORS, scoping → 403, user-validation).
+  `internal/httpapi/rbac_test.go` pins the full role × endpoint matrix (who may
+  create/promote/edit students, questions, assessments, announcements, mark
+  notifications, submit for others, and student-list scoping counts); the
+  client mirrors this contract in `test/rbac_access_test.dart`.
 
 ## Route map
 
@@ -175,6 +199,17 @@ internal/security     bcrypt / password policy / opaque-token primitives
 internal/httpapi      router, auth/middleware, handlers, reports
 migrations/           embedded PostgreSQL schema (001_init.sql)
 ```
+
+## Known follow-ups (roadmap)
+
+- **`contextTODO()` propagation** — the Postgres store currently blocks on a
+  plan for request-scoped cancellation/observability; the 55-method `Store`
+  interface (and its in-memory partner) needs a mechanical
+  `ctx context.Context` pass-through before deadlines/tracing are useful.
+- **Out-of-scope modules documented in the product docs but not implemented:**
+  the Next.js dashboard (uses `ALLOWED_ORIGINS` + the token flow), Redis-backed
+  queues, and the real Python AI pipeline (FastAPI/Transformers) — the
+  `/api/questions/ai/…` endpoints currently serve templated drafts in its place.
 
 ## Parity guarantees
 

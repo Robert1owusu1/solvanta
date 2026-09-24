@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../auth/auth_repository.dart';
 import 'dashboards.dart';
@@ -31,7 +30,7 @@ class _HomeShellPageState extends State<HomeShellPage> {
         if (snap.connectionState != ConnectionState.done) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        final user = snap.data;
+        final User? user = snap.data;
         if (user == null) {
           return Scaffold(
             body: Center(
@@ -43,19 +42,9 @@ class _HomeShellPageState extends State<HomeShellPage> {
             ),
           );
         }
-        final Widget dashboard = switch (user.role) {
-          AppRole.superAdmin ||
-          AppRole.schoolAdmin ||
-          AppRole.headteacher =>
-            AdminDashboard(user: user),
-          AppRole.teacher => TeacherDashboard(user: user),
-          AppRole.parent => ParentDashboard(user: user),
-          AppRole.student => StudentDashboard(user: user),
-          AppRole.staff || AppRole.educationAuthority => StaffDashboard(user: user),
-        };
         return AuthLogout(
           onLogout: _logout,
-          child: dashboard,
+          child: dashboardFor(user),
         );
       },
     );

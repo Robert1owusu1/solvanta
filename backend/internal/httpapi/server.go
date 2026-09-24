@@ -163,7 +163,11 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 	}
 }
 
-// requireRole allows only users with one of the given roles.
+// requireRole allows only users with one of the given roles. Every school
+// *management* gate lists domain.RoleSuperAdmin explicitly: the platform
+// operator may act anywhere (mirroring schoolScope), while purely student-self
+// gates (assignment completion, assessment submission) stay student-only so
+// an operator can never pollute a learner's records.
 func requireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		u := currentUser(c)
@@ -288,78 +292,79 @@ func (s *Server) Router() *gin.Engine {
 	students := api.Group("/students", s.schoolScope())
 	{
 		students.GET("", s.listStudents)
-		students.POST("", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createStudent)
+		students.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.createStudent)
 		students.GET("/:id", s.studentDetail)
-		students.PATCH("/:id", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateStudent)
-		students.POST("/:id/promote", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.promoteStudent)
-		students.POST("/:id/graduate", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.graduateStudent)
-		students.POST("/:id/pickup/authorize", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.authorizePickup)
-		students.POST("/:id/pickup/revoke", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.revokePickup)
+		students.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateStudent)
+		students.POST("/:id/promote", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.promoteStudent)
+		students.POST("/:id/graduate", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.graduateStudent)
+		students.POST("/:id/pickup/authorize", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.authorizePickup)
+		students.POST("/:id/pickup/revoke", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.revokePickup)
 	}
 
 	attendance := api.Group("/attendance", s.schoolScope())
 	{
 		attendance.GET("/class/:classId/date/:date", s.attendanceForClassDate)
-		attendance.PUT("/class/:classId/date/:date", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.saveAttendanceDay)
+		attendance.PUT("/class/:classId/date/:date", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.saveAttendanceDay)
 		attendance.GET("/students/:studentId/history", s.studentAttendanceHistory)
 		attendance.GET("/students/:studentId/summary", s.studentAttendanceSummary)
 		attendance.POST("/check-in", s.checkIn)
-		attendance.POST("/correction", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.attendanceCorrection)
+		attendance.POST("/correction", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.attendanceCorrection)
 	}
 
 	gate := api.Group("/gate", s.schoolScope())
 	{
 		gate.GET("/events", s.gateEvents)
-		gate.POST("/events", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createGateEvent)
+		gate.POST("/events", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createGateEvent)
 		gate.GET("/students/:studentId", s.gateForStudent)
 	}
 
 	questions := api.Group("/questions", s.schoolScope())
 	{
-		questions.GET("", func(c *gin.Context) { sendJSON(c, s.store.Questions()) })
-		questions.POST("", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createQuestion)
-		questions.PATCH("/:id", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateQuestion)
-		questions.DELETE("/:id", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteQuestion)
-		questions.GET("/ai/requests", s.aiRequests)
-		questions.POST("/ai/requests", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequest)
-		questions.POST("/ai/requests/:id/generate", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiGenerate)
-		questions.POST("/ai/requests/:id/publish", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiPublish)
-		questions.POST("/ai/requests/:id/reject", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiReject)
+		questions.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff),
+			func(c *gin.Context) { sendJSON(c, s.store.Questions()) })
+		questions.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createQuestion)
+		questions.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateQuestion)
+		questions.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteQuestion)
+		questions.GET("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.aiRequests)
+		questions.POST("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequest)
+		questions.POST("/ai/requests/:id/generate", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiGenerate)
+		questions.POST("/ai/requests/:id/publish", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiPublish)
+		questions.POST("/ai/requests/:id/reject", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiReject)
 	}
 
 	assessments := api.Group("/assessments", s.schoolScope())
 	{
 		assessments.GET("", s.listAssessments)
-		assessments.POST("", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssessment)
+		assessments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssessment)
 		assessments.GET("/:id", s.assessmentDetail)
-		assessments.POST("/:id/blueprint", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.blueprintGenerate)
+		assessments.POST("/:id/blueprint", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.blueprintGenerate)
 		assessments.POST("/:id/submit", s.submitAssessment)
-		assessments.POST("/:id/verdicts", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.markVerdicts)
-		assessments.GET("/:id/results", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.assessmentResults)
+		assessments.POST("/:id/verdicts", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.markVerdicts)
+		assessments.GET("/:id/results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.assessmentResults)
 	}
 
 	analytics := api.Group("/analytics", s.schoolScope())
 	{
 		analytics.GET("/students/:studentId/results", s.studentResults)
 		analytics.GET("/students/:studentId/weak-topics", s.studentWeakTopics)
-		analytics.GET("/classes/:classId/gaps", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classGaps)
-		analytics.GET("/at-risk", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.atRisk)
+		analytics.GET("/classes/:classId/gaps", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classGaps)
+		analytics.GET("/at-risk", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.atRisk)
 	}
 
 	interventions := api.Group("/interventions", s.schoolScope())
 	{
 		interventions.GET("", s.listInterventions)
 		interventions.GET("/students/:studentId", s.interventionsForStudent)
-		interventions.POST("", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createIntervention)
-		interventions.POST("/:id/status", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateInterventionStatus)
-		interventions.POST("/:id/reassessment", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.attachReassessment)
+		interventions.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createIntervention)
+		interventions.POST("/:id/status", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateInterventionStatus)
+		interventions.POST("/:id/reassessment", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.attachReassessment)
 		interventions.GET("/:id/improvement", s.interventionImprovement)
 	}
 
 	comm := api.Group("", s.schoolScope())
 	{
 		comm.GET("/announcements", s.listAnnouncements)
-		comm.POST("/announcements", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createAnnouncement)
+		comm.POST("/announcements", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createAnnouncement)
 		comm.GET("/messages", s.listMessages)
 		comm.POST("/messages", s.sendMessage)
 		comm.GET("/notifications/unread", s.unreadNotifications)
@@ -370,14 +375,14 @@ func (s *Server) Router() *gin.Engine {
 	assignments := api.Group("/assignments", s.schoolScope())
 	{
 		assignments.GET("", s.listAssignments)
-		assignments.POST("", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssignment)
+		assignments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssignment)
 		assignments.POST("/:id/complete", requireRole(domain.RoleStudent), s.completeAssignment)
 	}
 
 	reports := api.Group("/reports", s.schoolScope())
 	{
 		reports.GET("/students/:studentId/report-card", s.studentReportCard)
-		reports.GET("/assessments/:id/class-results", requireRole(domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classResultsReport)
+		reports.GET("/assessments/:id/class-results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classResultsReport)
 	}
 
 	audit := api.Group("/audit", s.schoolScope())

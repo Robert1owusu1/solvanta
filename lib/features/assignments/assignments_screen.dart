@@ -292,7 +292,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         future: _data,
         builder: (context, snap) {
           final user = snap.data?.$3;
-          if (user == null || !user.isSchoolStaff) {
+          // Assignment creation is teacher+ (doc §41); general staff,
+          // parents and students are read-only.
+          if (user == null || !user.role.canCreateAssignments) {
             return const SizedBox.shrink();
           }
           return FloatingActionButton.extended(

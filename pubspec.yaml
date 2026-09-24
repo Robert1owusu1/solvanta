@@ -1,5 +1,9 @@
 name: solvanta
-description: "A new Flutter project."
+description: >-
+  SOLVANTA — school management, assessment & student-safety platform for
+  Ghanaian schools. Flutter client with an offline-first local store, role-based
+  dashboards (admin, teacher, parent, student, staff) and a Go REST API
+  (backend/) kept in parity with the client.
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

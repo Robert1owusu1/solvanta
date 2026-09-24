@@ -1,42 +1,108 @@
-# solvanta
+# SOLVANTA
 
-school-management client (Flutter) + production Go API (see `backend/README.md`).
+School management, assessment & student-safety platform for Ghanaian schools:
+role-based dashboards for **admin, teacher, parent, student and staff**, with an
+offline-first Flutter client and a production-style Go API kept in parity.
+
+| Part        | Where                                                        |
+|-------------|--------------------------------------------------------------|
+| Client      | `lib/` (Flutter) · `test/`                                   |
+| API         | `backend/` (Go + Gin, see `backend/README.md`)               |
+| Storage     | PostgreSQL (schema in `backend/migrations`) or in-memory     |
+| Infra       | `backend/Dockerfile` · `docker-compose.yml` · CI in `.github/workflows/ci.yml` |
+
+## Roles & the RBAC contract
+
+Every role sees only the dashboards and actions meant for it, on the client and
+the API:
+
+- **Super admin** (platform operator) — sees/acts in every school, but stays out
+  of purely student-self actions (can't submit work or assessments *as* a pupil).
+- **School admin / headteacher** — the full school-management grid (students,
+  staff, fees, safety, assessments, audit, reports, …).
+- **Teacher** — classroom: own students, marking, assessments, messages,
+  interventions; **no** enrolment or admin surfaces.
+- **Parent** — only their own children (arrival/departure, results, feedback).
+- **Student** — only self (profile, results, assignments, own work).
+- **Staff** — supporting duties (attendance, gate, announcements); no marking.
+
+This is **locked in by tests**, not by convention:
+
+- API: `backend/internal/httpapi/rbac_test.go` — full role × endpoint status
+  matrix, student-list scoping, notification ownership, IDOR rejection.
+- Client: `test/rbac_access_test.dart` — module-grid matrix per role, capability
+  flags, dashboard routing, and the self-registration role picker
+  (teacher/parent/student only).
+
+## Run the app
+
+```sh
+flutter pub get
+flutter run                 # device/emulator; adb reverse tcp:8080 tcp:8080
+```
+
+## Run the backend
+
+```sh
+cd backend
+go run ./cmd/server                    # in-memory store, seeded demo data
+POSTGRES_DSN="postgres://…" go run ./cmd/server   # PostgreSQL, schema auto-applied
+```
+
+Docker stack (API + Postgres):
+
+```sh
+docker compose up --build
+```
+
+Local Postgres without Docker on this machine (`/mnt/devdrive/DevTools/postgresql`,
+extracted binaries, no sudo): see `backend/README.md` → *Local PostgreSQL*.
 
 ## Live API wiring
 
-The app can run fully offline (seeded `LocalStore`) or against the live Go API.
-When an API is configured, `ApiClient` is enabled and repositories read through
-`RemoteDataSource` (`lib/core/api/`) while still mirroring results into the
-local store. Configuration priority (`lib/core/api/api_client.dart`):
-
-1. `--dart-define=SOLVANTA_API=http://…`
-2. env `SOLVANTA_API_URL`
-3. default `http://127.0.0.1:8080`
-
-Start the backend (in-memory or Postgres) per `backend/README.md`, then run the
-live-parity suite — it asserts the app's seed, models, and repository reads are
-byte-for-byte compatible with what the API returns:
+The app runs fully offline on its seeded `LocalStore`; with an API configured,
+repositories read through `RemoteDataSource` and mirror results into the local
+store. API URL priority: `--dart-define=SOLVANTA_API=…` → `SOLVANTA_API_URL` →
+`http://127.0.0.1:8080`. The live-parity suite asserts app seed/models match the
+API byte-for-byte:
 
 ```sh
-flutter test test/api_parity_test.dart
+SOLVANTA_API_URL=http://127.0.0.1:8080 flutter test test/api_parity_test.dart
 ```
 
-On a device/emulator, bridge the host port instead of editing the URL:
+## Verify (both suites)
 
 ```sh
-adb reverse tcp:8080 tcp:8080
+cd backend && go vet ./... && go test ./...   # TEST_POSTGRES_DSN adds the PG path
+flutter analyze && flutter test
 ```
 
-## Getting Started
+## Demo logins (seeded)
 
-This project is a starting point for a Flutter application.
+| Role        | Email                 | Password    |
+|-------------|-----------------------|-------------|
+| Super admin | super@solvanta.app    | super123    |
+| Admin       | admin@solvanta.app    | admin123    |
+| Headteacher | head@school.gh        | head123     |
+| Teacher     | efua.mensah@school.gh | teacher123  |
+| Parent      | ama.owusu@school.gh   | parent123   |
+| Student     | kojo.owusu@school.gh  | student123  |
 
-A few resources to get you started if this is your first Flutter project:
+## Architecture decisions (recorded)
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Offline-first client** — local store is the source of truth until a live API
+  is configured; auth, fees and messages go through the API when present. The
+  Go API mirrors the client's seed and business logic (marking, blueprint,
+  analytics) so either path behaves identically.
+- **Simulated AI** — `POST /api/questions/ai/…` produces **templated drafts**
+  locally; the Python/FastAPI/Transformers pipeline described in the docs is a
+  future module, not wired up.
+- **PostgreSQL 18 without sudo** — extracted from official `.deb` into
+  `/mnt/devdrive/DevTools/postgresql` with a `manage.sh` start/stop wrapper
+  (see backend README); `.docker/…` volumes serve Compose users instead.
+- **Super admin as explicit operator** — named on every management `requireRole`
+  gate (never implicit), excluded from student-only records.
+- **Notification deep links** — tapped notifications resolve kind → destination
+  module from the same `modulesFor(role)` grid the dashboards use
+  (`lib/core/notifications/deep_link.dart`), so routing can't drift from the
+  module registry.

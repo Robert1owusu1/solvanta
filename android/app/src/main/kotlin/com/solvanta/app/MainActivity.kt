@@ -1,4 +1,4 @@
-package com.example.solvanta
+package com.solvanta.app
 
 // FlutterFragmentActivity (not FlutterActivity) is required by local_auth
 // for biometric prompts.

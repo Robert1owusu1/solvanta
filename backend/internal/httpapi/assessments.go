@@ -213,13 +213,24 @@ func (s *Server) submitAssessment(c *gin.Context) {
 	}
 	u := currentUser(c)
 	studentID := body.StudentID
-	if studentID == "" {
-		if u.Role == domain.RoleStudent {
-			studentID = stringToStudentID(u.ID)
-		} else {
+	switch {
+	case u.Role == domain.RoleStudent:
+		// A pupil submits strictly for themselves — a body-supplied studentId
+		// for a classmate must never be honoured.
+		if studentID != "" && studentID != stringToStudentID(u.ID) {
+			fail(c, http.StatusForbidden, "You may only submit your own assessment")
+			return
+		}
+		studentID = stringToStudentID(u.ID)
+	case u.IsSchoolStaff():
+		if studentID == "" {
 			fail(c, http.StatusBadRequest, "studentId is required")
 			return
 		}
+	default:
+		// parents and other non-staff audiences have no submit path
+		fail(c, http.StatusForbidden, "You may not submit assessments")
+		return
 	}
 	st, ok := s.store.StudentByID(studentID)
 	if !ok {

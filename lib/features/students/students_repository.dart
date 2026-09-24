@@ -17,6 +17,27 @@ class StudentsRepository {
     return all.where((s) => s.status == 'Active').toList();
   }
 
+  /// Students visible to [user], mirroring the backend `listStudents` scope:
+  /// staff see everyone, teachers only their own class, parents their
+  /// children, students themselves. Always the primary student-list method
+  /// for screens so offline mode matches the API's role scoping.
+  Future<List<Student>> visibleToUser(User? user) async {
+    final all = await active();
+    final role = user?.role;
+    if (role == null) return all;
+    if (role.canViewAllStudents) return all;
+    if (role.isTeacher) {
+      return all.where((s) => s.classId == user!.classId).toList();
+    }
+    if (role.isParent) {
+      return all.where((s) => user!.studentIds.contains(s.id)).toList();
+    }
+    if (role.isStudent) {
+      return all.where((s) => 'USR-${s.id}' == user!.id).toList();
+    }
+    return all;
+  }
+
   Future<List<Student>> byClass(String classId) async {
     final all = await active();
     return all.where((s) => s.classId == classId).toList();

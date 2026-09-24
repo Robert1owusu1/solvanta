@@ -1,0 +1,35 @@
+# SOLVANTA backend + PostgreSQL — local stack on `docker compose up`.
+# The Postgres data volume lives in ./.docker/pgdata (outside the repo tree).
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: solvanta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: solvanta
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solvanta -d solvanta"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      POSTGRES_DSN: postgres://solvanta:${POSTGRES_PASSWORD:-change-me}@db:5432/solvanta?sslmode=disable
+      SECRET: ${SECRET:-dev-only-change-me}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ENV: ${ENV:-development}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

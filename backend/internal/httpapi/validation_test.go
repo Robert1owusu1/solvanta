@@ -9,7 +9,9 @@ import (
 // (first/last name, gender M/F, existing class) — invalid payloads get 400.
 func TestCreateStudentValidation(t *testing.T) {
 	r := newTestServer(t, Config{})
-	tok := login(t, r, "efua.mensah@school.gh", "teacher123")
+	// Enrolment is admin work (see rbac_test.go) — validate the payload rules
+	// with a school admin; role authorization is asserted separately.
+	tok := login(t, r, "admin@solvanta.app", "admin123")
 	auth := map[string]string{"Authorization": "Bearer " + tok}
 
 	cases := []struct{ name, body string }{

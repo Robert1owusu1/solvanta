@@ -23,6 +23,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
   String _query = '';
   String _classFilter = '';
   String _statusFilter = 'Active';
+  bool _canManage = false;
 
   @override
   void initState() {
@@ -31,9 +32,12 @@ class _StudentsScreenState extends State<StudentsScreen> {
   }
 
   Future<(List<Student>, List<ClassRoom>, User?)> _load() async {
-    final students = await StudentsRepository().active();
-    final classes = await StudentsRepository().classes();
     final user = await AuthRepository().currentUser();
+    final students = await StudentsRepository().visibleToUser(user);
+    final classes = await StudentsRepository().classes();
+    // Enrolling/transferring/promoting is admin work (doc §10); teachers and
+    // staff get a read-only class roll here.
+    _canManage = user?.role.canAdministerStudents ?? false;
     return (students, classes, user);
   }
 
@@ -140,11 +144,13 @@ class _StudentsScreenState extends State<StudentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: SvScreenHeader(title: 'Students'),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _enroll,
-        icon: const Icon(Icons.person_add),
-        label: const Text('Enroll'),
-      ),
+      floatingActionButton: _canManage
+          ? FloatingActionButton.extended(
+              onPressed: _enroll,
+              icon: const Icon(Icons.person_add),
+              label: const Text('Enroll'),
+            )
+          : null,
       body: FutureBuilder(
         future: _data,
         builder: (context, snap) {
@@ -159,9 +165,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
           }
           final students = snap.data?.$1 ?? const <Student>[];
           final classes = snap.data?.$2 ?? const <ClassRoom>[];
-          final user = snap.data?.$3;
           final filtered = _filtered(students);
-          final isStaff = user != null && user.role.isSchoolStaff;
           return Column(
             children: [
               SvSearchField(
@@ -219,7 +223,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
                           return SvEntrance(
                             delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
                             child: SvPressScale(
-                              child: _studentTile(s, isStaff),
+                              child: _studentTile(s, _canManage),
                             ),
                           );
                         },
@@ -232,7 +236,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
     );
   }
 
-  Widget _studentTile(Student s, bool isStaff) {
+  Widget _studentTile(Student s, bool canManage) {
     final badge = switch (s.status) {
       'Graduated' => svStatus('Graduated', Icons.workspace_premium,
           AppColors.info),
@@ -276,14 +280,14 @@ class _StudentsScreenState extends State<StudentsScreen> {
       title: s.fullName,
       meta: '${s.id} · ${s.admissionNo} · ${s.classId}',
       initials: s.initials,
-      chip: isStaff ? null : badge,
-      trailing: isStaff
+      chip: canManage ? null : badge,
+      trailing: canManage
           ? Row(mainAxisSize: MainAxisSize.min, children: [badge, menu])
           : null,
       onTap: () => Navigator.of(context)
           .push(MaterialPageRoute(
             builder: (_) => StudentProfileScreen(
-                studentId: s.id, showAdminActions: isStaff),
+                studentId: s.id, showAdminActions: canManage),
           ))
           .then((_) => _refresh()),
     );

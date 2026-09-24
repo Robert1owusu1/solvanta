@@ -122,29 +122,48 @@ func (s *Server) sendMessage(c *gin.Context) {
 	sendCreated(c, m)
 }
 
-// unreadNotifications returns notifications addressed to the user (or with a
-// related student they own) that haven't been read yet.
+// notificationAllowed mirrors the visibility rules for notifications:
+//   - addressed to a user → only that user;
+//   - student-scoped (no user) → the student's parents (and super admins);
+//   - unaddressed → everyone.
+// Used by both unread listing and read-state mutations so a user can never
+// act on a notification they cannot see.
+func notificationAllowed(u domain.User, n domain.Notification) bool {
+	if n.UserID != "" {
+		return n.UserID == u.ID
+	}
+	if n.StudentID != "" {
+		if u.IsSuperAdmin() {
+			return true
+		}
+		switch u.Role {
+		case domain.RoleParent:
+			for _, id := range u.StudentIDs {
+				if id == n.StudentID {
+					return true
+				}
+			}
+			return false
+		case domain.RoleStudent:
+			// a pupil sees notifications about their own record, never a
+			// classmate's
+			return stringToStudentID(u.ID) == n.StudentID
+		}
+		return false
+	}
+	return true
+}
+
+// unreadNotifications returns notifications visible to the user that haven't
+// been read yet.
 func (s *Server) unreadNotifications(c *gin.Context) {
 	u := currentUser(c)
-	mine := map[string]string{}
-	if u.Role == domain.RoleParent {
-		for _, id := range u.StudentIDs {
-			mine[id] = id
-		}
-	}
 	var out []domain.Notification
 	for _, n := range s.store.Notifications() {
-		if n.UserID != "" && n.UserID != u.ID {
+		if !notificationAllowed(u, n) || n.Read {
 			continue
 		}
-		if n.StudentID != "" {
-			if _, owns := mine[n.StudentID]; !owns && u.Role != domain.RoleSuperAdmin {
-				continue
-			}
-		}
-		if !n.Read {
-			out = append(out, n)
-		}
+		out = append(out, n)
 	}
 	sendJSON(c, out)
 }
@@ -156,7 +175,7 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 	for _, n := range s.store.Notifications() {
 		if n.ID == id {
 			found = true
-			if u.Role == domain.RoleParent && n.UserID != "" && n.UserID != u.ID {
+			if !notificationAllowed(u, n) {
 				fail(c, http.StatusForbidden, "Not your notification")
 				return
 			}
@@ -175,13 +194,11 @@ func (s *Server) markAllNotificationsRead(c *gin.Context) {
 	u := currentUser(c)
 	count := 0
 	for _, n := range s.store.Notifications() {
-		if u.Role == domain.RoleParent && n.UserID != "" && n.UserID != u.ID {
+		if !notificationAllowed(u, n) || n.Read {
 			continue
 		}
-		if !n.Read {
-			s.store.SetNotificationRead(n.ID)
-			count++
-		}
+		s.store.SetNotificationRead(n.ID)
+		count++
 	}
 	sendJSON(c, gin.H{"marked": count})
 }

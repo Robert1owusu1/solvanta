@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/question.dart';
 import '../../core/models/subjects.dart';
+import '../../core/models/user.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../auth/auth_repository.dart';
 import 'assessment_repository.dart';
 import 'question_editor_screen.dart';
 import 'rule_marking_engine.dart';
@@ -16,18 +18,28 @@ class QuestionBankScreen extends StatefulWidget {
 }
 
 class _QuestionBankScreenState extends State<QuestionBankScreen> {
-  late Future<List<Question>> _data;
+  late Future<(List<Question>, User?)> _data;
   String _subject = 'All';
   String _query = '';
+  bool _canManage = false;
 
   @override
   void initState() {
     super.initState();
-    _data = AssessmentRepository().bank();
+    _data = _load();
+  }
+
+  Future<(List<Question>, User?)> _load() async {
+    final user = await AuthRepository().currentUser();
+    final bank = await AssessmentRepository().bank();
+    // Creating/editing/deleting bank questions is teacher+ (doc §17); staff
+    // members on this screen get a read-only reference view.
+    _canManage = user?.role.canManageQuestionBank ?? false;
+    return (bank, user);
   }
 
   Future<void> _reload() async {
-    setState(() => _data = AssessmentRepository().bank());
+    setState(() => _data = _load());
   }
 
   Future<void> _addQuestion() async {
@@ -86,18 +98,20 @@ class _QuestionBankScreenState extends State<QuestionBankScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: SvScreenHeader(title: 'Question Bank'),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addQuestion,
-        icon: const Icon(Icons.add),
-        label: const Text('New question'),
-      ),
+      floatingActionButton: _canManage
+          ? FloatingActionButton.extended(
+              onPressed: _addQuestion,
+              icon: const Icon(Icons.add),
+              label: const Text('New question'),
+            )
+          : null,
       body: FutureBuilder(
         future: _data,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          final all = snap.data ?? const <Question>[];
+          final all = snap.data?.$1 ?? const <Question>[];
           final questions = _filter(all);
           return Column(
             children: [
@@ -160,7 +174,7 @@ class _QuestionBankScreenState extends State<QuestionBankScreen> {
                             margin: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 4),
                             child: InkWell(
-                              onTap: () => _edit(q),
+                              onTap: _canManage ? () => _edit(q) : null,
                               child: Padding(
                                 padding: const EdgeInsets.all(12),
                                 child: Column(
@@ -213,21 +227,22 @@ class _QuestionBankScreenState extends State<QuestionBankScreen> {
                                             ],
                                           ),
                                         ),
-                                        PopupMenuButton<String>(
-                                          onSelected: (v) => switch (v) {
-                                            'edit' => _edit(q),
-                                            'delete' => _delete(q),
-                                            _ => null,
-                                          },
-                                          itemBuilder: (_) => const [
-                                            PopupMenuItem(
-                                                value: 'edit',
-                                                child: Text('Edit')),
-                                            PopupMenuItem(
-                                                value: 'delete',
-                                                child: Text('Delete')),
-                                          ],
-                                        ),
+                                        if (_canManage)
+                                          PopupMenuButton<String>(
+                                            onSelected: (v) => switch (v) {
+                                              'edit' => _edit(q),
+                                              'delete' => _delete(q),
+                                              _ => null,
+                                            },
+                                            itemBuilder: (_) => const [
+                                              PopupMenuItem(
+                                                  value: 'edit',
+                                                  child: Text('Edit')),
+                                              PopupMenuItem(
+                                                  value: 'delete',
+                                                  child: Text('Delete')),
+                                            ],
+                                          ),
                                       ],
                                     ),
                                     if (q.markingScheme.isNotEmpty) ...[
