@@ -77,6 +77,21 @@ cd backend && go vet ./... && go test ./...   # TEST_POSTGRES_DSN adds the PG pa
 flutter analyze && flutter test
 ```
 
+## On-device acceptance gate
+
+The same RBAC contract is driven through the **real app** on a connected phone
+(real login screen, real rendered grids, live session): each seeded role signs
+in and must see exactly its own module grid — including that no other role's
+tiles ever appear:
+
+```sh
+flutter test integration_test/rbac_on_device_test.dart -d <device-serial>
+```
+
+Assertions are scoped to the module GridView, so overview stat-cards that share
+words (e.g. the "Students" count) can't fake a leak. Run it against the live API
+with `adb reverse tcp:8080 tcp:8080` and the backend from above.
+
 ## Demo logins (seeded)
 
 | Role        | Email                 | Password    |
