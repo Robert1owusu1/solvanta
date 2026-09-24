@@ -227,6 +227,13 @@ class RemoteDataSource {
           .map((e) => GateEvent.fromJson(e as JsonMap))
           .toList();
 
+  /// Records a gate event (arrival / departure / pickup). Mutating, so the
+  /// offline outbox retries it automatically when connectivity returns.
+  Future<GateEvent> createGateEvent(GateEvent event) async {
+    final res = await client.post('/api/gate/events', event.toJson());
+    return GateEvent.fromJson(res as JsonMap);
+  }
+
   // --- Question bank & assessments --------------------------------------------
 
   Future<List<Question>> questions() async =>

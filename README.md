@@ -73,7 +73,10 @@ extracted binaries, no sudo): see `backend/README.md` → *Local PostgreSQL*.
 
 The app runs fully offline on its seeded `LocalStore`; with an API configured,
 repositories read through `RemoteDataSource` and mirror results into the local
-store. API URL priority: `--dart-define=SOLVANTA_API=…` → `SOLVANTA_API_URL` →
+store. Gate events follow the same rule: [`SafetyRepository`](lib/features/safety/safety_repository.dart)
+records locally first, then pushes to `POST /api/gate/events` (best-effort; the
+offline outbox retries it), adopting the server-assigned id so a school with
+several gate devices sees one deduplicated trail. API URL priority: `--dart-define=SOLVANTA_API=…` → `SOLVANTA_API_URL` →
 `http://127.0.0.1:8080`. The live-parity suite asserts app seed/models match the
 API byte-for-byte:
 
@@ -114,8 +117,30 @@ with `adb reverse tcp:8080 tcp:8080` and the backend from above.
 | Parent      | ama.owusu@school.gh   | parent123   |
 | Student     | kojo.owusu@school.gh  | student123  |
 
+Every seeded student has a linked parent account (`USR-PRN-002`…`008`, all
+`parent123`) so gate arrival/departure notices reach every family:
+
+| Student        | Parent account (email)            |
+|----------------|-----------------------------------|
+| STU-002 Akosua | akua.boaduwaa@school.gh          |
+| STU-003 Kwabena| adwoa.adjei@school.gh            |
+| STU-004 Abena  | kwabena.serwaa@school.gh         |
+| STU-005 Yaw    | nana.darko@school.gh             |
+| STU-006 Maame  | efua.adwoa@school.gh             |
+| STU-007 Kofi   | esi.manu@school.gh               |
+| STU-008 Esi    | ama.amponsah@school.gh           |
+
 ## Architecture decisions (recorded)
 
+- **Gate check-in by scanning** — the student ID card carries a compact JSON QR
+  payload (`student_qr_card.dart`); the check-in screen's camera scanner
+  (`student_id_scanner_screen.dart`, `mobile_scanner`) decodes it, then the staff
+  member still confirms with the standard tile — a scan never checks anyone in
+  by itself. Camera permission is requested at first use; typing an ID remains
+  as the fallback.
+- **Student ⇄ parent links for every seeded student** — arrival/departure/pickup
+  notices resolve `student.parentUserId`; the fallback for genuinely unlinked
+  students stays staff-visible so nothing is silently missed.
 - **Offline-first client** — local store is the source of truth until a live API
   is configured; auth, fees and messages go through the API when present. The
   Go API mirrors the client's seed and business logic (marking, blueprint,

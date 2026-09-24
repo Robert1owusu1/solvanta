@@ -91,6 +91,10 @@ Environment variables:
 | Parent      | ama.owusu@school.gh    | parent123   |
 | Student     | kojo.owusu@school.gh   | student123  |
 
+Every student also has a linked parent account — `USR-PRN-002` (akua.boaduwaa@school.gh)
+through `USR-PRN-008` (ama.amponsah@school.gh), all `parent123` — so gate
+arrival/departure/pickup notices resolve for the whole school.
+
 ## Authentication
 
 ```sh

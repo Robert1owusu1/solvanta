@@ -57,6 +57,7 @@ dependencies:
   # Zoned scheduling for reminder notifications (direct so the
   # `depend_on_referenced_packages` ignore in NotificationService can go).
   timezone: ^0.10.1
+  mobile_scanner: ^7.4.2
 
 dev_dependencies:
   flutter_test:

@@ -36,9 +36,13 @@ class ApiException implements Exception {
 /// request verbatim), and can be customised or disabled per call via
 /// [request]. Reads and `/auth/*` payloads are never queued implicitly.
 class ApiClient {
-  ApiClient({String? baseUrl, http.Client? client, this.token})
+  ApiClient({String? baseUrl, http.Client? client, String? token})
       : baseUrl = (baseUrl ?? defaultApiBaseUrl()).replaceFirst(RegExp(r'/+$'), ''),
         _client = client ?? http.Client() {
+    // A token from a previous login in this process is shared with every
+    // later client, so independently constructed data sources (auth, safety,
+    // …) can authenticate without re-logging-in.
+    _token = token ?? sharedToken;
     // First client to exist becomes the outbox replayer, so items persisted
     // by a previous offline session are replayed without startup wiring.
     // The lead can still take over with SyncQueue.instance.setHandler(...).
@@ -48,8 +52,25 @@ class ApiClient {
   final String baseUrl;
   final http.Client _client;
 
-  /// Bearer token attached to every request once `login()` succeeds.
-  String? token;
+  /// Session bearer token shared process-wide once `login()` succeeds. New
+  /// [ApiClient]s (e.g. a fresh [RemoteDataSource] in a repository) adopt it,
+  /// so API-mode features work beyond auth without re-authentication.
+  static String? sharedToken;
+
+  String? _token;
+
+  /// Bearer token attached to every request once `login()` succeeds. Setting
+  /// it also publishes it to [sharedToken] for other clients in this process;
+  /// clearing it (logout) clears the shared session token as well.
+  String? get token => _token;
+  set token(String? value) {
+    _token = value;
+    if (value != null && value.isNotEmpty) {
+      sharedToken = value;
+    } else {
+      sharedToken = null;
+    }
+  }
 
   static const _defineKey = String.fromEnvironment('SOLVANTA_API');
 

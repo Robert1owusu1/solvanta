@@ -8,10 +8,16 @@ import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../students/students_repository.dart';
 import 'attendance_repository.dart';
+import 'student_id_scanner_screen.dart';
 import '../safety/safety_repository.dart';
 
 class StudentCheckInScreen extends StatefulWidget {
-  const StudentCheckInScreen({super.key});
+  const StudentCheckInScreen({super.key, this.openScanner});
+
+  /// Test seam / forward-compatibility: how the camera scanner is launched.
+  /// Defaults to pushing the real [StudentIdScannerScreen]; tests inject a
+  /// fake that returns a student id without touching the camera.
+  final Future<String?> Function(BuildContext)? openScanner;
 
   @override
   State<StudentCheckInScreen> createState() => _StudentCheckInScreenState();
@@ -50,6 +56,26 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
   }
 
   List<Student> all = const [];
+
+  /// Opens the camera scanner; a successful scan resolves the student and
+  /// surfaces the standard confirm → check-in tile (a scan never records an
+  /// arrival by itself).
+  Future<void> _openScanner() async {
+    final scannedId = await (widget.openScanner?.call(context) ??
+        Navigator.of(context).push<String>(
+          MaterialPageRoute(builder: (_) => const StudentIdScannerScreen()),
+        ));
+    if (scannedId == null || !mounted) return;
+    final match = all.where((s) => s.id == scannedId).firstOrNull;
+    if (match == null) {
+      svSnack(context, 'No student on this roll with ID "$scannedId"',
+          error: true);
+      return;
+    }
+    _query.text = match.admissionNo;
+    _onQuery(match.admissionNo);
+    svSnack(context, 'Scanned ${match.fullName} — confirm to check in');
+  }
 
   Future<void> _recordCheckIn(Student s) async {
     final reporter =
@@ -116,7 +142,11 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
                       onChanged: _onQuery,
                       decoration: InputDecoration(
                         hintText: 'Scan or type ID (STU-002, admission no, name)',
-                        prefixIcon: const Icon(Icons.qr_code_scanner),
+                        prefixIcon: IconButton(
+                          tooltip: 'Scan ID card',
+                          icon: const Icon(Icons.qr_code_scanner),
+                          onPressed: _openScanner,
+                        ),
                         suffixIcon: _query.text.isEmpty
                             ? null
                             : IconButton(

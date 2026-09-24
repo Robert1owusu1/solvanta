@@ -31,7 +31,9 @@ func seedCounts(t *testing.T) map[string]int {
 func TestSeedContents(t *testing.T) {
 	counts := seedCounts(t)
 	want := map[string]int{
-		"users": 6, "classes": 6, "students": 8, "questions": 10,
+		// 6 founding accounts + 7 linked parent accounts (every seeded student
+		// has a parent on file, so gate arrival notices reach all families).
+		"users": 13, "classes": 6, "students": 8, "questions": 10,
 		"assessments": 4, "submissions": 3, "attendance": 30, "gate": 5,
 		"interventions": 1, "messages": 3, "notifications": 3, "assignments": 2,
 	}
