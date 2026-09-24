@@ -41,6 +41,14 @@ flutter pub get
 flutter run                 # device/emulator; adb reverse tcp:8080 tcp:8080
 ```
 
+> ⚠️ **Sideloading gotcha:** `flutter test integration_test/…` rewrites
+> `build/app/outputs/flutter-apk/app-debug.apk` with a *test-listener* entrypoint
+> (`flutter_test_listener/listener.dart`) that just waits for the test harness.
+> If you install that APK on a phone it launches to a blank black screen (no app
+> UI ever builds). After any integration-test run, always rebuild the APK before
+> installing on a device:
+> `flutter build apk --release --target-platform android-arm64`.
+
 ## Run the backend
 
 ```sh
