@@ -47,8 +47,10 @@ func TestPostgresSeedRoundTrip(t *testing.T) {
 	if len(pg.Classes()) != 6 {
 		t.Fatalf("classes: got %d, want 6", len(pg.Classes()))
 	}
-	if len(pg.Users()) != 6 {
-		t.Fatalf("users: got %d, want 6", len(pg.Users()))
+	if len(pg.Users()) != 13 {
+		// 6 founding accounts + 7 linked parent accounts (USR-PRN-002..008),
+		// matching the in-memory seed asserted in seed_test.go.
+		t.Fatalf("users: got %d, want 13", len(pg.Users()))
 	}
 
 	kojo, ok := pg.StudentByID("STU-001")
