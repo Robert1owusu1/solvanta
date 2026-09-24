@@ -17,6 +17,32 @@ var validAssessmentTypes = map[string]bool{
 	domain.TypeVacation: true,
 }
 
+// adminOnlyAssessmentTypes are the exam-related types only school leaders may
+// create (doc §16 policy): Mid-Term / End-of-Term / Mock examinations plus the
+// formal Diagnostic / Remedial assessments. Teachers may still create quizzes,
+// class tests, exercises, homework and vacation work.
+var adminOnlyAssessmentTypes = map[string]bool{
+	domain.TypeMidTerm:    true,
+	domain.TypeEndTerm:    true,
+	domain.TypeMock:       true,
+	domain.TypeDiagnostic: true,
+	domain.TypeRemedial:   true,
+}
+
+// canCreateAssessmentType reports whether the role may create an assessment of
+// the given type — mirrors the client's capability check in lib/core/models/role.dart.
+func canCreateAssessmentType(role string, typ string) bool {
+	if adminOnlyAssessmentTypes[typ] {
+		return role == domain.RoleSuperAdmin ||
+			role == domain.RoleSchoolAdmin ||
+			role == domain.RoleHeadteacher
+	}
+	return role == domain.RoleSuperAdmin ||
+		role == domain.RoleSchoolAdmin ||
+		role == domain.RoleHeadteacher ||
+		role == domain.RoleTeacher
+}
+
 // listAssessments returns assessments, scoped for students/parents to their
 // own class and for teachers to their class (doc §16).
 func (s *Server) listAssessments(c *gin.Context) {
@@ -77,6 +103,11 @@ func (s *Server) createAssessment(c *gin.Context) {
 	}
 	if !validAssessmentTypes[body.Type] {
 		fail(c, http.StatusBadRequest, "Unknown assessment type")
+		return
+	}
+	if !canCreateAssessmentType(u.Role, body.Type) {
+		fail(c, http.StatusForbidden,
+			"Only school admins and headteachers can create "+body.Type+" assessments")
 		return
 	}
 	if body.Title == "" {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:solvanta/core/models/assessment.dart';
 import 'package:solvanta/core/models/role.dart';
 import 'package:solvanta/core/models/user.dart';
 import 'package:solvanta/features/auth/register_screen.dart';
@@ -154,6 +155,31 @@ void main() {
         expect(r.canCreateAssessments, expected, reason: '$r');
         expect(r.canManageQuestionBank, expected, reason: '$r');
         expect(r.canCreateAssignments, expected, reason: '$r');
+      }
+    });
+
+    test('exam-type assessment creation is school leaders only', () {
+      for (final r in AppRole.values) {
+        final leader = r == AppRole.superAdmin ||
+            r == AppRole.schoolAdmin ||
+            r == AppRole.headteacher;
+        expect(r.canCreateExams, leader, reason: '$r');
+        // Mid-Term / End-of-Term / Mock / Diagnostic / Remedial: leaders only.
+        for (final t in AppRole.examRestrictedTypes) {
+          expect(r.canCreateAssessmentOf(t), leader, reason: '$r x $t');
+        }
+        // Classroom work stays teacher+.
+        const teacherWork = {
+          AssessmentType.exercise,
+          AssessmentType.homework,
+          AssessmentType.quiz,
+          AssessmentType.classTest,
+          AssessmentType.vacation,
+        };
+        for (final t in teacherWork) {
+          expect(r.canCreateAssessmentOf(t), r.canCreateAssessments,
+              reason: '$r x $t');
+        }
       }
     });
 

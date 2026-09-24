@@ -4,7 +4,9 @@ import '../../core/models/assessment.dart';
 import '../../core/models/class_room.dart';
 import '../../core/models/question.dart';
 import '../../core/models/subjects.dart';
+import '../../core/models/user.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../students/students_repository.dart';
 import 'assessment_repository.dart';
@@ -34,13 +36,43 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
   final _repo = AssessmentRepository();
   String _subjectId = 'MATH';
   late AssessmentType _type;
+  User? _user;
+  late Set<AssessmentType> _allowed;
 
   @override
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.presets?.topicTitle ?? '');
     _type = widget.presets?.type ?? AssessmentType.exercise;
+    _allowed = AssessmentType.values.toSet();
+    _loadUser();
   }
+
+  Future<void> _loadUser() async {
+    final user = await AuthRepository().currentUser();
+    if (!mounted) return;
+    final allowed = AssessmentType.values
+        .where((t) => user?.role.canCreateAssessmentOf(t) ?? true)
+        .toSet();
+    setState(() {
+      _user = user;
+      _allowed = allowed;
+    });
+    // Restricted preset — e.g. a teacher opening the intervention
+    // re-assessment builder (preset: Remedial): say why instead of silently
+    // downgrading the type.
+    final preset = widget.presets;
+    if (preset != null &&
+        user != null &&
+        !user.role.canCreateAssessmentOf(preset.type)) {
+      svSnack(context,
+          'Only school admins and headteachers can create '
+          '${preset.type.label} assessments.',
+          error: true);
+      Navigator.of(context).pop(false);
+    }
+  }
+
   String? _classId;
   List<Question> _selected = [];
 
@@ -86,6 +118,14 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
       return;
     }
     final user = await AuthRepository().currentUser();
+    if (user == null || !user.role.canCreateAssessmentOf(_type)) {
+      if (!mounted) return;
+      svSnack(context,
+          'Only school admins and headteachers can create '
+          '${_type.label} assessments.',
+          error: true);
+      return;
+    }
     final now = DateTime.now();
     final date =
         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -96,7 +136,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
       subjectId: _subjectId,
       classId: _classId ?? 'JHS2A',
       date: date,
-      createdBy: user?.name ?? 'Teacher',
+      createdBy: user.name,
       questions: _selected,
     );
     await _repo.saveAssessment(assessment);
@@ -131,14 +171,27 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<AssessmentType>(
-                initialValue: _type,
+                initialValue: _allowed.contains(_type) ? _type : null,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: [
-                  for (final t in AssessmentType.values)
+                  for (final t in _allowed.toList()
+                    ..sort((a, b) => a.index.compareTo(b.index)))
                     DropdownMenuItem(value: t, child: Text(t.label)),
                 ],
-                onChanged: (v) => setState(() => _type = v ?? AssessmentType.exercise),
+                onChanged: (v) =>
+                    setState(() => _type = v ?? AssessmentType.exercise),
               ),
+              if (_user != null && !_user!.role.canCreateExams)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Exams (Mid-Term, End-of-Term, Mock) and formal '
+                    'Diagnostic / Remedial assessments are created by your '
+                    'school admin.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.body),
+                  ),
+                ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
                 initialValue: _classId,

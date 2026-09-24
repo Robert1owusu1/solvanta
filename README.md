@@ -20,8 +20,11 @@ the API:
   of purely student-self actions (can't submit work or assessments *as* a pupil).
 - **School admin / headteacher** — the full school-management grid (students,
   staff, fees, safety, assessments, audit, reports, …).
-- **Teacher** — classroom: own students, marking, assessments, messages,
-  interventions; **no** enrolment or admin surfaces.
+- **Teacher** — classroom: own students, marking, assessments (classroom
+  types: quizzes, class tests, exercises, homework, vacation work), messages,
+  interventions; **no** enrolment or admin surfaces. Exam-type assessments
+  (Mid-Term / End-of-Term / Mock / Diagnostic / Remedial) are created by school
+  admins / headteachers only.
 - **Parent** — only their own children (arrival/departure, results, feedback).
 - **Student** — only self (profile, results, assignments, own work).
 - **Staff** — supporting duties (attendance, gate, announcements); no marking.

@@ -118,6 +118,18 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
   }
 
   Future<void> _reassess(Intervention i) async {
+    final user = await AuthRepository().currentUser();
+    if (user != null && !user.role.canCreateAssessmentOf(AssessmentType.remedial)) {
+      if (!mounted) return;
+      svSnack(
+        context,
+        'Remedial assessments are created by your school admin or '
+        'headteacher.',
+        error: true,
+      );
+      return;
+    }
+    if (!mounted) return;
     final created = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => AssessmentBuilderScreen(
         presets: AssessmentBuilderPresets(

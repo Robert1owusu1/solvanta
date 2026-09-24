@@ -22,12 +22,12 @@ type rbacCase struct {
 }
 
 var demoAccounts = map[string][2]string{
-	"superAdmin":   {"super@solvanta.app", "super123"},
-	"schoolAdmin":  {"admin@solvanta.app", "admin123"},
-	"headteacher":  {"head@school.gh", "head123"},
-	"teacher":      {"efua.mensah@school.gh", "teacher123"},
-	"parent":       {"ama.owusu@school.gh", "parent123"},
-	"student":      {"kojo.owusu@school.gh", "student123"},
+	"superAdmin":  {"super@solvanta.app", "super123"},
+	"schoolAdmin": {"admin@solvanta.app", "admin123"},
+	"headteacher": {"head@school.gh", "head123"},
+	"teacher":     {"efua.mensah@school.gh", "teacher123"},
+	"parent":      {"ama.owusu@school.gh", "parent123"},
+	"student":     {"kojo.owusu@school.gh", "student123"},
 }
 
 func TestRoleEndpointMatrix(t *testing.T) {
@@ -87,6 +87,18 @@ func TestRoleEndpointMatrix(t *testing.T) {
 			path: "/api/assessments", body: `{"title":"T","type":"classTest","subjectId":"MATH","classId":"JHS2A"}`,
 			allowed: []string{"superAdmin", "schoolAdmin", "headteacher", "teacher"},
 			denied:  []string{"parent", "student"},
+		},
+		{
+			name: "create exam assessment is school leaders only (midTerm)", method: "POST",
+			path: "/api/assessments", body: `{"title":"EOT","type":"midTerm","subjectId":"MATH","classId":"JHS2A","questions":[{"stem":"q","marks":2}]}`,
+			allowed: []string{"superAdmin", "schoolAdmin", "headteacher"},
+			denied:  []string{"teacher", "parent", "student"},
+		},
+		{
+			name: "create formal diagnostic/remedial is school leaders only", method: "POST",
+			path: "/api/assessments", body: `{"title":"DG","type":"diagnostic","subjectId":"SCI","classId":"JHS2A","questions":[{"stem":"q","marks":2}]}`,
+			allowed: []string{"superAdmin", "schoolAdmin", "headteacher"},
+			denied:  []string{"teacher", "parent", "student"},
 		},
 		{
 			name: "create assignment is teacher+", method: "POST",

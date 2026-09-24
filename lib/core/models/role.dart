@@ -1,3 +1,5 @@
+import 'assessment.dart';
+
 enum AppRole {
   superAdmin('Super Admin'),
   schoolAdmin('School Admin'),
@@ -47,6 +49,31 @@ enum AppRole {
       this == AppRole.schoolAdmin ||
       this == AppRole.headteacher ||
       this == AppRole.teacher;
+
+  /// Exam-related assessment types only school leaders may create (mirrors the
+  /// backend's `adminOnlyAssessmentTypes` in assessments.go): Mid-Term /
+  /// End-of-Term / Mock examinations plus formal Diagnostic / Remedial
+  /// assessments.
+  static const Set<AssessmentType> examRestrictedTypes = {
+    AssessmentType.midTerm,
+    AssessmentType.endTerm,
+    AssessmentType.mock,
+    AssessmentType.diagnostic,
+    AssessmentType.remedial,
+  };
+
+  /// School leaders (not teachers/staff): create exam-type assessments.
+  bool get canCreateExams =>
+      this == AppRole.superAdmin ||
+      this == AppRole.schoolAdmin ||
+      this == AppRole.headteacher;
+
+  /// Whether this role may create an assessment of [type] — teachers keep
+  /// quizzes/class tests/exercises/homework/vacation work; exam-related types
+  /// are school-leaders only.
+  bool canCreateAssessmentOf(AssessmentType type) =>
+      canCreateAssessments &&
+      (!examRestrictedTypes.contains(type) || canCreateExams);
 
   bool get canManageQuestionBank => canCreateAssessments;
   bool get canCreateAssignments => canCreateAssessments;

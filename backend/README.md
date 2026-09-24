@@ -127,7 +127,11 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
   student-only so an operator can never pollute a learner's records. Per-record
   scoping lets staff read any record, students only their own (self-only
   `check-in`), and parents only their own children. `listUsers` hides
-  super-admin rows from non-super-admins.
+  super-admin rows from non-super-admins. Exam-type assessments
+  (Mid-Term / End-of-Term / Mock / Diagnostic / Remedial) may only be *created*
+  by school leaders (`superAdmin`/`schoolAdmin`/`headteacher`) — teachers keep
+  creating quizzes, class tests, exercises, homework and vacation work
+  (enforced inside `createAssessment`, pinned in `rbac_test.go`).
 - Tests: `internal/security` (primitives) and `internal/httpapi/security_test.go`
   (login rate-limit → 429, tampered/expired/revoked tokens → 401, password
   non-leak, oversized body → 413, CORS, scoping → 403, user-validation).
