@@ -99,6 +99,14 @@ type Store interface {
 	AssignmentByID(id string) (domain.Assignment, bool)
 	SaveAssignment(a domain.Assignment) error
 
+	// Fees & payments (client's fees module). Only the write is served over
+	// HTTP: invoices are still a device-local record, so there is no list
+	// endpoint for a client to read back yet. Payments() backs the tests — its
+	// job is to prove the idempotency below against a real database, where
+	// "the replay wrote nothing" cannot be observed from the API surface alone.
+	Payments() []domain.Payment
+	SavePayment(p domain.Payment) error // idempotent: the client owns the id
+
 	// Audit (doc §49)
 	AuditLogs() []domain.AuditEntry
 	AddAudit(e domain.AuditEntry) // best-effort side effect, see above
@@ -130,6 +138,7 @@ type Memory struct {
 	announcements []domain.Announcement
 	notifications []domain.Notification
 	assignments   []domain.Assignment
+	payments      []domain.Payment
 	audit         []domain.AuditEntry
 	refreshTokens map[string]refreshRecord
 }
@@ -595,6 +604,31 @@ func (m *Memory) SaveAssignment(a domain.Assignment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.assignments = upsert(m.assignments, a.ID, a)
+
+	return nil
+}
+
+func (m *Memory) Payments() []domain.Payment {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.payments
+}
+
+// SavePayment skips a payment whose id is already recorded, mirroring
+// Postgres' `ON CONFLICT (id) DO NOTHING`. The device firm-commits locally and
+// replays through the outbox, so a replayed payment is the same collection
+// seen twice — recording it again would pay the same money in twice, and the
+// dev store must behave as the production one does or the difference only
+// shows up after deployment.
+func (m *Memory) SavePayment(p domain.Payment) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, x := range m.payments {
+		if x.ID == p.ID {
+			return nil
+		}
+	}
+	m.payments = append(m.payments, p)
 
 	return nil
 }

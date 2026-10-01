@@ -8,8 +8,9 @@ project documentation is noted against each route/section (doc §…).
 ## Stack (per doc §52–54)
 
 - **API:** Go + Gin
-- **Storage:** PostgreSQL (schema applied automatically from
-  `migrations/001_init.sql`); an in-memory store is used for development and
+- **Storage:** PostgreSQL (schema applied automatically from every
+  `migrations/*.sql`, concatenated in filename order); an in-memory store is used
+  for development and
   kept in parity with the app seed. `POSTGRES_DSN` switches between them with
   the same `Store` interface as the seam.
 - **Auth:** HMAC-signed bearer tokens (`base64url(claims).base64url(hmac)` with
@@ -151,7 +152,8 @@ Environment variables:
 
 > Storage uses the `Store` interface as its seam: `store.New()` is the in-memory
 > in-process store (default), `store.NewPostgres(dsn, seed)` talks to PostgreSQL
-> and applies the embedded `migrations/001_init.sql`. Both return exactly the
+> and applies the embedded `migrations/*.sql` in filename order. Both return
+> exactly the
 > same camelCase domain objects, so no HTTP-layer code changes when switching.
 > The boot-time seed is idempotent (upserts + `ON CONFLICT DO NOTHING`), safe to
 > re-run against an already-seeded database. Its dates are anchored to a fixed
@@ -278,6 +280,10 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
 ### Assignments (doc §41)
 `GET/POST /api/assignments` · `POST /api/assignments/:id/complete`
 
+### Fees & payments
+`POST /api/payments` (schoolStaff; the fees module's device-side outbox replays
+`payment.record` here, idempotent on the client-chosen payment id)
+
 ### Reports (doc §22, §33–34)
 `GET /api/reports/students/:studentId/report-card` ·
 `GET /api/reports/assessments/:id/class-results` (includes CSV body)
@@ -294,7 +300,7 @@ internal/store        Store interface + in-memory + PostgreSQL implementations +
 internal/marking      computeEarned / grades / blueprint / analytics mirror
 internal/security     bcrypt / password policy / opaque-token primitives
 internal/httpapi      router, auth/middleware, handlers, reports
-migrations/           embedded PostgreSQL schema (001_init.sql)
+migrations/           embedded PostgreSQL schema (*.sql, filename order)
 ```
 
 ## Known follow-ups (roadmap)

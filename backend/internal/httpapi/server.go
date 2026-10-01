@@ -406,6 +406,17 @@ func (s *Server) Router() *gin.Engine {
 		assignments.POST("/:id/complete", requireRole(domain.RoleStudent), s.completeAssignment)
 	}
 
+	// Fees & payments (client: lib/features/fees). POST only: the device pushes
+	// from its sync outbox, and the read side still lives in the client's own
+	// store until invoices get a backend representation of their own. The role
+	// allow-list is IsSchoolStaff() — the same five roles the client's fees
+	// screens gate the "Record payment" affordance on, so the API never rejects
+	// an action the app just offered, nor accepts one it hides.
+	payments := api.Group("/payments", s.schoolScope())
+	{
+		payments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createPayment)
+	}
+
 	reports := api.Group("/reports", s.schoolScope())
 	{
 		reports.GET("/students/:studentId/report-card", s.studentReportCard)

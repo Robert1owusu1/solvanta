@@ -1509,6 +1509,50 @@ func (p *Postgres) SaveAssignment(a domain.Assignment) error {
 	return nil
 }
 
+// --- Fees & payments (client's fees module) ---
+
+// SavePayment records one money movement. ON CONFLICT (id) DO NOTHING rather
+// than DO UPDATE: the device firm-commits a payment locally and replays it
+// through the outbox, so the same id arriving twice is one collection seen
+// twice, not a correction of the first. Nothing is overwritten, and a replay
+// that races the original writes nothing the second time.
+func (p *Postgres) SavePayment(pay domain.Payment) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, recorded_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (id) DO NOTHING`,
+		pay.ID, pay.InvoiceID, pay.Amount, pay.Method, nullStr(pay.Reference),
+		pay.PaidAt, pay.RecordedBy)
+	if err != nil {
+		p.errLog("SavePayment", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) Payments() []domain.Payment {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, invoice_id, amount, method, reference, paid_at, recorded_by
+		FROM payments ORDER BY paid_at, id`)
+	if err != nil {
+		p.errLog("Payments", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.Payment
+	for rows.Next() {
+		var pay domain.Payment
+		if err := rows.Scan(&pay.ID, &pay.InvoiceID, &pay.Amount, &pay.Method,
+			&pay.Reference, &pay.PaidAt, &pay.RecordedBy); err != nil {
+			p.errLog("Payments scan", err)
+			continue
+		}
+		out = append(out, pay)
+	}
+	return out
+}
+
 // --- Audit (doc §49) ---
 
 func (p *Postgres) AuditLogs() []domain.AuditEntry {

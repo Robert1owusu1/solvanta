@@ -283,6 +283,33 @@ func TestPostgresWritePaths(t *testing.T) {
 		t.Fatal("audit append failed")
 	}
 
+	// a replayed payment is stored once: the device pushes payment.record until
+	// it gets an answer, so SavePayment is handed the identical id again after
+	// a timeout. ON CONFLICT (id) DO NOTHING must swallow it — two rows would
+	// double-bill the same collection.
+	pay := domain.Payment{
+		ID: "PAY-T", InvoiceID: "INV-T", Amount: 250, Method: "cash",
+		Reference: "RCPT-9", PaidAt: "2026-10-01 09:41", RecordedBy: "Bursar",
+	}
+	if err := pg.SavePayment(pay); err != nil {
+		t.Fatalf("SavePayment: %v", err)
+	}
+	if err := pg.SavePayment(pay); err != nil {
+		t.Fatalf("SavePayment replay: %v", err)
+	}
+	n := 0
+	for _, p := range pg.Payments() {
+		if p.ID == "PAY-T" {
+			n++
+			if p.Amount != 250 || p.InvoiceID != "INV-T" || p.Method != "cash" {
+				t.Fatalf("stored payment wrong: %+v", p)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("replayed payment stored %d times, want 1", n)
+	}
+
 	// school/term upserts are idempotent
 	pg.SaveSchool(pg.School())
 	pg.SaveTerm(pg.Term())

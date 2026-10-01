@@ -30,6 +30,21 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   has no error channel — a failed `INSERT` was logged and then reported to the
   caller as success — so failures are now latched where the boot path, `/health`
   and the tests can ask about them.
+- `POST /api/payments` — the fees module's missing write endpoint. The
+  cashier's device firm-commits a payment to its local store and keeps
+  replaying `payment.record` at `/api/payments`, but no such route existed, so
+  every one of those pushes landed on `404`; `ApiClient` treats a 4xx as a
+  permanent rejection and drops it from the outbox, leaving the collected cash
+  on one device and in no record the school owns. The handler validates
+  `invoiceId` and `amount`, then writes through an idempotent `SavePayment` —
+  the client chooses the id and the insert is `ON CONFLICT (id) DO NOTHING`, so
+  a retried push is answered `201` without the money being recorded twice —
+  behind `IsSchoolStaff()`, the same five roles the client's fees screens gate
+  the "Record payment" affordance on. Tests cover replay, validation, role
+  gating and a failed write.
+- The migration runner embeds every `backend/migrations/*.sql` in filename
+  order instead of one hard-coded file, so a numbered migration is applied at
+  boot rather than silently ignored.
 
 ### Performance
 

@@ -42,6 +42,13 @@ func (f *failingStore) SaveStudent(s domain.Student) error {
 	return f.Store.SaveStudent(s)
 }
 
+func (f *failingStore) SavePayment(p domain.Payment) error {
+	if err := f.failure("SavePayment"); err != nil {
+		return err
+	}
+	return f.Store.SavePayment(p)
+}
+
 // newFailingServer builds the API over a store whose named write fails.
 func newFailingServer(t *testing.T, failOn string) *gin.Engine {
 	t.Helper()

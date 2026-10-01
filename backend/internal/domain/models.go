@@ -423,6 +423,21 @@ func SubjectName(id string) string {
 	return id
 }
 
+// Payment mirrors the client's fees Payment (lib/features/fees): one money
+// movement against an invoice, firm-committed on the device first and replayed
+// to POST /api/payments through the sync outbox. The client picks `id`, so the
+// write has to be idempotent — a replay of the same payment must be a no-op or
+// one collection is recorded twice.
+type Payment struct {
+	ID         string `json:"id"`
+	InvoiceID  string `json:"invoiceId"`
+	Amount     int    `json:"amount"` // GHS, whole units as the app sends them
+	Method     string `json:"method"` // cash | card | mobileMoney | bank
+	Reference  string `json:"reference,omitempty"`
+	PaidAt     string `json:"paidAt"` // 'yyyy-MM-dd HH:mm', as the receipt renders it
+	RecordedBy string `json:"recordedBy"`
+}
+
 // Key returns the primary identifier; used by the store layer upsert helper.
 func (u User) Key() string         { return u.ID }
 func (c ClassRoom) Key() string    { return c.ID }
