@@ -32,33 +32,99 @@ go run ./cmd/server
 # customise
 PORT=8080 SECRET=my-secret go run ./cmd/server
 
-# production (PostgreSQL; schema applied at boot, demo dataset seeded once)
-export POSTGRES_DSN="postgres://solvanta:change-me@db:5432/solvanta?sslmode=disable"
+# tests — the PostgreSQL integration tests SKIP unless TEST_POSTGRES_DSN is set
+go test ./...
+go vet ./...
+```
+
+### PostgreSQL integration tests
+
+`internal/store/postgres_test.go` needs a **disposable** database: each test
+truncates every table in `public` before it runs. Give it its own database, never
+the one the server is serving from:
+
+```sh
+# 1. create an empty database (once)
+psql "$POSTGRES_DSN" -c 'CREATE DATABASE solvanta_test'
+
+# 2. point the suite at it and run
+TEST_POSTGRES_DSN='postgres://…@aws-0-eu-west-2.pooler.supabase.com:5432/solvanta_test?sslmode=require' \
+  go test ./internal/store/ -count=1
+```
+
+Both DSNs belong in `.env`, which `run-dev.*` exports to the server process:
+
+```dotenv
+POSTGRES_DSN=postgres://…/postgres?sslmode=require
+TEST_POSTGRES_DSN=postgres://…/solvanta_test?sslmode=require
+```
+
+Unset `TEST_POSTGRES_DSN` and the suite skips — that is why `go test ./...`
+stays green on a machine with no database.
+
+Three properties worth knowing before reading a failure:
+
+- **The tests are slow by design.** Each query is a round trip to a remote
+  pooler (~150 ms), so a full run takes minutes. `NewPostgres` runs the
+  migrations and the test's own setup, not just the assertions.
+- **A failure can be an outage, not a bug.** The store has no error channel, so
+  a dropped connection mid-test shows up as an assertion mismatch 100+ seconds
+  in rather than as a connection error. The suite now records storage failures
+  and reports them alongside the assertion (`N storage operation(s) failed and
+  were only logged`), which tells the two apart.
+- **It is not safe to run twice concurrently** — the tests share one database.
+
+### Windows
+
+PowerShell's default execution policy refuses to load `.ps1` files, so go
+through the `.cmd` wrapper:
+
+```bat
+run-dev.cmd -Check    &rem read .env, report what it parsed, do not start
+run-dev.cmd           &rem run on :8080
+```
+
+`run-dev.ps1` loads the dotenv file `.env` (an optional PowerShell override,
+`.env.ps1`, is applied on top). Copy `.env.example` → `.env` first.
+
+### Supabase
+
+Paste the **Session pooler** connection string from
+*Dashboard → Project Settings → Database* into `.env`:
+
+```dotenv
+POSTGRES_DSN=postgres://postgres.<REF>:<PASSWORD>@aws-0-<REGION>.pooler.supabase.com:5432/postgres?sslmode=require
+TEST_POSTGRES_DSN=postgres://postgres.<REF>:<PASSWORD>@aws-0-<REGION>.pooler.supabase.com:5432/solvanta_test?sslmode=require
+```
+
+* Host **`aws-0-<REGION>.pooler.supabase.com`**, not `db.<REF>.supabase.co`.
+  The direct hostname resolves to AAAA only on some resolvers, and on a machine
+  with no global IPv6 address `getaddrinfo` fails it outright with "no such
+  host" — which looks like a DNS outage but is really an address-family one.
+* Port **5432** selects the pooler's **Session** mode, **6543** its
+  **Transaction** mode. Use Session: pgx prepares statements by default, and
+  Transaction mode cannot keep a prepared statement alive across calls, so the
+  first query fails with a "prepared statement" error. Session mode also
+  permits `CREATE DATABASE`, which the test database needs.
+* `sslmode=require` is mandatory; the pooler refuses `sslmode=disable`.
+* The schema in `migrations/` is applied automatically at boot and every
+  statement is `IF NOT EXISTS`, so pointing at an existing database is safe.
+* The round trip to the pooler (~150 ms) dominates latency, so the store
+  batches what it can: questions and completion lists load one query per
+  *collection* rather than one per row, and multi-row writes (student contacts,
+  user↔student links, attendance) go in as a single statement. Adding a
+  per-row query inside a request handler is the easy way to add seconds.
+* `SEED` stays off in production unless explicitly set, so seeding cannot
+  silently grow a super-admin on a real database.
+
+### Production
+
+```sh
+export POSTGRES_DSN="postgres://…?sslmode=require"   # see above
 ENV=production SECRET=$(openssl rand -hex 32) PORT=8080 go run ./cmd/server
 
 # skip the demo dataset on an existing production database
 POSTGRES_DSN="$POSTGRES_DSN" SEED=false go run ./cmd/server
-
-# tests (PostgreSQL integration tests run when TEST_POSTGRES_DSN is set)
-go test ./...
-TEST_POSTGRES_DSN="postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable" go test ./...
-go vet ./...
-```
-
-### Local PostgreSQL (this machine, no sudo)
-
-The system has no passwordless sudo, so a self-contained PostgreSQL 18 runs
-entirely from the external drive — extracted binaries plus a managed data dir,
-no system packages installed:
-
-```sh
-/mnt/devdrive/DevTools/postgresql/manage.sh start    # boot on 127.0.0.1:5433
-/mnt/devdrive/DevTools/postgresql/manage.sh stop
-# DSN (user solvanta, trust auth — local dev only):
-POSTGRES_DSN="postgres://solvanta@127.0.0.1:5433/solvanta?sslmode=disable" \
-  SEED=true go run ./cmd/server
-
-TEST_POSTGRES_DSN="postgres://solvanta@127.0.0.1:5433/solvanta?sslmode=disable" go test ./...
 ```
 
 Environment variables:
@@ -78,7 +144,20 @@ Environment variables:
 > and applies the embedded `migrations/001_init.sql`. Both return exactly the
 > same camelCase domain objects, so no HTTP-layer code changes when switching.
 > The boot-time seed is idempotent (upserts + `ON CONFLICT DO NOTHING`), safe to
-> re-run against an already-seeded database.
+> re-run against an already-seeded database. Its dates are anchored to a fixed
+> `seedRefDate` rather than `time.Now()`: relative dates made it idempotent only
+> within one calendar day, so each boot on a new date inserted a fresh set of
+> gate events and a shifted attendance window that never collided with the
+> previous day's — the tables grew daily and drifted away from the client's
+> seed, which `LocalStore` computes once at first launch and then freezes.
+>
+> `GET /health` reports storage trouble alongside `"status": "ok"`. It stays `ok`
+> deliberately: the client reads that field to decide whether the server is
+> *reachable*, and reporting storage errors as "down" would push the app into
+> offline-only mode exactly when it should be syncing. When the Postgres store
+> has recorded a failure the body also carries `storageErrors`,
+> `lastStorageError` and `lastStorageErrorAt`. A failure during the boot-time
+> seed aborts startup instead of serving an empty application.
 
 ## Demo logins
 

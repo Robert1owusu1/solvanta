@@ -252,12 +252,19 @@ class _StudentQrScreenState extends State<StudentQrScreen> {
                   : const Icon(Icons.share),
               label: Text(_sharing ? 'Preparing…' : 'Share ID card (PNG)'),
             ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _openScanMode,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan mode'),
-            ),
+            // Staff-only. This screen is also shown to a student viewing their
+            // own card and to a linked parent, and "Scan mode" pushes straight
+            // into the gate check-in screen — so it must not be offered here.
+            // The check-in screen refuses on its own now too; this just stops
+            // the button existing for accounts that can't use it.
+            if (widget.user.isSchoolStaff) ...[
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _openScanMode,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Scan mode'),
+              ),
+            ],
             const SizedBox(height: 12),
             Text(
               'Scan at the school gate to check in or verify this identity. '

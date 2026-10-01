@@ -49,7 +49,7 @@ class NotificationsRepository {
     if (user.role.isStudent) {
       // Their own records only — a pupil must never see another child's
       // notifications, regardless of that child having parents linked.
-      return user.id == 'USR-$n.studentId';
+      return user.id == 'USR-${n.studentId}';
     }
     if (user.role.isTeacher) return student.classId == user.classId;
     return true;

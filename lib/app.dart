@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/api/api_client.dart';
 import 'core/models/app_notification.dart';
 import 'core/models/user.dart';
 import 'core/notifications/deep_link.dart';
@@ -39,11 +40,31 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
     // Fire-and-forget: defaults render first, then persisted preferences
     // arrive and the ListenableBuilder below rebuilds with them.
     _settings.load();
-    // Both self-start and are idempotent / failure-silent, so a missing
-    // plugin (tests, web, desktop) can never break startup.
-    ConnectivityMonitor.instance.start();
+    // The bearer token is persisted at login, but `ApiClient.sharedToken` is
+    // a plain static that dies with the process — republish it before
+    // ConnectivityMonitor can start, because it flushes a non-empty outbox on
+    // startup and replayed writes would otherwise go out with no Authorization
+    // header and 401 on the very first attempt. Failure-silent like the rest
+    // of startup: a missing plugin (tests, web, desktop) can't break launch.
+    _restoreApiToken().whenComplete(ConnectivityMonitor.instance.start).ignore();
     NotificationService.instance.init();
     NotificationService.instance.configureOnNotificationOpened(_onNotificationOpened);
+  }
+
+  /// Re-publish the persisted backend token into `ApiClient.sharedToken`.
+  ///
+  /// No-op when there is no stored token (signed out, or an install that
+  /// predates token persistence) — those callers simply stay unauthenticated
+  /// until the next real login, which stores one.
+  Future<void> _restoreApiToken() async {
+    try {
+      final token = await LocalStore().getApiToken();
+      if (token != null && token.isNotEmpty) {
+        ApiClient.sharedToken = token;
+      }
+    } catch (e) {
+      debugPrint('[App] API token restore failed: $e');
+    }
   }
 
   /// Route a tapped notification payload to its destination in-app.

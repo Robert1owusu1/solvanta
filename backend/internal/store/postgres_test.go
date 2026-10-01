@@ -31,6 +31,16 @@ func postgresTest(t *testing.T) *Postgres {
 		 END $$`); err != nil {
 		t.Fatalf("reset schema: %v", err)
 	}
+	// Any storage failure during the test would otherwise be invisible: the
+	// Store contract has no error channel, so a failed write only surfaces as a
+	// later assertion failing for no apparent reason ("students: got 0, want 8").
+	before, _, _ := pg.StoreErrors()
+	t.Cleanup(func() {
+		if after, last, _ := pg.StoreErrors(); after != before {
+			t.Errorf("%d storage operation(s) failed and were only logged; last: %v",
+				after-before, last)
+		}
+	})
 	return pg
 }
 
@@ -144,13 +154,47 @@ func TestPostgresSeedRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPostgresSeedPreservesRuntimeAttendance is the PostgreSQL half of
+// TestSeedNeverDeletesRecordedAttendance: attendance recorded outside the seed
+// must survive a re-seed. SaveAttendance previously deleted every row whose id
+// was not in the seed set, so restarting with seed=true wiped real data.
+func TestPostgresSeedPreservesRuntimeAttendance(t *testing.T) {
+	pg := postgresTest(t)
+	Seed(pg)
+
+	live := domain.AttendanceRecord{
+		ID: "ATT-LIVE-PG", StudentID: "STU-001", ClassID: "JHS2A",
+		Date: "2030-01-01", Status: domain.AttPresent, CheckIn: "07:45",
+	}
+	pg.SaveDay("JHS2A", live.Date, []domain.AttendanceRecord{live})
+	before := len(pg.Attendance())
+
+	Seed(pg)
+	Seed(pg)
+
+	if got := len(pg.Attendance()); got != before {
+		t.Fatalf("attendance: got %d, want %d (seed removed runtime rows)", got, before)
+	}
+	day := pg.AttendanceForClassDate("JHS2A", live.Date)
+	if len(day) != 1 || day[0].ID != live.ID {
+		t.Fatalf("runtime record lost: %+v", day)
+	}
+}
+
 func TestPostgresWritePaths(t *testing.T) {
 	pg := postgresTest(t)
 	Seed(pg) // tests share one database; the seed is idempotent
 
 	// SaveDay replaces one class/date bucket, keeping other days intact
-	total := len(pg.Attendance())
-	firstDay := pg.Attendance()[0].Date
+	att := pg.Attendance()
+	if len(att) == 0 {
+		// An empty table here means the seed's writes were swallowed: the Store
+		// contract has no error channel, so a failed SaveAttendance only shows
+		// up as a confusing index-out-of-range further down.
+		t.Fatal("attendance empty after Seed(pg); a write failed and was only logged")
+	}
+	total := len(att)
+	firstDay := att[0].Date
 	pg.SaveDay("JHS2A", firstDay, []domain.AttendanceRecord{
 		{ID: "ATT-X1", StudentID: "STU-001", ClassID: "JHS2A", Date: firstDay, Status: domain.AttLate, CheckIn: "08:01"},
 		{ID: "ATT-X2", StudentID: "STU-003", ClassID: "JHS2A", Date: firstDay, Status: domain.AttPresent, CheckIn: "07:30"},

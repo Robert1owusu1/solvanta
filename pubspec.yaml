@@ -58,6 +58,9 @@ dependencies:
   # `depend_on_referenced_packages` ignore in NotificationService can go).
   timezone: ^0.10.1
   mobile_scanner: ^7.4.2
+  # Hashing for on-device secrets (app-lock PIN, offline password copies) that
+  # previously sat in SharedPreferences in plain text.
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

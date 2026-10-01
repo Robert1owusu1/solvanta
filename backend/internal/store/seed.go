@@ -21,6 +21,30 @@ func hash(pw string) string {
 // pw returns a bcrypt hash of the demo password, shorthand for the seed.
 func pw(plain string) string { return hash(plain) }
 
+// seedRefDate anchors every relative date in the demo dataset.
+//
+// The seed used to take these from time.Now(), which is idempotent only within
+// a single calendar day: each boot on a new date wrote gate events under
+// brand-new IDs (GATE-<yesterday>-NNN) and shifted the five-weekday attendance
+// window forward, and neither collides with what the previous day's boot
+// inserted. So the tables grew a little every day and drifted away from the
+// client's seed — LocalStore computes its copy once at first launch and then
+// freezes it in SharedPreferences — meaning the "local seed == remote store"
+// contract the parity suite checks could not hold for more than a day.
+//
+// A fixed anchor makes every boot emit byte-identical rows, so re-seeding is
+// genuinely idempotent. Keep it inside the seeded term (2026-09-07..2026-12-18).
+const seedRefDate = "2026-09-30"
+
+// seedRef is seedRefDate parsed once. The constant is the only input, so this
+// cannot fail without someone editing it into a non-date — and the resulting
+// nonsense dates are exactly what the seed tests would then flag.
+var seedRef, _ = time.Parse("2006-01-02", seedRefDate)
+
+// seedYesterday is the anchor minus one day: "yesterday" for gate events,
+// notification timestamps and the end of the attendance window.
+func seedYesterday() time.Time { return seedRef.AddDate(0, 0, -1) }
+
 func (m *Memory) seed() { Seed(m) }
 
 // Seed writes the development dataset into any Store. It mirrors the same
@@ -166,7 +190,7 @@ func Seed(st Store) {
 	}
 	st.SaveAttendance(att)
 
-	yes := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	yes := seedYesterday().Format("2006-01-02")
 	for _, e := range []domain.GateEvent{
 		{ID: "GATE-" + yes + "-001", StudentID: "STU-001", Type: domain.GateArrival, Time: "07:40", Date: yes, Reporter: "Ms. Efua Mensah", Detail: "Arrival verified at gate"},
 		{ID: "GATE-" + yes + "-002", StudentID: "STU-002", Type: domain.GateArrival, Time: "07:42", Date: yes, Reporter: "Ms. Efua Mensah", Detail: "Arrival verified at gate"},
@@ -228,7 +252,7 @@ func Seed(st Store) {
 		st.SaveMessage(m)
 	}
 
-	notifTS := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	notifTS := seedYesterday().Format("2006-01-02")
 	for _, n := range []domain.Notification{
 		{ID: "NOTIF-001", Kind: domain.NotifGate, Title: "Kojo arrived at school", Body: "Arrival verified at the gate at 07:40.", Timestamp: notifTS + " 07:40", StudentID: "STU-001"},
 		{ID: "NOTIF-002", Kind: domain.NotifAttendance, Title: "Late arrival recorded", Body: "Kojo was marked late again this week. Please ensure timely arrival.", Timestamp: notifTS + " 08:05", StudentID: "STU-001"},
@@ -245,11 +269,13 @@ func Seed(st Store) {
 	}
 }
 
-// lastWeekdayDates returns count most recent weekdays ending yesterday,
-// mirroring LocalStore._lastWeekdayDates(5).
+// lastWeekdayDates returns count most recent weekdays ending the day before the
+// seed anchor (seedRefDate), mirroring LocalStore._lastWeekdayDates(5) as of
+// that date. Anchoring rather than using time.Now() is what keeps the window —
+// and therefore the record IDs — identical across boots.
 func lastWeekdayDates(count int) []string {
 	var out []string
-	d := time.Now().AddDate(0, 0, -1)
+	d := seedYesterday()
 	for len(out) < count {
 		if wd := d.Weekday(); wd >= time.Monday && wd <= time.Friday {
 			out = append(out, d.Format("2006-01-02"))

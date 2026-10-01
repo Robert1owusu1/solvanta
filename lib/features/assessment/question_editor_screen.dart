@@ -56,6 +56,20 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _stem.dispose();
+    _topic.dispose();
+    _explanation.dispose();
+    _marks.dispose();
+    _correct.dispose();
+    _scheme.dispose();
+    for (final c in _optionControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
   List<String> _ruleTokens(String scheme) => scheme
       .split(RegExp(r'[;\n,·•]+'))
       .map((k) => k.trim().toLowerCase())

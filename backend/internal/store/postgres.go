@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -23,6 +25,17 @@ import (
 // health endpoint instead of individual reads.
 type Postgres struct {
 	db *sql.DB
+
+	// Storage failures have nowhere to go: the Store contract deliberately has
+	// no error channel (the in-memory store cannot fail), so every method logs
+	// and returns an empty value. That means a failed INSERT is invisible to
+	// the caller, which reports success — the exact failure that once left an
+	// entire table silently unwritten. Record them so the boot path, /health and
+	// the tests can assert nothing was swallowed.
+	errMu     sync.Mutex
+	errCount  int
+	errLast   error
+	errLastAt time.Time
 }
 
 // NewPostgres opens a PostgreSQL connection (DSN e.g.
@@ -34,6 +47,16 @@ func NewPostgres(dsn string, seed bool) (*Postgres, error) {
 	if err != nil {
 		return nil, err
 	}
+	// database/sql starts with an UNLIMITED number of open connections and only
+	// two idle. That is harmless against an in-process server but against a
+	// remote pooler (Supabase's session pooler, PgBouncer, RDS Proxy) a load
+	// spike opens connections until the server's limit is exhausted and starts
+	// refusing the app outright. The Store contract is many short queries with
+	// no long-held transactions, so a small bounded pool is plenty.
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, err
@@ -44,7 +67,15 @@ func NewPostgres(dsn string, seed bool) (*Postgres, error) {
 		return nil, fmt.Errorf("apply migrations: %w", err)
 	}
 	if seed {
+		// Seeding writes hundreds of rows through Store methods that cannot
+		// report failure. Verify afterwards rather than boot an empty
+		// application and call it healthy.
+		before, _, _ := p.StoreErrors()
 		Seed(p)
+		if after, last, _ := p.StoreErrors(); after != before {
+			db.Close()
+			return nil, fmt.Errorf("seed: %w", last)
+		}
 	}
 	return p, nil
 }
@@ -52,7 +83,26 @@ func NewPostgres(dsn string, seed bool) (*Postgres, error) {
 // Close releases the underlying connection pool.
 func (p *Postgres) Close() error { return p.db.Close() }
 
-func errLog(verb string, err error) { log.Printf("postgres %s: %v", verb, err) }
+// p.errLog is the single choke point for storage failures. It logs for the
+// operator and latches the failure so callers that have no error to return can
+// still ask afterwards whether anything went wrong.
+func (p *Postgres) errLog(verb string, err error) {
+	log.Printf("postgres %s: %v", verb, err)
+	p.errMu.Lock()
+	defer p.errMu.Unlock()
+	p.errCount++
+	p.errLast = fmt.Errorf("%s: %w", verb, err)
+	p.errLastAt = time.Now()
+}
+
+// StoreErrors reports how many storage operations have failed since this store
+// was created, along with the most recent failure. A caller that cannot act on
+// an individual error uses this instead of pretending the operation succeeded.
+func (p *Postgres) StoreErrors() (count int, last error, at time.Time) {
+	p.errMu.Lock()
+	defer p.errMu.Unlock()
+	return p.errCount, p.errLast, p.errLastAt
+}
 
 func contextTODO() context.Context { return context.Background() }
 
@@ -114,7 +164,7 @@ func (p *Postgres) School() domain.School {
 		`SELECT id, name, COALESCE(motto,''), COALESCE(address,''), COALESCE(phone,''), COALESCE(email,''), COALESCE(region,'') FROM schools ORDER BY id LIMIT 1`)
 	err := row.Scan(&s.ID, &s.Name, &s.Motto, &s.Address, &s.Phone, &s.Email, &s.Region)
 	if err != nil && err != sql.ErrNoRows {
-		errLog("School", err)
+		p.errLog("School", err)
 	}
 	return s
 }
@@ -131,7 +181,7 @@ func (p *Postgres) SaveSchool(s domain.School) {
 			phone = EXCLUDED.phone, email = EXCLUDED.email, region = EXCLUDED.region`,
 		s.ID, s.Name, nullStr(s.Motto), nullStr(s.Address), nullStr(s.Phone), nullStr(s.Email), nullStr(s.Region))
 	if err != nil {
-		errLog("SaveSchool", err)
+		p.errLog("SaveSchool", err)
 	}
 }
 
@@ -141,7 +191,7 @@ func (p *Postgres) Term() domain.SchoolTerm {
 		`SELECT year, name, start_date::text, end_date::text FROM school_terms ORDER BY id DESC LIMIT 1`)
 	err := row.Scan(&t.Year, &t.Name, &t.Start, &t.End)
 	if err != nil && err != sql.ErrNoRows {
-		errLog("Term", err)
+		p.errLog("Term", err)
 	}
 	return t
 }
@@ -152,7 +202,7 @@ func (p *Postgres) SaveTerm(t domain.SchoolTerm) {
 		 VALUES ($1, $2, $3, $4, $5)`,
 		domain.DefaultSchoolID(), t.Year, t.Name, t.Start, t.End)
 	if err != nil {
-		errLog("SaveTerm", err)
+		p.errLog("SaveTerm", err)
 	}
 }
 
@@ -170,7 +220,7 @@ func scanUser(row interface{ Scan(...any) error }) (domain.User, error) {
 func (p *Postgres) studentIDsForUser(ctx context.Context, id string) []string {
 	rows, err := p.db.QueryContext(ctx, `SELECT student_id FROM user_students WHERE user_id = $1`, id)
 	if err != nil {
-		errLog("studentIDsForUser", err)
+		p.errLog("studentIDsForUser", err)
 		return nil
 	}
 	defer rows.Close()
@@ -178,7 +228,7 @@ func (p *Postgres) studentIDsForUser(ctx context.Context, id string) []string {
 	for rows.Next() {
 		var sid string
 		if err := rows.Scan(&sid); err != nil {
-			errLog("studentIDsForUser scan", err)
+			p.errLog("studentIDsForUser scan", err)
 			continue
 		}
 		out = append(out, sid)
@@ -189,7 +239,7 @@ func (p *Postgres) studentIDsForUser(ctx context.Context, id string) []string {
 func (p *Postgres) Users() []domain.User {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+userColumns+` FROM users ORDER BY id`)
 	if err != nil {
-		errLog("Users", err)
+		p.errLog("Users", err)
 		return nil
 	}
 	defer rows.Close()
@@ -198,7 +248,7 @@ func (p *Postgres) Users() []domain.User {
 	for rows.Next() {
 		u, err := scanUser(rows)
 		if err != nil {
-			errLog("Users scan", err)
+			p.errLog("Users scan", err)
 			continue
 		}
 		u.StudentIDs = p.studentIDsForUser(ctx, u.ID)
@@ -212,7 +262,7 @@ func (p *Postgres) UserByID(id string) (domain.User, bool) {
 	u, err := scanUser(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("UserByID", err)
+			p.errLog("UserByID", err)
 		}
 		return domain.User{}, false
 	}
@@ -225,7 +275,7 @@ func (p *Postgres) UserByEmail(email string) (domain.User, bool) {
 	u, err := scanUser(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("UserByEmail", err)
+			p.errLog("UserByEmail", err)
 		}
 		return domain.User{}, false
 	}
@@ -236,7 +286,7 @@ func (p *Postgres) UserByEmail(email string) (domain.User, bool) {
 func (p *Postgres) SaveUser(u domain.User) {
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveUser begin", err)
+		p.errLog("SaveUser begin", err)
 		return
 	}
 	defer tx.Rollback()
@@ -249,23 +299,28 @@ func (p *Postgres) SaveUser(u domain.User) {
 			password = EXCLUDED.password, role = EXCLUDED.role,
 			school_id = EXCLUDED.school_id, class_id = EXCLUDED.class_id`,
 		u.ID, u.Name, u.Email, nullStr(u.Phone), u.Password, u.Role, nullStr(u.SchoolID), nullStr(u.ClassID)); err != nil {
-		errLog("SaveUser", err)
+		p.errLog("SaveUser", err)
 		return
 	}
 	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM user_students WHERE user_id = $1`, u.ID); err != nil {
-		errLog("SaveUser links delete", err)
+		p.errLog("SaveUser links delete", err)
 		return
 	}
-	for _, sid := range u.StudentIDs {
-		if _, err := tx.ExecContext(contextTODO(),
-			`INSERT INTO user_students (user_id, student_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-			u.ID, sid); err != nil {
-			errLog("SaveUser link", err)
+	// One statement for every link instead of one round trip per student: a
+	// linked parent (all seven of the seed's do this) cost N round trips
+	// against a remote pooler otherwise.
+	if len(u.StudentIDs) > 0 {
+		if _, err := tx.ExecContext(contextTODO(), `
+			INSERT INTO user_students (user_id, student_id)
+			SELECT $1, sid FROM jsonb_array_elements_text($2::jsonb) AS sid
+			ON CONFLICT DO NOTHING`,
+			u.ID, toJSON(u.StudentIDs)); err != nil {
+			p.errLog("SaveUser link", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		errLog("SaveUser commit", err)
+		p.errLog("SaveUser commit", err)
 	}
 }
 
@@ -275,7 +330,7 @@ func (p *Postgres) Classes() []domain.ClassRoom {
 	rows, err := p.db.QueryContext(contextTODO(),
 		`SELECT id, name, COALESCE(stream,''), COALESCE(teacher_id,'') FROM class_rooms ORDER BY id`)
 	if err != nil {
-		errLog("Classes", err)
+		p.errLog("Classes", err)
 		return nil
 	}
 	defer rows.Close()
@@ -283,7 +338,7 @@ func (p *Postgres) Classes() []domain.ClassRoom {
 	for rows.Next() {
 		var c domain.ClassRoom
 		if err := rows.Scan(&c.ID, &c.Name, &c.Stream, &c.TeacherID); err != nil {
-			errLog("Classes scan", err)
+			p.errLog("Classes scan", err)
 			continue
 		}
 		out = append(out, c)
@@ -298,7 +353,7 @@ func (p *Postgres) ClassByID(id string) (domain.ClassRoom, bool) {
 	err := row.Scan(&c.ID, &c.Name, &c.Stream, &c.TeacherID)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("ClassByID", err)
+			p.errLog("ClassByID", err)
 		}
 		return domain.ClassRoom{}, false
 	}
@@ -312,7 +367,7 @@ func (p *Postgres) SaveClass(c domain.ClassRoom) {
 			name = EXCLUDED.name, stream = EXCLUDED.stream, teacher_id = EXCLUDED.teacher_id`,
 		c.ID, c.Name, nullStr(c.Stream), nullStr(c.TeacherID))
 	if err != nil {
-		errLog("SaveClass", err)
+		p.errLog("SaveClass", err)
 	}
 }
 
@@ -338,7 +393,7 @@ func (p *Postgres) contactsForStudents(ctx context.Context) map[string][]contact
 	rows, err := p.db.QueryContext(ctx,
 		`SELECT student_id, kind, name, COALESCE(phone,''), COALESCE(relation,'') FROM student_contacts ORDER BY id`)
 	if err != nil {
-		errLog("contactsForStudents", err)
+		p.errLog("contactsForStudents", err)
 		return nil
 	}
 	defer rows.Close()
@@ -346,7 +401,7 @@ func (p *Postgres) contactsForStudents(ctx context.Context) map[string][]contact
 	for rows.Next() {
 		var sid, kind, name, phone, rel string
 		if err := rows.Scan(&sid, &kind, &name, &phone, &rel); err != nil {
-			errLog("contactsForStudents scan", err)
+			p.errLog("contactsForStudents scan", err)
 			continue
 		}
 		out[sid] = append(out[sid], contactRow{Kind: kind, Person: domain.Person{Name: name, Phone: phone, Relation: rel}})
@@ -354,8 +409,33 @@ func (p *Postgres) contactsForStudents(ctx context.Context) map[string][]contact
 	return out
 }
 
-func (p *Postgres) attachContacts(s *domain.Student, contacts map[string][]contactRow) {
-	for _, c := range contacts[s.ID] {
+// contactsForStudent is the single-student form of contactsForStudents.
+// StudentByID used to resolve ONE student's contacts by reading the entire
+// contact table, so every gate check-in paid to ship every other student's
+// guardians back across the pool.
+func (p *Postgres) contactsForStudent(ctx context.Context, studentID string) []contactRow {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT kind, name, COALESCE(phone,''), COALESCE(relation,'')
+		 FROM student_contacts WHERE student_id = $1 ORDER BY id`, studentID)
+	if err != nil {
+		p.errLog("contactsForStudent", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []contactRow
+	for rows.Next() {
+		var kind, name, phone, rel string
+		if err := rows.Scan(&kind, &name, &phone, &rel); err != nil {
+			p.errLog("contactsForStudent scan", err)
+			continue
+		}
+		out = append(out, contactRow{Kind: kind, Person: domain.Person{Name: name, Phone: phone, Relation: rel}})
+	}
+	return out
+}
+
+func (p *Postgres) attachContacts(s *domain.Student, contacts []contactRow) {
+	for _, c := range contacts {
 		switch c.Kind {
 		case "guardian":
 			s.Guardians = append(s.Guardians, c.Person)
@@ -370,7 +450,7 @@ func (p *Postgres) attachContacts(s *domain.Student, contacts map[string][]conta
 func (p *Postgres) Students() []domain.Student {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+studentColumns+` FROM students ORDER BY id`)
 	if err != nil {
-		errLog("Students", err)
+		p.errLog("Students", err)
 		return nil
 	}
 	defer rows.Close()
@@ -379,10 +459,10 @@ func (p *Postgres) Students() []domain.Student {
 	for rows.Next() {
 		s, err := scanStudent(rows)
 		if err != nil {
-			errLog("Students scan", err)
+			p.errLog("Students scan", err)
 			continue
 		}
-		p.attachContacts(&s, contacts)
+		p.attachContacts(&s, contacts[s.ID])
 		out = append(out, s)
 	}
 	return out
@@ -393,11 +473,11 @@ func (p *Postgres) StudentByID(id string) (domain.Student, bool) {
 	s, err := scanStudent(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("StudentByID", err)
+			p.errLog("StudentByID", err)
 		}
 		return domain.Student{}, false
 	}
-	p.attachContacts(&s, p.contactsForStudents(contextTODO()))
+	p.attachContacts(&s, p.contactsForStudent(contextTODO(), id))
 	return s, true
 }
 
@@ -405,7 +485,7 @@ func (p *Postgres) StudentsByParentUser(id string) []domain.Student {
 	rows, err := p.db.QueryContext(contextTODO(),
 		`SELECT `+studentColumns+` FROM students WHERE parent_user_id = $1 ORDER BY id`, id)
 	if err != nil {
-		errLog("StudentsByParentUser", err)
+		p.errLog("StudentsByParentUser", err)
 		return nil
 	}
 	defer rows.Close()
@@ -414,10 +494,10 @@ func (p *Postgres) StudentsByParentUser(id string) []domain.Student {
 	for rows.Next() {
 		s, err := scanStudent(rows)
 		if err != nil {
-			errLog("StudentsByParentUser scan", err)
+			p.errLog("StudentsByParentUser scan", err)
 			continue
 		}
-		p.attachContacts(&s, contacts)
+		p.attachContacts(&s, contacts[s.ID])
 		out = append(out, s)
 	}
 	return out
@@ -426,7 +506,7 @@ func (p *Postgres) StudentsByParentUser(id string) []domain.Student {
 func (p *Postgres) SaveStudent(s domain.Student) {
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveStudent begin", err)
+		p.errLog("SaveStudent begin", err)
 		return
 	}
 	defer tx.Rollback()
@@ -443,28 +523,34 @@ func (p *Postgres) SaveStudent(s domain.Student) {
 		s.ID, s.FirstName, s.LastName, nullStr(s.Gender), nullStr(s.DateOfBirth),
 		nullStr(s.AdmissionDate), nullStr(s.AdmissionNo), nullStr(s.ClassID),
 		nullStr(s.SchoolID), firstNonEmpty(s.Status, "active"), nullStr(s.ParentUserID)); err != nil {
-		errLog("SaveStudent", err)
+		p.errLog("SaveStudent", err)
 		return
 	}
 	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM student_contacts WHERE student_id = $1`, s.ID); err != nil {
-		errLog("SaveStudent contacts delete", err)
+		p.errLog("SaveStudent contacts delete", err)
 		return
 	}
 	writeContacts := func(kind string, people []domain.Person) {
-		for _, p := range people {
-			if _, err := tx.ExecContext(contextTODO(),
-				`INSERT INTO student_contacts (student_id, kind, name, phone, relation)
-				 VALUES ($1,$2,$3,$4,$5)`,
-				s.ID, kind, p.Name, nullStr(p.Phone), nullStr(p.Relation)); err != nil {
-				errLog("SaveStudent contact", err)
-			}
+		if len(people) == 0 {
+			return
+		}
+		// One statement per contact kind instead of one round trip per person:
+		// every student carries guardians, emergency contacts and authorized
+		// pickups, so a student's contacts alone used to cost several round
+		// trips against a remote pooler.
+		if _, err := tx.ExecContext(contextTODO(), `
+			INSERT INTO student_contacts (student_id, kind, name, phone, relation)
+			SELECT $1, $2, v->>'name', NULLIF(v->>'phone',''), NULLIF(v->>'relation','')
+			FROM jsonb_array_elements($3::jsonb) AS v`,
+			s.ID, kind, toJSON(people)); err != nil {
+			p.errLog("SaveStudent contact", err)
 		}
 	}
 	writeContacts("guardian", s.Guardians)
 	writeContacts("emergency", s.EmergencyContacts)
 	writeContacts("authorizedPickup", s.AuthorizedPickup)
 	if err := tx.Commit(); err != nil {
-		errLog("SaveStudent commit", err)
+		p.errLog("SaveStudent commit", err)
 	}
 }
 
@@ -484,7 +570,7 @@ func scanAttendance(row interface{ Scan(...any) error }) (domain.AttendanceRecor
 func (p *Postgres) Attendance() []domain.AttendanceRecord {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+attendanceColumns+` FROM attendance ORDER BY date, student_id`)
 	if err != nil {
-		errLog("Attendance", err)
+		p.errLog("Attendance", err)
 		return nil
 	}
 	defer rows.Close()
@@ -492,7 +578,7 @@ func (p *Postgres) Attendance() []domain.AttendanceRecord {
 	for rows.Next() {
 		r, err := scanAttendance(rows)
 		if err != nil {
-			errLog("Attendance scan", err)
+			p.errLog("Attendance scan", err)
 			continue
 		}
 		out = append(out, r)
@@ -505,7 +591,7 @@ func (p *Postgres) AttendanceForClassDate(classID, date string) []domain.Attenda
 		`SELECT `+attendanceColumns+` FROM attendance WHERE class_id = $1 AND date = $2 ORDER BY student_id`,
 		classID, date)
 	if err != nil {
-		errLog("AttendanceForClassDate", err)
+		p.errLog("AttendanceForClassDate", err)
 		return nil
 	}
 	defer rows.Close()
@@ -513,7 +599,7 @@ func (p *Postgres) AttendanceForClassDate(classID, date string) []domain.Attenda
 	for rows.Next() {
 		r, err := scanAttendance(rows)
 		if err != nil {
-			errLog("AttendanceForClassDate scan", err)
+			p.errLog("AttendanceForClassDate scan", err)
 			continue
 		}
 		out = append(out, r)
@@ -521,49 +607,55 @@ func (p *Postgres) AttendanceForClassDate(classID, date string) []domain.Attenda
 	return out
 }
 
-func (p *Postgres) upsertAttendance(tx *sql.Tx, r domain.AttendanceRecord) {
+// upsertAttendanceBatch writes every record with a single statement. Both
+// attendance writers used to issue one round trip per record inside their
+// transaction, so seeding a term cost one round trip per student/day (~150ms
+// each against a remote pooler). The conflict clause is passed in because
+// SaveAttendance must never overwrite a record recorded at runtime (DO NOTHING)
+// while SaveDay replaces that class/date bucket (DO UPDATE).
+func (p *Postgres) upsertAttendanceBatch(tx *sql.Tx, conflict string, records []domain.AttendanceRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	// Field names match domain.AttendanceRecord's json tags. JSON extraction
+	// yields text, so the DATE/TIME columns need casts the bound-parameter form
+	// used to get from inference; the omitempty ones are wrapped in NULLIF so an
+	// absent/empty value stays NULL rather than blowing up `''::time`.
 	_, err := tx.ExecContext(contextTODO(), `
 		INSERT INTO attendance (id, student_id, class_id, date, status, check_in, check_out, old_status, reason)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (student_id, date) DO UPDATE SET
-			id = EXCLUDED.id, class_id = EXCLUDED.class_id, status = EXCLUDED.status,
-			check_in = EXCLUDED.check_in, check_out = EXCLUDED.check_out,
-			old_status = EXCLUDED.old_status, reason = EXCLUDED.reason`,
-		r.ID, r.StudentID, r.ClassID, r.Date, r.Status,
-		nullStr(r.CheckIn), nullStr(r.CheckOut), nullStr(r.OldStatus), nullStr(r.Reason))
-	if err != nil {
-		errLog("upsertAttendance", err)
-	}
+		SELECT v->>'id', v->>'studentId', v->>'classId', (v->>'date')::date, v->>'status',
+		       NULLIF(v->>'checkIn','')::time, NULLIF(v->>'checkOut','')::time,
+		       NULLIF(v->>'oldStatus',''), NULLIF(v->>'reason','')
+		FROM jsonb_array_elements($1::jsonb) AS v
+		`+conflict, toJSON(records))
+	return err
 }
 
-// SaveAttendance replaces the whole attendance log (bootstrap/import).
+// SaveAttendance merges records into the attendance log. It is the bootstrap
+// path (the seed), so it must be idempotent and non-destructive: a student/day
+// that already has a record is left exactly as it is, and no other attendance
+// is ever deleted. This previously deleted every row whose id was not in the
+// supplied set — and deleted the whole table for an empty set — so restarting
+// the server with seed=true silently destroyed attendance recorded at runtime.
 func (p *Postgres) SaveAttendance(records []domain.AttendanceRecord) {
+	if len(records) == 0 {
+		return
+	}
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveAttendance begin", err)
+		p.errLog("SaveAttendance begin", err)
 		return
 	}
 	defer tx.Rollback()
-	if len(records) > 0 {
-		ids := make([]string, 0, len(records))
-		for _, r := range records {
-			ids = append(ids, r.ID)
-		}
-		if _, err := tx.ExecContext(contextTODO(), `DELETE FROM attendance WHERE NOT (id = ANY($1))`, ids); err != nil {
-			errLog("SaveAttendance delete", err)
-			return
-		}
-	} else {
-		if _, err := tx.ExecContext(contextTODO(), `DELETE FROM attendance`); err != nil {
-			errLog("SaveAttendance clear", err)
-			return
-		}
-	}
-	for _, r := range records {
-		p.upsertAttendance(tx, r)
+	// No conflict target on purpose: bare DO NOTHING guards every unique
+	// constraint (student_id+date and id), so an existing real record always
+	// wins over the seeded one.
+	if err := p.upsertAttendanceBatch(tx, `ON CONFLICT DO NOTHING`, records); err != nil {
+		p.errLog("SaveAttendance insert", err)
+		return
 	}
 	if err := tx.Commit(); err != nil {
-		errLog("SaveAttendance commit", err)
+		p.errLog("SaveAttendance commit", err)
 	}
 }
 
@@ -571,20 +663,27 @@ func (p *Postgres) SaveAttendance(records []domain.AttendanceRecord) {
 func (p *Postgres) SaveDay(classID, date string, records []domain.AttendanceRecord) {
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveDay begin", err)
+		p.errLog("SaveDay begin", err)
 		return
 	}
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(contextTODO(),
 		`DELETE FROM attendance WHERE class_id = $1 AND date = $2`, classID, date); err != nil {
-		errLog("SaveDay delete", err)
+		p.errLog("SaveDay delete", err)
 		return
 	}
-	for _, r := range records {
-		p.upsertAttendance(tx, r)
+	// Abort — rolling back the delete above — if the batch fails, rather than
+	// committing a day that was only partly rewritten.
+	if err := p.upsertAttendanceBatch(tx, `
+		ON CONFLICT (student_id, date) DO UPDATE SET
+			id = EXCLUDED.id, class_id = EXCLUDED.class_id, status = EXCLUDED.status,
+			check_in = EXCLUDED.check_in, check_out = EXCLUDED.check_out,
+			old_status = EXCLUDED.old_status, reason = EXCLUDED.reason`, records); err != nil {
+		p.errLog("SaveDay upsert", err)
+		return
 	}
 	if err := tx.Commit(); err != nil {
-		errLog("SaveDay commit", err)
+		p.errLog("SaveDay commit", err)
 	}
 }
 
@@ -596,7 +695,7 @@ func (p *Postgres) GateEvents() []domain.GateEvent {
 		        COALESCE(reporter,''), COALESCE(person,''), COALESCE(detail,'')
 		 FROM gate_events ORDER BY date DESC, time DESC`)
 	if err != nil {
-		errLog("GateEvents", err)
+		p.errLog("GateEvents", err)
 		return nil
 	}
 	defer rows.Close()
@@ -604,7 +703,7 @@ func (p *Postgres) GateEvents() []domain.GateEvent {
 	for rows.Next() {
 		var e domain.GateEvent
 		if err := rows.Scan(&e.ID, &e.StudentID, &e.Type, &e.Time, &e.Date, &e.Reporter, &e.Person, &e.Detail); err != nil {
-			errLog("GateEvents scan", err)
+			p.errLog("GateEvents scan", err)
 			continue
 		}
 		out = append(out, e)
@@ -618,7 +717,7 @@ func (p *Postgres) GateForStudent(id string) []domain.GateEvent {
 		        COALESCE(reporter,''), COALESCE(person,''), COALESCE(detail,'')
 		 FROM gate_events WHERE student_id = $1 ORDER BY date DESC, time DESC`, id)
 	if err != nil {
-		errLog("GateForStudent", err)
+		p.errLog("GateForStudent", err)
 		return nil
 	}
 	defer rows.Close()
@@ -626,7 +725,7 @@ func (p *Postgres) GateForStudent(id string) []domain.GateEvent {
 	for rows.Next() {
 		var e domain.GateEvent
 		if err := rows.Scan(&e.ID, &e.StudentID, &e.Type, &e.Time, &e.Date, &e.Reporter, &e.Person, &e.Detail); err != nil {
-			errLog("GateForStudent scan", err)
+			p.errLog("GateForStudent scan", err)
 			continue
 		}
 		out = append(out, e)
@@ -641,7 +740,7 @@ func (p *Postgres) AddGateEvent(e domain.GateEvent) {
 		ON CONFLICT (id) DO NOTHING`,
 		e.ID, e.StudentID, e.Type, e.Time, e.Date, nullStr(e.Reporter), nullStr(e.Person), nullStr(e.Detail))
 	if err != nil {
-		errLog("AddGateEvent", err)
+		p.errLog("AddGateEvent", err)
 	}
 }
 
@@ -651,25 +750,40 @@ const questionColumns = `id, type, subject_id, COALESCE(class_id,''), topic, dif
 	COALESCE(cognitive_level,''), marks::float8, stem, COALESCE(options::text,'[]'),
 	COALESCE(correct_answer,''), COALESCE(explanation,''), COALESCE(marking_scheme,'')`
 
-func scanQuestion(row interface{ Scan(...any) error }) (domain.Question, error) {
-	var q domain.Question
-	var opts string
-	err := row.Scan(&q.ID, &q.Type, &q.SubjectID, &q.ClassID, &q.Topic, &q.Difficulty,
-		&q.CognitiveLevel, &q.Marks, &q.Stem, &opts, &q.CorrectAnswer, &q.Explanation, &q.MarkingScheme)
-	if err != nil {
-		return q, err
-	}
+// questionDests returns the Scan destinations for questionColumns, preceded by
+// any extra columns the caller selected before them. Splitting the field list
+// out lets the batched reader scan assessment_id alongside the question without
+// duplicating the column list — and therefore drifting from it.
+func questionDests(q *domain.Question, opts *string, extra ...any) []any {
+	return append(extra,
+		&q.ID, &q.Type, &q.SubjectID, &q.ClassID, &q.Topic, &q.Difficulty,
+		&q.CognitiveLevel, &q.Marks, &q.Stem, opts,
+		&q.CorrectAnswer, &q.Explanation, &q.MarkingScheme)
+}
+
+// finishQuestion decodes the options column, which is stored as JSON text and
+// may come back NULL when a question has no options at all.
+func finishQuestion(q *domain.Question, opts string) {
 	_ = json.Unmarshal([]byte(opts), &q.Options)
 	if q.Options == nil {
 		q.Options = []string{}
 	}
+}
+
+func scanQuestion(row interface{ Scan(...any) error }) (domain.Question, error) {
+	var q domain.Question
+	var opts string
+	if err := row.Scan(questionDests(&q, &opts)...); err != nil {
+		return q, err
+	}
+	finishQuestion(&q, opts)
 	return q, nil
 }
 
 func (p *Postgres) Questions() []domain.Question {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+questionColumns+` FROM questions ORDER BY id`)
 	if err != nil {
-		errLog("Questions", err)
+		p.errLog("Questions", err)
 		return nil
 	}
 	defer rows.Close()
@@ -677,7 +791,7 @@ func (p *Postgres) Questions() []domain.Question {
 	for rows.Next() {
 		q, err := scanQuestion(rows)
 		if err != nil {
-			errLog("Questions scan", err)
+			p.errLog("Questions scan", err)
 			continue
 		}
 		out = append(out, q)
@@ -690,7 +804,7 @@ func (p *Postgres) QuestionByID(id string) (domain.Question, bool) {
 	q, err := scanQuestion(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("QuestionByID", err)
+			p.errLog("QuestionByID", err)
 		}
 		return domain.Question{}, false
 	}
@@ -712,14 +826,14 @@ func (p *Postgres) SaveQuestion(q domain.Question) {
 		nullStr(q.CognitiveLevel), q.Marks, q.Stem, toJSON(q.Options),
 		nullStr(q.CorrectAnswer), nullStr(q.Explanation), nullStr(q.MarkingScheme))
 	if err != nil {
-		errLog("SaveQuestion", err)
+		p.errLog("SaveQuestion", err)
 	}
 }
 
 func (p *Postgres) DeleteQuestion(id string) {
 	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM questions WHERE id = $1`, id)
 	if err != nil {
-		errLog("DeleteQuestion", err)
+		p.errLog("DeleteQuestion", err)
 	}
 }
 
@@ -733,7 +847,7 @@ func (p *Postgres) AIRequests() []domain.GenRequest {
 		FROM question_gen_requests r LEFT JOIN users u ON u.id = r.requester_id
 		ORDER BY r.id`)
 	if err != nil {
-		errLog("AIRequests", err)
+		p.errLog("AIRequests", err)
 		return nil
 	}
 	defer rows.Close()
@@ -741,7 +855,7 @@ func (p *Postgres) AIRequests() []domain.GenRequest {
 	for rows.Next() {
 		g, err := scanGenRequest(rows)
 		if err != nil {
-			errLog("AIRequests scan", err)
+			p.errLog("AIRequests scan", err)
 			continue
 		}
 		out = append(out, g)
@@ -773,7 +887,7 @@ func (p *Postgres) AIRequestByID(id string) (domain.GenRequest, bool) {
 	g, err := scanGenRequest(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("AIRequestByID", err)
+			p.errLog("AIRequestByID", err)
 		}
 		return domain.GenRequest{}, false
 	}
@@ -795,7 +909,7 @@ func (p *Postgres) SaveAIRequest(r domain.GenRequest) {
 		nullStr(r.Priority), nullStr(r.ClassID), nullStr(r.CreatedAt), nullStr(r.PublishedAt),
 		r.Status, toJSON(r.Drafts))
 	if err != nil {
-		errLog("SaveAIRequest", err)
+		p.errLog("SaveAIRequest", err)
 	}
 }
 
@@ -809,45 +923,74 @@ func scanAssessment(row interface{ Scan(...any) error }) (domain.Assessment, err
 	return a, err
 }
 
-func (p *Postgres) questionsForAssessment(ctx context.Context, id string) []domain.Question {
+// questionsForAssessments loads the questions of every given assessment in a
+// single round trip, grouped by assessment id.
+//
+// This replaces one query per assessment. Against a remote pooler (~150ms per
+// round trip) that difference is the whole story of GET /api/assessments: four
+// assessments used to cost five round trips, and the cost scaled with the size
+// of the school instead of staying constant.
+func (p *Postgres) questionsForAssessments(ctx context.Context, ids []string) map[string][]domain.Question {
+	out := make(map[string][]domain.Question, len(ids))
+	if len(ids) == 0 {
+		return out
+	}
 	rows, err := p.db.QueryContext(ctx, `
-		SELECT `+questionColumns+`
+		SELECT aq.assessment_id, `+questionColumns+`
 		FROM assessment_questions aq JOIN questions q ON q.id = aq.question_id
-		WHERE aq.assessment_id = $1 ORDER BY aq.position`, id)
+		WHERE aq.assessment_id IN (SELECT jsonb_array_elements_text($1::jsonb))
+		ORDER BY aq.assessment_id, aq.position`, toJSON(ids))
 	if err != nil {
-		errLog("questionsForAssessment", err)
-		return nil
+		p.errLog("questionsForAssessments", err)
+		return out
 	}
 	defer rows.Close()
-	var out []domain.Question
 	for rows.Next() {
-		q, err := scanQuestion(rows)
-		if err != nil {
-			errLog("questionsForAssessment scan", err)
+		var aid string
+		var q domain.Question
+		var opts string
+		if err := rows.Scan(questionDests(&q, &opts, &aid)...); err != nil {
+			p.errLog("questionsForAssessments scan", err)
 			continue
 		}
-		out = append(out, q)
+		finishQuestion(&q, opts)
+		out[aid] = append(out[aid], q)
 	}
 	return out
+}
+
+// questionsForAssessment is the single-assessment form. It is one round trip
+// either way, so it reuses the batch instead of keeping a second query alive.
+func (p *Postgres) questionsForAssessment(ctx context.Context, id string) []domain.Question {
+	return p.questionsForAssessments(ctx, []string{id})[id]
 }
 
 func (p *Postgres) Assessments() []domain.Assessment {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+assessmentColumns+` FROM assessments ORDER BY id`)
 	if err != nil {
-		errLog("Assessments", err)
+		p.errLog("Assessments", err)
 		return nil
 	}
-	defer rows.Close()
-	ctx := contextTODO()
 	var out []domain.Assessment
 	for rows.Next() {
 		a, err := scanAssessment(rows)
 		if err != nil {
-			errLog("Assessments scan", err)
+			p.errLog("Assessments scan", err)
 			continue
 		}
-		a.Questions = p.questionsForAssessment(ctx, a.ID)
 		out = append(out, a)
+	}
+	// Release this reader before the follow-up query so the batch below does
+	// not need a second pooled connection.
+	rows.Close()
+
+	ids := make([]string, 0, len(out))
+	for i := range out {
+		ids = append(ids, out[i].ID)
+	}
+	byAssessment := p.questionsForAssessments(contextTODO(), ids)
+	for i := range out {
+		out[i].Questions = byAssessment[out[i].ID]
 	}
 	return out
 }
@@ -857,7 +1000,7 @@ func (p *Postgres) AssessmentByID(id string) (domain.Assessment, bool) {
 	a, err := scanAssessment(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("AssessmentByID", err)
+			p.errLog("AssessmentByID", err)
 		}
 		return domain.Assessment{}, false
 	}
@@ -868,7 +1011,7 @@ func (p *Postgres) AssessmentByID(id string) (domain.Assessment, bool) {
 func (p *Postgres) SaveAssessment(a domain.Assessment) {
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveAssessment begin", err)
+		p.errLog("SaveAssessment begin", err)
 		return
 	}
 	defer tx.Rollback()
@@ -880,24 +1023,24 @@ func (p *Postgres) SaveAssessment(a domain.Assessment) {
 			title = EXCLUDED.title, type = EXCLUDED.type, subject_id = EXCLUDED.subject_id,
 			class_id = EXCLUDED.class_id, date = EXCLUDED.date, created_by = EXCLUDED.created_by`,
 		a.ID, a.Title, a.Type, a.SubjectID, a.ClassID, a.Date, nullStr(a.CreatedBy)); err != nil {
-		errLog("SaveAssessment", err)
+		p.errLog("SaveAssessment", err)
 		return
 	}
 	if _, err := tx.ExecContext(contextTODO(),
 		`DELETE FROM assessment_questions WHERE assessment_id = $1`, a.ID); err != nil {
-		errLog("SaveAssessment questions delete", err)
+		p.errLog("SaveAssessment questions delete", err)
 		return
 	}
 	for i, q := range a.Questions {
 		if _, err := tx.ExecContext(contextTODO(),
 			`INSERT INTO assessment_questions (assessment_id, question_id, position)
 			 VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, a.ID, q.ID, i); err != nil {
-			errLog("SaveAssessment question link", err)
+			p.errLog("SaveAssessment question link", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		errLog("SaveAssessment commit", err)
+		p.errLog("SaveAssessment commit", err)
 	}
 }
 
@@ -926,7 +1069,7 @@ func scanSubmission(row interface{ Scan(...any) error }) (domain.Submission, err
 func (p *Postgres) Submissions() []domain.Submission {
 	rows, err := p.db.QueryContext(contextTODO(), `SELECT `+submissionColumns+` FROM submissions ORDER BY id`)
 	if err != nil {
-		errLog("Submissions", err)
+		p.errLog("Submissions", err)
 		return nil
 	}
 	defer rows.Close()
@@ -934,7 +1077,7 @@ func (p *Postgres) Submissions() []domain.Submission {
 	for rows.Next() {
 		s, err := scanSubmission(rows)
 		if err != nil {
-			errLog("Submissions scan", err)
+			p.errLog("Submissions scan", err)
 			continue
 		}
 		out = append(out, s)
@@ -949,17 +1092,22 @@ func (p *Postgres) SubmissionFor(assessmentID, studentID string) (domain.Submiss
 	s, err := scanSubmission(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("SubmissionFor", err)
+			p.errLog("SubmissionFor", err)
 		}
 		return domain.Submission{}, false
 	}
 	return s, true
 }
 
+// SaveSubmission upserts a submission. answers and teacher_marks are NOT NULL,
+// but toJSON intentionally yields SQL NULL for an empty map - which is right for
+// the nullable questions.options and requests.drafts columns, and wrong here: an
+// unattempted or not-yet-marked submission was rejected with SQLSTATE 23502 and
+// the row silently dropped. Coalesce so "empty" stores '{}' instead.
 func (p *Postgres) SaveSubmission(s domain.Submission) {
 	_, err := p.db.ExecContext(contextTODO(), `
 		INSERT INTO submissions (id, assessment_id, student_id, class_id, date, answers, teacher_marks, earned, status)
-		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,'auto_marked')
+		VALUES ($1,$2,$3,$4,$5,COALESCE($6::jsonb,'{}'::jsonb),COALESCE($7::jsonb,'{}'::jsonb),$8,'auto_marked')
 		ON CONFLICT (assessment_id, student_id) DO UPDATE SET
 			id = EXCLUDED.id, class_id = EXCLUDED.class_id, date = EXCLUDED.date,
 			answers = EXCLUDED.answers, teacher_marks = EXCLUDED.teacher_marks,
@@ -967,7 +1115,7 @@ func (p *Postgres) SaveSubmission(s domain.Submission) {
 		s.ID, s.AssessmentID, s.StudentID, s.ClassID, s.Date,
 		toJSON(s.Answers), toJSON(s.TeacherMarks), s.Earned)
 	if err != nil {
-		errLog("SaveSubmission", err)
+		p.errLog("SaveSubmission", err)
 	}
 }
 
@@ -987,7 +1135,7 @@ func (p *Postgres) Interventions() []domain.Intervention {
 	rows, err := p.db.QueryContext(contextTODO(),
 		`SELECT `+interventionColumns+` FROM interventions ORDER BY created_date, id`)
 	if err != nil {
-		errLog("Interventions", err)
+		p.errLog("Interventions", err)
 		return nil
 	}
 	defer rows.Close()
@@ -995,7 +1143,7 @@ func (p *Postgres) Interventions() []domain.Intervention {
 	for rows.Next() {
 		i, err := scanIntervention(rows)
 		if err != nil {
-			errLog("Interventions scan", err)
+			p.errLog("Interventions scan", err)
 			continue
 		}
 		out = append(out, i)
@@ -1009,7 +1157,7 @@ func (p *Postgres) InterventionByID(id string) (domain.Intervention, bool) {
 	i, err := scanIntervention(row)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("InterventionByID", err)
+			p.errLog("InterventionByID", err)
 		}
 		return domain.Intervention{}, false
 	}
@@ -1020,7 +1168,7 @@ func (p *Postgres) InterventionsForStudent(id string) []domain.Intervention {
 	rows, err := p.db.QueryContext(contextTODO(),
 		`SELECT `+interventionColumns+` FROM interventions WHERE student_id = $1 ORDER BY created_date DESC, id DESC`, id)
 	if err != nil {
-		errLog("InterventionsForStudent", err)
+		p.errLog("InterventionsForStudent", err)
 		return nil
 	}
 	defer rows.Close()
@@ -1028,7 +1176,7 @@ func (p *Postgres) InterventionsForStudent(id string) []domain.Intervention {
 	for rows.Next() {
 		i, err := scanIntervention(rows)
 		if err != nil {
-			errLog("InterventionsForStudent scan", err)
+			p.errLog("InterventionsForStudent scan", err)
 			continue
 		}
 		out = append(out, i)
@@ -1047,7 +1195,7 @@ func (p *Postgres) SaveIntervention(i domain.Intervention) {
 		i.ID, i.StudentID, i.Topic, i.Action, nullStr(i.AssignedBy),
 		i.CreatedDate, i.Status, nullStr(i.ReassessmentAssessmentID))
 	if err != nil {
-		errLog("SaveIntervention", err)
+		p.errLog("SaveIntervention", err)
 	}
 }
 
@@ -1059,7 +1207,7 @@ func (p *Postgres) Messages() []domain.Message {
 		       body, timestamp, COALESCE(read, FALSE)
 		FROM messages ORDER BY id`)
 	if err != nil {
-		errLog("Messages", err)
+		p.errLog("Messages", err)
 		return nil
 	}
 	defer rows.Close()
@@ -1068,7 +1216,7 @@ func (p *Postgres) Messages() []domain.Message {
 		var m domain.Message
 		if err := rows.Scan(&m.ID, &m.FromID, &m.ToID, &m.RelatedStudentID, &m.Subject,
 			&m.Body, &m.Timestamp, &m.Read); err != nil {
-			errLog("Messages scan", err)
+			p.errLog("Messages scan", err)
 			continue
 		}
 		out = append(out, m)
@@ -1084,7 +1232,7 @@ func (p *Postgres) SaveMessage(m domain.Message) {
 		m.ID, m.FromID, m.ToID, nullStr(m.RelatedStudentID), nullStr(m.Subject),
 		m.Body, m.Timestamp, m.Read)
 	if err != nil {
-		errLog("SaveMessage", err)
+		p.errLog("SaveMessage", err)
 	}
 }
 
@@ -1095,7 +1243,7 @@ func (p *Postgres) Announcements() []domain.Announcement {
 		FROM announcements a LEFT JOIN users u ON u.id = a.author_id
 		ORDER BY a.timestamp DESC, a.id DESC`)
 	if err != nil {
-		errLog("Announcements", err)
+		p.errLog("Announcements", err)
 		return nil
 	}
 	defer rows.Close()
@@ -1104,7 +1252,7 @@ func (p *Postgres) Announcements() []domain.Announcement {
 		var a domain.Announcement
 		if err := rows.Scan(&a.ID, &a.Title, &a.Body, &a.Audience, &a.TargetClassID,
 			&a.AuthorID, &a.AuthorName, &a.Timestamp); err != nil {
-			errLog("Announcements scan", err)
+			p.errLog("Announcements scan", err)
 			continue
 		}
 		out = append(out, a)
@@ -1119,7 +1267,7 @@ func (p *Postgres) AddAnnouncement(a domain.Announcement) {
 		ON CONFLICT (id) DO NOTHING`,
 		a.ID, a.Title, a.Body, a.Audience, nullStr(a.TargetClassID), a.AuthorID, a.Timestamp)
 	if err != nil {
-		errLog("AddAnnouncement", err)
+		p.errLog("AddAnnouncement", err)
 	}
 }
 
@@ -1129,7 +1277,7 @@ func (p *Postgres) Notifications() []domain.Notification {
 		       COALESCE(student_id,''), COALESCE(user_id,''), COALESCE(read, FALSE)
 		FROM notifications ORDER BY timestamp DESC, id DESC`)
 	if err != nil {
-		errLog("Notifications", err)
+		p.errLog("Notifications", err)
 		return nil
 	}
 	defer rows.Close()
@@ -1138,7 +1286,7 @@ func (p *Postgres) Notifications() []domain.Notification {
 		var n domain.Notification
 		if err := rows.Scan(&n.ID, &n.Kind, &n.Title, &n.Body, &n.Timestamp,
 			&n.StudentID, &n.UserID, &n.Read); err != nil {
-			errLog("Notifications scan", err)
+			p.errLog("Notifications scan", err)
 			continue
 		}
 		out = append(out, n)
@@ -1153,37 +1301,50 @@ func (p *Postgres) AddNotification(n domain.Notification) {
 		ON CONFLICT (id) DO NOTHING`,
 		n.ID, n.Kind, n.Title, nullStr(n.Body), n.Timestamp, nullStr(n.StudentID), nullStr(n.UserID))
 	if err != nil {
-		errLog("AddNotification", err)
+		p.errLog("AddNotification", err)
 	}
 }
 
 func (p *Postgres) SetNotificationRead(id string) {
 	_, err := p.db.ExecContext(contextTODO(), `UPDATE notifications SET read = TRUE WHERE id = $1`, id)
 	if err != nil {
-		errLog("SetNotificationRead", err)
+		p.errLog("SetNotificationRead", err)
 	}
 }
 
 // --- Assignments (doc §41) ---
 
-func (p *Postgres) completedForAssignment(ctx context.Context, id string) []string {
-	rows, err := p.db.QueryContext(ctx,
-		`SELECT student_id FROM assignment_completions WHERE assignment_id = $1 ORDER BY student_id`, id)
+// completedForAssignments loads every assignment's completion list in one
+// round trip instead of one query per assignment (see questionsForAssessments
+// for why the difference matters against a remote pooler).
+func (p *Postgres) completedForAssignments(ctx context.Context, ids []string) map[string][]string {
+	out := make(map[string][]string, len(ids))
+	if len(ids) == 0 {
+		return out
+	}
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT assignment_id, student_id FROM assignment_completions
+		WHERE assignment_id IN (SELECT jsonb_array_elements_text($1::jsonb))
+		ORDER BY assignment_id, student_id`, toJSON(ids))
 	if err != nil {
-		errLog("completedForAssignment", err)
-		return nil
+		p.errLog("completedForAssignments", err)
+		return out
 	}
 	defer rows.Close()
-	var out []string
 	for rows.Next() {
-		var sid string
-		if err := rows.Scan(&sid); err != nil {
-			errLog("completedForAssignment scan", err)
+		var aid, sid string
+		if err := rows.Scan(&aid, &sid); err != nil {
+			p.errLog("completedForAssignments scan", err)
 			continue
 		}
-		out = append(out, sid)
+		out[aid] = append(out[aid], sid)
 	}
 	return out
+}
+
+// completedForAssignment is the single-assignment form of the batch above.
+func (p *Postgres) completedForAssignment(ctx context.Context, id string) []string {
+	return p.completedForAssignments(ctx, []string{id})[id]
 }
 
 func (p *Postgres) Assignments() []domain.Assignment {
@@ -1192,21 +1353,29 @@ func (p *Postgres) Assignments() []domain.Assignment {
 		       deadline::text, COALESCE(created_by,''), COALESCE(created_at,'')
 		FROM assignments ORDER BY id`)
 	if err != nil {
-		errLog("Assignments", err)
+		p.errLog("Assignments", err)
 		return nil
 	}
-	defer rows.Close()
-	ctx := contextTODO()
 	var out []domain.Assignment
 	for rows.Next() {
 		var a domain.Assignment
 		if err := rows.Scan(&a.ID, &a.ClassID, &a.SubjectID, &a.Title, &a.Instructions,
 			&a.Deadline, &a.CreatedBy, &a.CreatedAt); err != nil {
-			errLog("Assignments scan", err)
+			p.errLog("Assignments scan", err)
 			continue
 		}
-		a.CompletedBy = p.completedForAssignment(ctx, a.ID)
 		out = append(out, a)
+	}
+	// Release this reader before the follow-up query (see Assessments).
+	rows.Close()
+
+	ids := make([]string, 0, len(out))
+	for i := range out {
+		ids = append(ids, out[i].ID)
+	}
+	completed := p.completedForAssignments(contextTODO(), ids)
+	for i := range out {
+		out[i].CompletedBy = completed[out[i].ID]
 	}
 	return out
 }
@@ -1221,7 +1390,7 @@ func (p *Postgres) AssignmentByID(id string) (domain.Assignment, bool) {
 		&a.Deadline, &a.CreatedBy, &a.CreatedAt)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("AssignmentByID", err)
+			p.errLog("AssignmentByID", err)
 		}
 		return domain.Assignment{}, false
 	}
@@ -1232,7 +1401,7 @@ func (p *Postgres) AssignmentByID(id string) (domain.Assignment, bool) {
 func (p *Postgres) SaveAssignment(a domain.Assignment) {
 	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
-		errLog("SaveAssignment begin", err)
+		p.errLog("SaveAssignment begin", err)
 		return
 	}
 	defer tx.Rollback()
@@ -1246,24 +1415,27 @@ func (p *Postgres) SaveAssignment(a domain.Assignment) {
 			created_by = EXCLUDED.created_by, created_at = EXCLUDED.created_at`,
 		a.ID, a.ClassID, a.SubjectID, a.Title, nullStr(a.Instructions),
 		a.Deadline, nullStr(a.CreatedBy), nullStr(a.CreatedAt)); err != nil {
-		errLog("SaveAssignment", err)
+		p.errLog("SaveAssignment", err)
 		return
 	}
 	if _, err := tx.ExecContext(contextTODO(),
 		`DELETE FROM assignment_completions WHERE assignment_id = $1`, a.ID); err != nil {
-		errLog("SaveAssignment completions delete", err)
+		p.errLog("SaveAssignment completions delete", err)
 		return
 	}
-	for _, sid := range a.CompletedBy {
-		if _, err := tx.ExecContext(contextTODO(),
-			`INSERT INTO assignment_completions (assignment_id, student_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			a.ID, sid); err != nil {
-			errLog("SaveAssignment completion", err)
+	// Single statement for every completer (see the same pattern in SaveUser).
+	if len(a.CompletedBy) > 0 {
+		if _, err := tx.ExecContext(contextTODO(), `
+			INSERT INTO assignment_completions (assignment_id, student_id)
+			SELECT $1, sid FROM jsonb_array_elements_text($2::jsonb) AS sid
+			ON CONFLICT DO NOTHING`,
+			a.ID, toJSON(a.CompletedBy)); err != nil {
+			p.errLog("SaveAssignment completion", err)
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		errLog("SaveAssignment commit", err)
+		p.errLog("SaveAssignment commit", err)
 	}
 }
 
@@ -1275,7 +1447,7 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 		       COALESCE(reason,''), timestamp
 		FROM audit_logs ORDER BY id`)
 	if err != nil {
-		errLog("AuditLogs", err)
+		p.errLog("AuditLogs", err)
 		return nil
 	}
 	defer rows.Close()
@@ -1283,7 +1455,7 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 	for rows.Next() {
 		var e domain.AuditEntry
 		if err := rows.Scan(&e.ID, &e.Action, &e.Actor, &e.Target, &e.Detail, &e.Reason, &e.Timestamp); err != nil {
-			errLog("AuditLogs scan", err)
+			p.errLog("AuditLogs scan", err)
 			continue
 		}
 		out = append(out, e)
@@ -1297,7 +1469,7 @@ func (p *Postgres) AddAudit(e domain.AuditEntry) {
 		VALUES ($1,$2,$3,$4,$5,$6)`,
 		e.Action, e.Actor, nullStr(e.Target), nullStr(e.Detail), nullStr(e.Reason), e.Timestamp)
 	if err != nil {
-		errLog("AddAudit", err)
+		p.errLog("AddAudit", err)
 	}
 }
 
@@ -1309,7 +1481,7 @@ func (p *Postgres) SaveRefreshToken(hash, userID string, expiresAt int64) {
 		ON CONFLICT (hash) DO UPDATE SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at`,
 		hash, userID, expiresAt)
 	if err != nil {
-		errLog("SaveRefreshToken", err)
+		p.errLog("SaveRefreshToken", err)
 	}
 }
 
@@ -1321,7 +1493,7 @@ func (p *Postgres) RefreshTokenLookup(hash string) (string, int64, bool) {
 	err := row.Scan(&userID, &expiresAt)
 	if err != nil {
 		if err != sql.ErrNoRows {
-			errLog("RefreshTokenLookup", err)
+			p.errLog("RefreshTokenLookup", err)
 		}
 		return "", 0, false
 	}
@@ -1331,13 +1503,13 @@ func (p *Postgres) RefreshTokenLookup(hash string) (string, int64, bool) {
 func (p *Postgres) DeleteRefreshToken(hash string) {
 	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM refresh_tokens WHERE hash = $1`, hash)
 	if err != nil {
-		errLog("DeleteRefreshToken", err)
+		p.errLog("DeleteRefreshToken", err)
 	}
 }
 
 func (p *Postgres) DeleteRefreshTokensForUser(userID string) {
 	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
 	if err != nil {
-		errLog("DeleteRefreshTokensForUser", err)
+		p.errLog("DeleteRefreshTokensForUser", err)
 	}
 }

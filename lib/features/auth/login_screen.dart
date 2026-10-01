@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import 'auth_repository.dart';
@@ -29,16 +30,30 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
-    final user = await AuthRepository().login(
-      email: _email.text,
-      password: _password.text,
-    );
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (user != null) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else {
-      svSnack(context, 'Invalid email or password', error: true);
+    try {
+      final user = await AuthRepository().login(
+        email: _email.text,
+        password: _password.text,
+      );
+      if (!mounted) return;
+      if (user != null) {
+        Navigator.of(context).pushReplacementNamed('/home');
+      } else {
+        svSnack(context, 'Invalid email or password', error: true);
+      }
+    } on ApiException catch (e) {
+      // In API mode AuthRepository.login rethrows ApiExceptions (401 for a bad
+      // password, statusCode 0 when the backend is unreachable). Without this
+      // catch the await never reaches `_busy = false`, so one failed attempt
+      // left the sign-in button disabled forever.
+      if (!mounted) return;
+      svSnack(
+        context,
+        e.isNetwork ? 'Cannot reach the server' : e.message,
+        error: true,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

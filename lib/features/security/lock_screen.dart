@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
+import '../../core/security/secret_hash.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
@@ -69,15 +70,21 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
   bool _busy = false;
   bool _autoPrompted = false;
   bool _bioFailed = false;
+  // True only when the device reports it cannot authenticate at all
+  // (isDeviceSupported() == false) — the genuine anti-brick case. A prompt that
+  // merely FAILED or was cancelled must never unlock the app, so Continue is
+  // keyed off this flag rather than off _bioFailed.
+  bool _deviceAuthUnavailable = false;
   bool _signingOut = false;
   IconData _bioIcon = Icons.fingerprint;
   String _bioLabel = 'Verify it’s you';
 
-  /// A valid PIN is 4–6 digits; anything else in storage counts as "no PIN"
-  /// so the fallback paths (device credential / Continue) take over.
+  /// The stored PIN verifier (hashed after migration, plain for an install
+  /// that has not loaded yet); anything unusable counts as "no PIN" so the
+  /// fallback paths (device credential / Continue) take over.
   String get _pin => _settings.lockPin ?? '';
-  bool get _hasPin => _pin.length >= 4 && _pin.length <= 6;
-  int get _pinLength => _hasPin ? _pin.length : 4;
+  bool get _hasPin => _settings.hasLockPin;
+  int get _pinLength => _hasPin ? _settings.lockPinLength : 4;
   bool get _methodBiometric => _settings.lockMethod == 'biometric';
 
   @override
@@ -139,6 +146,9 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
         if (!mounted) return;
         setState(() {
           _bioFailed = true;
+          // Device genuinely can't authenticate — the only state allowed to
+          // offer Continue.
+          _deviceAuthUnavailable = true;
           _messageIsError = false;
           _message = 'Automatic check unavailable';
         });
@@ -196,7 +206,8 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
   }
 
   void _verifyPin() {
-    if (_entry == _pin) {
+    if (verifySecret(_entry, _pin)) {
+      _upgradeLegacyPin();
       svHaptic(SvHaptic.medium);
       widget.onUnlocked();
       return;
@@ -210,6 +221,16 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
       _message = _failures >= 5 ? 'Too many attempts — hold on' : 'Incorrect PIN';
     });
     if (_failures >= 5) _startCooldown();
+  }
+
+  /// Rewrites a legacy plain PIN in hashed form once it has verified. [load]
+  /// normally migrates it earlier, but the plain value must not outlive a
+  /// successful unlock even if settings were read through another path.
+  void _upgradeLegacyPin() {
+    final stored = _settings.lockPin;
+    if (stored == null || stored.isEmpty || isHashedSecret(stored)) return;
+    // Fire and forget: the session is already opening.
+    _settings.setLockPin(stored);
   }
 
   /// Rate limit: after five wrong PINs the keypad pauses for a few seconds.
@@ -472,9 +493,12 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
     );
   }
 
-  /// No usable PIN: offer the device-credential prompt and, when that fails,
-  /// a plain explanation with a working Continue path (the anti-brick state).
+  /// No usable PIN: offer the device-credential prompt. Continue appears only
+  /// when the device cannot authenticate at all (the anti-brick state) — a
+  /// prompt that merely FAILED or was cancelled must not open the app, so the
+  /// biometric button above stays as the retry path instead.
   Widget _noPinBody() {
+    final unsupported = _deviceAuthUnavailable;
     final failed = _bioFailed;
     return Center(
       child: SingleChildScrollView(
@@ -488,7 +512,11 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 16),
             Text(
-              failed ? 'Automatic check didn’t work' : 'Confirm it’s you',
+              unsupported
+                  ? 'Automatic check didn’t work'
+                  : failed
+                      ? 'Couldn’t verify you'
+                      : 'Confirm it’s you',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -498,11 +526,14 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 8),
             Text(
-              failed
-                  ? 'No PIN is set for the app and this device couldn’t verify you '
+              unsupported
+                  ? 'No PIN is set for the app and this device can’t verify you '
                       'automatically. Continue to open the app — you can add a PIN '
                       'in Settings › Security at any time.'
-                  : 'You’ll be asked for your device’s fingerprint, face or screen lock.',
+                  : failed
+                      ? 'Verification didn’t finish. Try again with the button '
+                          'above, or sign out to start over.'
+                      : 'You’ll be asked for your device’s fingerprint, face or screen lock.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: .75),
@@ -510,7 +541,7 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
                 height: 1.5,
               ),
             ),
-            if (failed) ...[
+            if (unsupported) ...[
               const SizedBox(height: 18),
               FilledButton(
                 onPressed: widget.onUnlocked,

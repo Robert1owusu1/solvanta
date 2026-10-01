@@ -74,13 +74,22 @@ func (s *Server) parseToken(token string) (tokenClaims, bool) {
 		return tokenClaims{}, false
 	}
 	claims, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
+	if err != nil || base64.RawURLEncoding.EncodeToString(claims) != parts[0] {
 		return tokenClaims{}, false
 	}
 	want := hmac.New(sha256.New, s.secret)
 	want.Write(claims)
 	given, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || !hmac.Equal(given, want.Sum(nil)) {
+	// Go's raw base64 decoder ignores the trailing bits a 32-byte HMAC does
+	// not use, so several distinct strings decode to the same signature: the
+	// final character of the signature may be any of four characters sharing
+	// one top nibble ("w", "x", "y", "z" all decode alike). Re-encoding and
+	// comparing rejects those twins. Without it a single session would
+	// authenticate under many different bearer strings, so any code that
+	// compares a token as text — denylists, audit records, caches — would see
+	// strings it never issued.
+	if err != nil || !hmac.Equal(given, want.Sum(nil)) ||
+		base64.RawURLEncoding.EncodeToString(given) != parts[1] {
 		return tokenClaims{}, false
 	}
 	var tc tokenClaims
@@ -255,9 +264,27 @@ func bind(c *gin.Context, v any) bool {
 // Router registers every route against the store.
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
+	// Trust no proxy. Gin otherwise honours X-Forwarded-For from anyone, and
+	// ClientIP() feeds the rate limiter below — a spoofable IP would let an
+	// attacker reset their own login throttle (and forge audit addresses).
+	_ = r.SetTrustedProxies(nil)
 	r.Use(gin.Logger(), gin.Recovery(), s.securityHeaders(), s.cors())
 
-	r.GET("/health", func(c *gin.Context) { sendJSON(c, gin.H{"status": "ok"}) })
+	// Liveness stays "ok" while the process is up: the client reads this to
+	// decide whether the server is reachable, and treating storage trouble as
+	// "down" would push it to offline-only mode right when it should be
+	// syncing. Failures are therefore reported alongside, not instead.
+	r.GET("/health", func(c *gin.Context) {
+		body := gin.H{"status": "ok"}
+		if pg, ok := s.store.(*store.Postgres); ok {
+			if n, last, at := pg.StoreErrors(); n > 0 {
+				body["storageErrors"] = n
+				body["lastStorageError"] = last.Error()
+				body["lastStorageErrorAt"] = at.UTC().Format(time.RFC3339)
+			}
+		}
+		sendJSON(c, body)
+	})
 
 	auth := r.Group("/auth", limitRequestBody())
 	{

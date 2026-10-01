@@ -1,4 +1,5 @@
 import '../../core/models/message.dart';
+import '../../core/models/user.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/sync/connectivity_monitor.dart';
 import '../../core/sync/sync_queue.dart';
@@ -29,6 +30,15 @@ class MessagesRepository {
 
   /// Every stored message (order preserved as persisted).
   Future<List<Message>> messages() => _store.loadMessages();
+
+  /// Messages [me] may read — their own threads only, mirroring the backend
+  /// `listMessages` scope (`from == me || to == me`) so offline mode matches
+  /// the API's filtering. Use this (not [messages]) anywhere messages are
+  /// listed or searched for a signed-in account.
+  Future<List<Message>> forUser(User me) async {
+    final all = await _store.loadMessages();
+    return all.where((m) => m.fromId == me.id || m.toId == me.id).toList();
+  }
 
   /// Messages of one conversation, oldest first.
   Future<List<Message>> forConversation(String conversationId) async {
@@ -197,7 +207,10 @@ class MessagesRepository {
       sendKind,
       {
         'method': 'POST',
-        'path': '/messages',
+        // The backend mounts the chat route under /api (server.go: `api := r.Group("/api")`
+        // then `comm.POST("/messages", ...)`), so replaying to /messages 404s and the
+        // rejected outbox item is dropped while still being marked "sent".
+        'path': '/api/messages',
         'body': msg.toJson(),
         'messageId': msg.id,
       },

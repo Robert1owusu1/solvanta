@@ -171,6 +171,19 @@ class ApiClient {
         _ => throw ArgumentError('unsupported method $method'),
       };
       return _decode(res);
+    } on ApiException catch (e) {
+      // A 401/403 on a mutating request means the *session* is wrong, not the
+      // payload: the record is valid and only the credential is stale. Capture
+      // it in the outbox exactly as an outage would, so it is retried after a
+      // sign-in and stays visible as a pending change. Previously only
+      // transport failures queued, so callers that caught this error left
+      // nothing behind — the write was never retried and never happened.
+      // `/auth/*` is already excluded by [shouldQueue], so a password can
+      // never be persisted this way.
+      if (shouldQueue && (e.statusCode == 401 || e.statusCode == 403)) {
+        await _queueOff(kind, payload);
+      }
+      rethrow;
     } on SocketException {
       throw networkFailure('Cannot reach $baseUrl');
     } on HttpException catch (e) {
@@ -198,8 +211,9 @@ class ApiClient {
   /// Registered with `SyncQueue` from the constructor.
   ///
   /// Result mapping: success → true (item removed); network error or 5xx →
-  /// false (kept, `lastError` + backoff); other HTTP rejections (4xx) →
-  /// dropped with a loud log, since replaying a permanently rejected
+  /// false (kept, `lastError` + backoff); 401/403 → rethrown (kept, real
+  /// reason in `lastError`, retried after a sign-in); other HTTP rejections
+  /// (4xx) → dropped with a loud log, since replaying a permanently rejected
   /// operation would poison the outbox forever.
   Future<bool> _replaySyncItem(SyncItem item) async {
     final method = item.payload['method'];
@@ -214,6 +228,12 @@ class ApiClient {
       return true;
     } on ApiException catch (e) {
       if (e.isNetwork || e.statusCode >= 500) return false;
+      // Stale session or insufficient role: the payload itself would be
+      // accepted once the user signs in again, so rethrow rather than drop —
+      // SyncQueue then keeps the item, records the real reason in
+      // `lastError` and applies its backoff. Dropping these lost school
+      // records outright, silently, while the UI reported success.
+      if (e.statusCode == 401 || e.statusCode == 403) rethrow;
       debugPrint('[ApiClient] dropping rejected outbox item '
           '${item.id} (${item.kind}): $e');
       return true;

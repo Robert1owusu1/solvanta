@@ -32,6 +32,12 @@ class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen>
         (classes) async => (classes, await StudentsRepository().active()));
   }
 
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickClass(String classId) async {
     final dates = await AttendanceRepository().datesForClass(classId);
     if (!mounted) return;
@@ -72,16 +78,27 @@ class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen>
       return;
     }
     setState(() => _saving = true);
-    await AttendanceRepository().saveDay(
-      _classId!,
-      _date!,
-      _statuses,
-      reason: reason,
-      actor: 'School Admin',
-    );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    Navigator.of(context).pop(true);
+    try {
+      await AttendanceRepository().saveDay(
+        _classId!,
+        _date!,
+        _statuses,
+        reason: reason,
+        actor: 'School Admin',
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      // Without this the await escaped before `_saving = false`, wedging the
+      // Save button closed on any storage/JSON failure.
+      debugPrint('[AttendanceCorrection] save failed: $e');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not save the correction'),
+          behavior: .floating));
+    }
   }
 
   @override

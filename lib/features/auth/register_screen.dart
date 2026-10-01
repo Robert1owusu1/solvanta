@@ -41,19 +41,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
-    final user = await AuthRepository().register(
-      name: _name.text,
-      email: _email.text,
-      phone: _phone.text,
-      password: _password.text,
-      role: _role,
-    );
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (user != null) {
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else {
-      svSnack(context, 'An account with this email exists', error: true);
+    try {
+      final user = await AuthRepository().register(
+        name: _name.text,
+        email: _email.text,
+        phone: _phone.text,
+        password: _password.text,
+        role: _role,
+      );
+      if (!mounted) return;
+      if (user != null) {
+        Navigator.of(context).pushReplacementNamed('/home');
+      } else {
+        svSnack(context, 'An account with this email exists', error: true);
+      }
+    } catch (e) {
+      // A throw here (e.g. a failed prefs write) used to escape before
+      // `_busy = false`, leaving the Create-account button permanently
+      // disabled. Surface it and always release the button.
+      debugPrint('[Register] failed: $e');
+      if (!mounted) return;
+      svSnack(context, 'Could not create the account', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

@@ -38,7 +38,13 @@ void main() {
 
   group('check-in scan flow', () {
     setUp(() {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        // Gate check-in is staff work (S6), so the flow under test needs a
+        // signed-in account that may record arrivals. USR-TCH-001 is the
+        // seeded teacher of JHS2A — the class STU-002 belongs to — so the
+        // scanned student is still inside this account's visible roll.
+        'solvanta.session_user_id': 'USR-TCH-001',
+      });
     });
 
     testWidgets('a scanned id surfaces the student for manual confirmation',

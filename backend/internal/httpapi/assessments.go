@@ -70,7 +70,8 @@ func (s *Server) listAssessments(c *gin.Context) {
 			continue
 		}
 		if a.ClassID == viewClassID {
-			mine = append(mine, a)
+			// Learner roles get the paper without its answer key.
+			mine = append(mine, assessmentFor(a, u))
 		}
 	}
 	sendJSON(c, mine)
@@ -145,6 +146,33 @@ func (s *Server) createAssessment(c *gin.Context) {
 	sendCreated(c, a)
 }
 
+// learnerQuestion strips the marking key from a question. Learners need the
+// stem and options to sit a paper, but correctAnswer/explanation/markingScheme
+// ARE the answer key and must not leave the API on a student- or parent-role
+// token (the assessment used to be serialised verbatim).
+func learnerQuestion(q domain.Question) domain.Question {
+	q.CorrectAnswer = ""
+	q.Explanation = ""
+	q.MarkingScheme = ""
+	return q
+}
+
+// assessmentFor returns a as it may be serialised for u: staff see the answer
+// key, everyone else sees the paper without it.
+func assessmentFor(a domain.Assessment, u domain.User) domain.Assessment {
+	if u.IsSchoolStaff() {
+		return a
+	}
+	out := a
+	if len(a.Questions) > 0 {
+		out.Questions = make([]domain.Question, len(a.Questions))
+		for i, q := range a.Questions {
+			out.Questions[i] = learnerQuestion(q)
+		}
+	}
+	return out
+}
+
 // assessmentDetail returns the assessment and the current user's submission if
 // one exists.
 func (s *Server) assessmentDetail(c *gin.Context) {
@@ -158,7 +186,7 @@ func (s *Server) assessmentDetail(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own class assessments")
 		return
 	}
-	view := gin.H{"assessment": a}
+	view := gin.H{"assessment": assessmentFor(a, u)}
 	if u.Role == domain.RoleStudent || u.Role == domain.RoleParent {
 		sid := ""
 		switch u.Role {

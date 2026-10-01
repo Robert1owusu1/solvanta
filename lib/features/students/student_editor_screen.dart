@@ -47,6 +47,15 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
     _parentUserId = widget.initial?.parentUserId;
   }
 
+  @override
+  void dispose() {
+    _first.dispose();
+    _last.dispose();
+    _dob.dispose();
+    _admissionNo.dispose();
+    super.dispose();
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final repo = StudentsRepository();

@@ -20,7 +20,13 @@ func (s *Server) gateEvents(c *gin.Context) {
 	sendJSON(c, out)
 }
 
+// gateEventRequest carries the client's own id when it has one. The gate
+// device records the event locally first and only then pushes it, so the id
+// it created offline is the merge key: the server must reuse it or the same
+// arrival exists twice — once under each id — once the two trails are merged
+// (and again on every retried POST, since the insert is keyed on id).
 type gateEventRequest struct {
+	ID        string `json:"id"`
 	StudentID string `json:"studentId"`
 	Type      string `json:"type"`
 	Time      string `json:"time"`
@@ -44,7 +50,11 @@ func (s *Server) createGateEvent(c *gin.Context) {
 	}
 	u := currentUser(c)
 	ev := domain.GateEvent{
-		ID:        newID("GATE"),
+		// Honour a client-supplied id so a retried push is idempotent:
+		// AddGateEvent inserts ON CONFLICT (id) DO NOTHING, so replaying the
+		// same offline capture writes nothing the second time. Devices that
+		// push straight through never send one and still get a fresh id.
+		ID:        firstNonEmpty(body.ID, newID("GATE")),
 		StudentID: st.ID,
 		Type:      body.Type,
 		Time:      firstNonEmpty(body.Time, now()[11:16]),

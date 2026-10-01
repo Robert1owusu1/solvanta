@@ -263,6 +263,90 @@ func TestNotificationReadScoping(t *testing.T) {
 	}
 }
 
+// TestLearnersNeverReceiveAssessmentAnswerKey: an assessment payload may carry
+// the paper (stems and options) to learners but never correctAnswer /
+// explanation / markingScheme — those fields ARE the answer key. Staff keep
+// them. The assessment used to be serialised verbatim for every role.
+func TestLearnersNeverReceiveAssessmentAnswerKey(t *testing.T) {
+	r := newTestServer(t, Config{})
+	studentTok := login(t, r, "kojo.owusu@school.gh", "student123")
+	teacherTok := login(t, r, "efua.mensah@school.gh", "teacher123")
+	hdr := func(tok string) map[string]string {
+		return map[string]string{"Authorization": "Bearer " + tok}
+	}
+
+	type qView struct {
+		Stem          string `json:"stem"`
+		CorrectAnswer string `json:"correctAnswer"`
+		Explanation   string `json:"explanation"`
+		MarkingScheme string `json:"markingScheme"`
+	}
+	type detailView struct {
+		Assessment struct {
+			Questions []qView `json:"questions"`
+		} `json:"assessment"`
+	}
+
+	rec := do(r, "GET", "/api/assessments/ASSMT-MAT-HALF", "", hdr(studentTok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("student detail: got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var detail detailView
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if len(detail.Assessment.Questions) == 0 {
+		t.Fatal("student received no questions")
+	}
+	for _, q := range detail.Assessment.Questions {
+		if q.Stem == "" {
+			t.Fatal("question stem stripped for student")
+		}
+		if q.CorrectAnswer != "" || q.Explanation != "" || q.MarkingScheme != "" {
+			t.Fatalf("answer key leaked to student: %+v", q)
+		}
+	}
+
+	rec = do(r, "GET", "/api/assessments", "", hdr(studentTok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("student list: got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var list []struct {
+		Questions []qView `json:"questions"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list) == 0 {
+		t.Fatal("student assessment list empty")
+	}
+	for _, a := range list {
+		for _, q := range a.Questions {
+			if q.CorrectAnswer != "" {
+				t.Fatalf("answer key leaked on list: %+v", q)
+			}
+		}
+	}
+
+	rec = do(r, "GET", "/api/assessments/ASSMT-MAT-HALF", "", hdr(teacherTok))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("teacher detail: got %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var staff detailView
+	if err := json.Unmarshal(rec.Body.Bytes(), &staff); err != nil {
+		t.Fatalf("decode staff detail: %v", err)
+	}
+	withKey := 0
+	for _, q := range staff.Assessment.Questions {
+		if q.CorrectAnswer != "" {
+			withKey++
+		}
+	}
+	if withKey == 0 {
+		t.Fatal("teacher lost the answer key")
+	}
+}
+
 func TestStudentCannotActForOthers(t *testing.T) {
 	r := newTestServer(t, Config{})
 	// student submits an assessment: only for their own student record

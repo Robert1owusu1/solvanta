@@ -22,10 +22,12 @@ import '../models/school_term.dart';
 import '../models/student.dart';
 import '../models/submission.dart';
 import '../models/user.dart';
+import '../security/secret_hash.dart';
 
 class LocalStore {
   static const _usersKey = 'solvanta.users_v1';
   static const _sessionKey = 'solvanta.session_user_id';
+  static const _apiTokenKey = 'solvanta.api_token';
   static const _classesKey = 'solvanta.classes_v1';
   static const _studentsKey = 'solvanta.students_v1';
   static const _attendanceKey = 'solvanta.attendance_v1';
@@ -51,7 +53,17 @@ class LocalStore {
     final raw = prefs.getString(_usersKey);
     if (raw == null) return _seed(prefs);
     final list = jsonDecode(raw) as List;
-    return list.map((e) => User.fromJson(e as Map<String, dynamic>)).toList();
+    final users =
+        list.map((e) => User.fromJson(e as Map<String, dynamic>)).toList();
+    // Upgrade an install written before passwords were hashed: the plain value
+    // is still readable here, so hash it once and rewrite. After this read the
+    // file no longer holds a usable password for any account, and later reads
+    // find everything already hashed (so the write happens at most once).
+    if (users
+        .any((u) => u.password.isNotEmpty && !isHashedSecret(u.password))) {
+      await prefs.setString(_usersKey, jsonEncode(_encodeUsers(users)));
+    }
+    return users;
   }
 
   Future<List<ClassRoom>> loadClasses() async {
@@ -208,11 +220,23 @@ class LocalStore {
     );
   }
 
+  /// JSON for [users] with every password hashed before it reaches disk.
+  ///
+  /// Offline login compares against the stored copy, so that copy used to be a
+  /// usable plaintext password inside `solvanta.users_v1` — anything that could
+  /// read the app's prefs got every account's password. [hashSecret] is
+  /// idempotent, so a user already loaded from disk round-trips unchanged.
+  List<Map<String, dynamic>> _encodeUsers(List<User> users) => users.map((u) {
+        final json = u.toJson();
+        json['password'] = hashSecret(u.password);
+        return json;
+      }).toList();
+
   Future<void> saveUsers(List<User> users) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _usersKey,
-      jsonEncode(users.map((u) => u.toJson()).toList()),
+      jsonEncode(_encodeUsers(users)),
     );
   }
 
@@ -456,6 +480,28 @@ class LocalStore {
     await prefs.remove(_sessionKey);
   }
 
+  /// The bearer token the backend issued at login.
+  ///
+  /// It has to be persisted alongside the session id: `ApiClient.sharedToken`
+  /// is a plain static that dies with the process, so without this a cold
+  /// start still knows *who* is signed in (the session id survives) but has
+  /// no way to authenticate — every API call goes out with no Authorization
+  /// header and comes back 401, while the offline-first read paths quietly
+  /// keep serving the local copy. The app then looks healthy and never syncs.
+  Future<void> setApiToken(String? token) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (token == null || token.isEmpty) {
+      await prefs.remove(_apiTokenKey);
+    } else {
+      await prefs.setString(_apiTokenKey, token);
+    }
+  }
+
+  Future<String?> getApiToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_apiTokenKey);
+  }
+
   List<User> _seed(SharedPreferences prefs) {
     final users = <User>[
       const User(
@@ -587,7 +633,7 @@ class LocalStore {
     ];
     prefs.setString(
       _usersKey,
-      jsonEncode(users.map((u) => u.toJson()).toList()),
+      jsonEncode(_encodeUsers(users)),
     );
     return users;
   }

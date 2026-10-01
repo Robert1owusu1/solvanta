@@ -41,7 +41,7 @@ type Store interface {
 	// Attendance (doc §12)
 	Attendance() []domain.AttendanceRecord
 	AttendanceForClassDate(classID, date string) []domain.AttendanceRecord
-	SaveAttendance(records []domain.AttendanceRecord)                // replace whole log (bootstrap/import)
+	SaveAttendance(records []domain.AttendanceRecord)                // merge (bootstrap/seed), never deletes
 	SaveDay(classID, date string, records []domain.AttendanceRecord) // replace one day
 
 	// Gate (doc §13)
@@ -129,10 +129,18 @@ type refreshRecord struct {
 }
 
 // New returns a fresh in-memory store, seeded with development data.
+// New returns a store loaded with the demo dataset (dev default).
 func New() *Memory {
-	m := &Memory{}
+	m := NewUnseeded()
 	m.seed()
 	return m
+}
+
+// NewUnseeded returns an empty store. Production boots from this so a server
+// never materialises the demo accounts (super@solvanta.app/super123,
+// admin@solvanta.app/admin123, …) unless seeding was explicitly requested.
+func NewUnseeded() *Memory {
+	return &Memory{}
 }
 
 func (m *Memory) School() domain.School {
@@ -269,10 +277,26 @@ func (m *Memory) AttendanceForClassDate(classID, date string) []domain.Attendanc
 	return out
 }
 
+// SaveAttendance merges records into the log, mirroring the Postgres bootstrap
+// path: a student/day that already has a record is left alone and nothing is
+// deleted, so re-running the seed is idempotent instead of replacing (and so
+// wiping) every attendance record the store holds.
 func (m *Memory) SaveAttendance(records []domain.AttendanceRecord) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.attendance = records
+	type dayKey struct{ student, date string }
+	present := make(map[dayKey]bool, len(m.attendance))
+	for _, r := range m.attendance {
+		present[dayKey{r.StudentID, r.Date}] = true
+	}
+	for _, r := range records {
+		k := dayKey{r.StudentID, r.Date}
+		if present[k] {
+			continue
+		}
+		present[k] = true
+		m.attendance = append(m.attendance, r)
+	}
 }
 
 func (m *Memory) SaveDay(classID, date string, records []domain.AttendanceRecord) {
@@ -307,9 +331,19 @@ func (m *Memory) GateForStudent(id string) []domain.GateEvent {
 	return out
 }
 
+// AddGateEvent appends an event unless one with that id already exists,
+// mirroring Postgres' `ON CONFLICT (id) DO NOTHING`. The gate device records
+// offline and pushes later, so a replayed push must not produce a second
+// record — and the dev store has to behave as the production one does or the
+// difference only shows up after deployment.
 func (m *Memory) AddGateEvent(e domain.GateEvent) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, g := range m.gate {
+		if g.ID == e.ID {
+			return
+		}
+	}
 	m.gate = append(m.gate, e)
 }
 
@@ -583,8 +617,15 @@ func upsert[T keyed](list []T, id string, item T) []T {
 	return out
 }
 
+// deleteByID builds a fresh slice. Filtering in place with list[:0] would write
+// into the store's own backing array while holding the write lock — but the
+// getters hand that same array to callers after releasing the lock, so an
+// in-place compaction races with any reader (detected by go test -race).
 func deleteByID(list []domain.Question, id string) []domain.Question {
-	out := list[:0]
+	if len(list) == 0 {
+		return list
+	}
+	out := make([]domain.Question, 0, len(list))
 	for _, q := range list {
 		if q.ID != id {
 			out = append(out, q)
@@ -593,8 +634,13 @@ func deleteByID(list []domain.Question, id string) []domain.Question {
 	return out
 }
 
+// removeMatch is the same as deleteByID: a fresh slice, never list[:0], so the
+// store's backing array is never written to while readers hold an alias.
 func removeMatch(subs []domain.Submission, assessmentID, studentID string) []domain.Submission {
-	out := subs[:0]
+	if len(subs) == 0 {
+		return subs
+	}
+	out := make([]domain.Submission, 0, len(subs))
 	for _, s := range subs {
 		if s.AssessmentID != assessmentID || s.StudentID != studentID {
 			out = append(out, s)

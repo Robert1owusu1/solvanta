@@ -109,11 +109,52 @@ func TestLoginRateLimit(t *testing.T) {
 func TestTamperedAndExpiredTokens(t *testing.T) {
 	r := newTestServer(t, Config{})
 	tok := login(t, r, "admin@solvanta.app", "admin123")
+	sig := strings.LastIndex(tok, ".")
+	if sig < 0 || len(tok)-sig-1 < 3 {
+		t.Fatalf("unexpected token shape: %q", tok)
+	}
 
-	tampered := tok[:len(tok)-1] + "x"
+	// 1. A full signature character is overwritten, changing the decoded MAC.
+	//    Pick a middle character: only the very last character of a base64
+	//    string carries partial bits, so editing that one can be a no-op.
+	i := sig + 1 + (len(tok)-sig-1)/2
+	alt := byte('A')
+	if tok[i] == 'A' {
+		alt = 'B'
+	}
+	tampered := tok[:i] + string(alt) + tok[i+1:]
+	if tampered == tok {
+		t.Fatal("test bug: tampered token equals the original")
+	}
 	rec := do(r, "GET", "/api/subjects", "", map[string]string{"Authorization": "Bearer " + tampered})
 	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("tampered token: got %d, want 401", rec.Code)
+		t.Fatalf("tampered signature: got %d, want 401", rec.Code)
+	}
+
+	// 2. A "twin": different text, identical decoded signature. The signature
+	//    ends in a character whose two low bits are pure padding, so flipping
+	//    one of them yields a string that decodes to the very same MAC and
+	//    would be accepted by a decoder that does not re-encode. Server-issued
+	//    signatures are canonical, so that flip is always available.
+	const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	j := strings.IndexByte(alpha, tok[len(tok)-1])
+	if j < 0 {
+		t.Fatalf("unexpected final character in token %q", tok)
+	}
+	twin := tok[:len(tok)-1] + string(alpha[j^1])
+	if twin == tok {
+		t.Fatal("test bug: non-canonical twin equals the original token")
+	}
+	rec = do(r, "GET", "/api/subjects", "", map[string]string{"Authorization": "Bearer " + twin})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("non-canonical twin of a valid token: got %d, want 401", rec.Code)
+	}
+
+	// The token itself still works, so the rejections above are not an
+	// artifact of a broken login.
+	rec = do(r, "GET", "/api/subjects", "", map[string]string{"Authorization": "Bearer " + tok})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("untampered token: got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
 
 	rec = do(r, "GET", "/api/subjects", "", nil)

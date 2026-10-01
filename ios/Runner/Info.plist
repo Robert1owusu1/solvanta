@@ -26,6 +26,20 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Usage descriptions: Android declares these as permissions, iOS instead
+	     requires a purpose string per capability — without them the app is
+	     terminated the moment the feature is opened, not just denied.
+	     Camera: `mobile_scanner` reads student QR ID cards at the gate
+	     (android.permission.CAMERA). Photo library: `image_picker` attaches a
+	     picture of a marked answer sheet (scan capture / marking screens).
+	     Face ID: `local_auth` backs the app lock (USE_BIOMETRIC); the PIN pad
+	     stays the fallback when it is unavailable. -->
+	<key>NSCameraUsageDescription</key>
+	<string>SOLVANTA uses the camera to scan the QR code on a student ID card and check them in at the school gate.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SOLVANTA lets you attach a photo of a marked answer sheet when capturing or grading work.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID unlocks the app and confirms it is you. You can always fall back to your PIN.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

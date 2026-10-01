@@ -48,6 +48,12 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
     _loadUser();
   }
 
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUser() async {
     final user = await AuthRepository().currentUser();
     if (!mounted) return;

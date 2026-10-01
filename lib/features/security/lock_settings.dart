@@ -26,14 +26,14 @@ import '../../core/ui/ui_kit.dart';
 ///
 /// The section hides itself while App lock is off, so no `if` is needed.
 ///
-/// ## PIN storage note (for the lead)
+/// ## PIN storage note
 ///
-/// The PIN is written through `AppSettings.setLockPin`, i.e. plain text in
-/// `shared_prefs` — deliberately **read-compatible** with any value
-/// settings_screen (or anything else) has already written. Hashing it would
-/// break existing stored PINs; migrating is a follow-up for the lead (write
-/// hash + a `v2` marker, verify against the legacy value, re-write hashed).
-/// This front-end lock is device-convenience, not a security boundary.
+/// The PIN is written through `AppSettings.setLockPin`, which stores a salted,
+/// stretched hash (`v2$salt$iterations$digest`) — the plain digits never reach
+/// `shared_prefs`. An install written by an older build still holds the plain
+/// value; `AppSettings.load` verifies it once and rewrites it hashed, so no
+/// migration step is needed at this call site. This front-end lock is
+/// device-convenience, not a security boundary.
 class LockSettingsSection extends StatefulWidget {
   const LockSettingsSection({super.key});
 
@@ -56,10 +56,7 @@ class _LockSettingsSectionState extends State<LockSettingsSection> {
     super.dispose();
   }
 
-  bool get _hasPin {
-    final pin = _settings.lockPin ?? '';
-    return pin.length >= 4 && pin.length <= 6;
-  }
+  bool get _hasPin => _settings.hasLockPin;
 
   @override
   Widget build(BuildContext context) {
@@ -180,7 +177,7 @@ class _LockSettingsSectionState extends State<LockSettingsSection> {
       return;
     }
     svHaptic(SvHaptic.medium);
-    // Plain text on purpose — see the class docs (read-compatibility).
+    // Hashed at rest by setLockPin — see the class docs (PIN storage note).
     _settings.setLockPin(pin);
     _pinController.clear();
     _confirmController.clear();

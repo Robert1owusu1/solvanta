@@ -17,7 +17,12 @@ import (
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
-		addr = ":" + firstNonEmpty(os.Getenv("PORT"), "8080")
+		// Loopback by default. The API carries school records and boots with
+		// seeded demo accounts, so a laptop on shared Wi-Fi should not offer it
+		// to the network without meaning to. The emulator's `adb reverse` and
+		// the parity suite both reach it at 127.0.0.1; the Docker image sets
+		// ADDR=:8080 explicitly, and any real deployment should too.
+		addr = "127.0.0.1:" + firstNonEmpty(os.Getenv("PORT"), "8080")
 	}
 	cfg := httpapi.Config{
 		Secret:     os.Getenv("SECRET"),
@@ -34,7 +39,7 @@ func main() {
 	var st store.Store
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
 		log.Println("using PostgreSQL store")
-		pg, err := store.NewPostgres(dsn, os.Getenv("SEED") != "false")
+		pg, err := store.NewPostgres(dsn, shouldSeed(cfg.Production))
 		if err != nil {
 			log.Fatalf("postgres: %v", err)
 		}
@@ -42,7 +47,11 @@ func main() {
 		st = pg
 	} else {
 		log.Println("using in-memory store (set POSTGRES_DSN for persistence)")
-		st = store.New()
+		if shouldSeed(cfg.Production) {
+			st = store.New()
+		} else {
+			st = store.NewUnseeded()
+		}
 	}
 
 	server, err := httpapi.NewServer(st, cfg)
@@ -55,6 +64,25 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// shouldSeed decides whether to load the demo dataset at boot. Development
+// seeds by default so the sample logins work out of the box (SEED=false turns
+// it off). Production never seeds unless SEED is set explicitly: the seed
+// creates accounts with publicly known passwords (super@solvanta.app/super123,
+// admin@solvanta.app/admin123, …) and previously defaulted to ON, so any
+// production box with POSTGRES_DSN set silently grew a super-admin.
+func shouldSeed(production bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("SEED")))
+	yes := v == "true" || v == "1" || v == "yes"
+	if !production {
+		no := v == "false" || v == "0" || v == "no"
+		return !no
+	}
+	if yes {
+		log.Println("WARNING: SEED=true in production - demo accounts with publicly known passwords are being created; rotate them now or unset SEED")
+	}
+	return yes
 }
 
 func envLabel(cfg httpapi.Config) string {

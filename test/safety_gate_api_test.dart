@@ -129,14 +129,16 @@ void main() {
     final store = LocalStore();
     final fake = _FakeRemote(failRead: true);
     final repo = SafetyRepository(store: store, remote: fake);
-    await repo.record(
+    final recorded = await repo.record(
       studentId: 'STU-002',
       type: GateEventType.arrival,
       reporter: 'Gate Staff',
       detail: 'ID check-in verified at gate',
     );
 
-    expect(await repo.forDate('2026-09-24'), isNotEmpty);
+    // record() stamps _today(), so query by the event's own date rather than a
+    // hardcoded one — that literal went stale the day after it was written.
+    expect(await repo.forDate(recorded.date), isNotEmpty);
     expect(await repo.all(), isNotEmpty);
   });
 

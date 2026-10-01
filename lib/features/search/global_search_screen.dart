@@ -5,6 +5,7 @@ import '../../core/models/message.dart';
 import '../../core/models/student.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../auth/auth_repository.dart';
 import '../communication/messages_repository.dart';
 import '../notifications/notifications_repository.dart';
 import '../students/students_repository.dart';
@@ -59,10 +60,31 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     super.dispose();
   }
 
+  /// Cross-entity search, scoped to the signed-in account (S4/A1): the shell's
+  /// search field must not become a way to read every student, message and
+  /// notification on the device just by typing into it. Each source mirrors
+  /// what its own screen already allows — students via [visibleToUser],
+  /// notifications via [visibleFor], messages via [forUser] — so search can
+  /// never surface something the corresponding list would not.
+  ///
+  /// A signed-out caller gets nothing rather than falling open.
   Future<List<SearchHit>> _load() async {
-    final students = await StudentsRepository().active();
-    final notifications = await NotificationsRepository().all();
-    final messages = await MessagesRepository().messages();
+    final user = await AuthRepository().currentUser();
+    if (user == null) {
+      if (!mounted) return const [];
+      setState(() {
+        _students = const [];
+        _notifications = const [];
+        _messages = const [];
+      });
+      return const [];
+    }
+
+    final students = await StudentsRepository().visibleToUser(user);
+    final notifications =
+        await NotificationsRepository().visibleFor(user, students);
+    final messages = await MessagesRepository().forUser(user);
+
     if (!mounted) return const [];
     setState(() {
       _students = students;

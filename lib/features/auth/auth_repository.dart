@@ -2,6 +2,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/remote_data_source.dart';
 import '../../core/models/role.dart';
 import '../../core/models/user.dart';
+import '../../core/security/secret_hash.dart';
 import '../../core/storage/local_store.dart';
 
 /// Authenticates against the local seed store by default. When an API endpoint
@@ -50,13 +51,22 @@ class AuthRepository {
       final merged = [...users.where((u) => u.id != user.id), user];
       await _store.saveUsers(merged);
       await _store.setSessionUser(user.id);
+      // Persist the bearer token too. `remote.login` already published it to
+      // `ApiClient.sharedToken`, but that static dies with the process while
+      // the session id above does not. Persisting only the session is what
+      // made a cold start silently unauthenticated: signed in, 401 on every
+      // write, and offline-first fallbacks hiding it behind local data.
+      await _store.setApiToken(res.token);
       return user;
     }
 
     final users = await _store.loadUsers();
     for (final u in users) {
       if (u.email.toLowerCase() == email.trim().toLowerCase() &&
-          u.password == password) {
+          // The stored copy is a hash; verifySecret still accepts a legacy
+          // plain value so an install that predates hashing can sign in, and
+          // LocalStore.loadUsers rewrites it hashed on that first read.
+          verifySecret(password, u.password)) {
         await _store.setSessionUser(u.id);
         return u;
       }
@@ -112,5 +122,9 @@ class AuthRepository {
       }
     }
     await _store.clearSession();
+    // Drop the bearer token with the session, otherwise the next account that
+    // signs in on this device starts out presenting the previous one's token
+    // (401, then a silent local-only write until a fresh login replaces it).
+    await _store.setApiToken(null);
   }
 }

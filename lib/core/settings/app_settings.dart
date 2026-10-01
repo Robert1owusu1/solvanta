@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../security/secret_hash.dart';
+
 /// Persisted user preferences — the single source of truth for appearance,
 /// motion, security and data usage.
 ///
@@ -22,6 +24,9 @@ class AppSettings extends ChangeNotifier {
   static const _kLockEnabled = 'solvanta.lockEnabled';
   static const _kLockMethod = 'solvanta.lockMethod';
   static const _kLockPin = 'solvanta.lockPin';
+  // The PIN's digit count (4–6). Kept as its own value because the PIN itself
+  // is hashed now, so its length can no longer be inferred from storage.
+  static const _kLockPinLength = 'solvanta.lockPinLength';
   static const _kNotifications = 'solvanta.notificationsEnabled';
   static const _kLargeText = 'solvanta.largeText';
 
@@ -62,9 +67,25 @@ class AppSettings extends ChangeNotifier {
   /// `'biometric'` or `'pin'`.
   String lockMethod = 'biometric';
 
-  /// Four-digit PIN. Stored on-device only; this is a front-end demo lock,
-  /// not a substitute for the platform keystore.
+  /// App-lock PIN, stored hashed (`v2$salt$iterations$digest`) so a dump of
+  /// SharedPreferences no longer hands over a usable PIN. A legacy plain value
+  /// may still be present until the first [load] migrates it.
+  ///
+  /// Front-end demo lock, not a substitute for the platform keystore.
   String? lockPin;
+
+  /// How many digits the PIN was created with (4–6). Stored separately because
+  /// the length of [lockPin] says nothing about it once hashed.
+  int lockPinLength = 4;
+
+  /// Whether a usable PIN is stored: the hashed form, or a legacy plain value
+  /// that [load] has not upgraded yet.
+  bool get hasLockPin {
+    final v = lockPin;
+    if (v == null || v.isEmpty) return false;
+    if (isHashedSecret(v)) return true;
+    return v.length >= 4 && v.length <= 6;
+  }
 
   // ---------------------------------------------------------------------
   // Notifications
@@ -94,6 +115,21 @@ class AppSettings extends ChangeNotifier {
     lockEnabled = p.getBool(_kLockEnabled) ?? false;
     lockMethod = p.getString(_kLockMethod) ?? 'biometric';
     lockPin = p.getString(_kLockPin);
+    lockPinLength = p.getInt(_kLockPinLength) ?? 4;
+    // Upgrade a PIN written by an older build, which stored it as plain digits.
+    // Rewriting it hashed is what actually gets the secret out of the file:
+    // verification still works afterwards because [verifySecret] accepts both
+    // forms, but the plain value is gone once this runs.
+    final legacyPin = lockPin;
+    if (legacyPin != null &&
+        legacyPin.length >= 4 &&
+        legacyPin.length <= 6 &&
+        !isHashedSecret(legacyPin)) {
+      lockPinLength = legacyPin.length;
+      lockPin = hashSecret(legacyPin);
+      await p.setString(_kLockPin, lockPin!);
+      await p.setInt(_kLockPinLength, lockPinLength);
+    }
     notificationsEnabled = p.getBool(_kNotifications) ?? true;
     largeText = p.getBool(_kLargeText) ?? false;
     _loaded = true;
@@ -170,9 +206,22 @@ class AppSettings extends ChangeNotifier {
     await _set(null, null, null, stringKey: _kLockMethod, stringValue: value);
   }
 
+  /// Stores [value] hashed so the plain PIN never lands on disk. Null/empty
+  /// clears the PIN along with its recorded length.
   Future<void> setLockPin(String? value) async {
-    lockPin = value;
-    await _set(null, null, null, stringKey: _kLockPin, stringValue: value);
+    if (value == null || value.isEmpty) {
+      lockPin = null;
+      lockPinLength = 4;
+      await _set(null, null, null, stringKey: _kLockPin, stringValue: null);
+      final p = await SharedPreferences.getInstance();
+      await p.remove(_kLockPinLength);
+      return;
+    }
+    lockPin = hashSecret(value);
+    lockPinLength = value.length;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kLockPinLength, lockPinLength);
+    await _set(null, null, null, stringKey: _kLockPin, stringValue: lockPin);
   }
 
   // ---------------------------------------------------------------------

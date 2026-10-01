@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Flutter client (pubspec.yaml)
+  - package-ecosystem: pub
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Go API (backend/go.mod)
+  - package-ecosystem: gomod
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # CI workflows (.github/workflows)
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # backend/Dockerfile + docker-compose.yml
+  - package-ecosystem: docker
+    directory: "/backend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

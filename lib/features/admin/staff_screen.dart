@@ -38,7 +38,10 @@ class _StaffScreenState extends State<StaffScreen> {
     final name = TextEditingController(text: existing?.name ?? '');
     final email = TextEditingController(text: existing?.email ?? '');
     final phone = TextEditingController(text: existing?.phone ?? '');
-    final password = TextEditingController(text: existing?.password ?? 'pass1234');
+    // Never seed this from the stored account: passwords are hashed at rest
+    // now, so the stored value would be a digest (unreadable, and wrong if it
+    // were saved back). Blank means "keep the current one" — see the save path.
+    final password = TextEditingController(text: existing == null ? 'pass1234' : '');
     AppRole role = existing?.role ?? AppRole.teacher;
     String? classId = existing?.classId;
 
@@ -79,8 +82,11 @@ class _StaffScreenState extends State<StaffScreen> {
                     enableSuggestions: false,
                     autocorrect: false,
                     autofillHints: const [AutofillHints.newPassword],
-                    decoration: const InputDecoration(
-                        labelText: 'Password (for sign-in)')),
+                    decoration: InputDecoration(
+                        labelText: 'Password (for sign-in)',
+                        helperText: existing == null
+                            ? null
+                            : 'Leave blank to keep the current password')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<AppRole>(
                   initialValue: role,
@@ -131,7 +137,7 @@ class _StaffScreenState extends State<StaffScreen> {
                         email: email.text.trim(),
                         phone: phone.text.trim(),
                         password: password.text.trim().isEmpty
-                            ? 'pass1234'
+                            ? (existing?.password ?? 'pass1234')
                             : password.text.trim(),
                         role: role,
                         schoolId: 'SCH-001',

@@ -105,6 +105,43 @@ func TestAttendanceSeedPerStudent(t *testing.T) {
 	}
 }
 
+// TestSeedNeverDeletesRecordedAttendance guards the bootstrap contract: the
+// seed adds demo rows but must never remove attendance recorded at runtime.
+// SaveAttendance used to run `DELETE FROM attendance WHERE NOT (id = ANY
+// (seedIDs))` — and truncate the whole table for an empty set — so every
+// server restart with seed=true destroyed every real check-in.
+func TestSeedNeverDeletesRecordedAttendance(t *testing.T) {
+	m := New()
+	live := domain.AttendanceRecord{
+		ID: "ATT-LIVE-001", StudentID: "STU-001", ClassID: "JHS2A",
+		Date: "2030-01-01", Status: domain.AttPresent, CheckIn: "07:30",
+	}
+	m.SaveDay("JHS2A", live.Date, []domain.AttendanceRecord{live})
+	if n := len(m.Attendance()); n != 31 {
+		t.Fatalf("pre-seed attendance = %d, want 31 (30 seeded + 1 live)", n)
+	}
+
+	Seed(m)
+	Seed(m) // re-running the seed must stay idempotent
+
+	kept := false
+	for _, r := range m.Attendance() {
+		if r.ID == live.ID {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("seed deleted attendance recorded at runtime")
+	}
+	if n := len(m.Attendance()); n != 31 {
+		t.Fatalf("attendance after re-seed = %d, want 31 (no dupes, no loss)", n)
+	}
+	day := m.AttendanceForClassDate("JHS2A", live.Date)
+	if len(day) != 1 || day[0].Status != domain.AttPresent || day[0].CheckIn != "07:30" {
+		t.Fatalf("live record mutated: %+v", day)
+	}
+}
+
 func TestLoginDemoUsers(t *testing.T) {
 	m := New()
 	for email, pw := range map[string]string{

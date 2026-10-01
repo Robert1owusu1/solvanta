@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/attendance.dart';
 import '../../core/models/gate_event.dart';
 import '../../core/models/student.dart';
+import '../../core/models/user.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
@@ -24,7 +25,7 @@ class StudentCheckInScreen extends StatefulWidget {
 }
 
 class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
-  late Future<(List<Student>, List<String>)> _data;
+  late Future<(List<Student>, User?)> _data;
   final _query = TextEditingController();
   List<Student> _results = const [];
   String _outcome = '';
@@ -35,10 +36,25 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
     _data = _load();
   }
 
-  Future<(List<Student>, List<String>)> _load() async {
-    final students = await StudentsRepository().active();
-    final roles = (await AuthRepository().currentUser())?.role.key ?? 'staff';
-    return (students, [roles]);
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  /// (students this account may see, the signed-in account).
+  ///
+  /// The account rides along so both the build and the write path can check
+  /// it directly. It used to be discarded in favour of a role *string* that
+  /// defaulted to `'staff'` — so a signed-out caller was treated as holding
+  /// the most permissive role rather than the least.
+  Future<(List<Student>, User?)> _load() async {
+    final user = await AuthRepository().currentUser();
+    // Scoped exactly as the Students screen scopes its roll (visibleToUser):
+    // this screen must not become a whole-school directory lookup for whoever
+    // manages to reach it.
+    final students = await StudentsRepository().visibleToUser(user);
+    return (students, user);
   }
 
   void _onQuery(String q) {
@@ -78,16 +94,36 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
   }
 
   Future<void> _recordCheckIn(Student s) async {
-    final reporter =
-        (await AuthRepository().currentUser())?.name ?? 'School Staff';
-    await SafetyRepository().record(
-      studentId: s.id,
-      type: GateEventType.arrival,
-      reporter: reporter,
-      detail: 'ID check-in verified at gate',
-    );
+    final me = await AuthRepository().currentUser();
+    // Second gate, on the write itself. build() already refuses the screen,
+    // but the record path must not simply trust that it was reached through
+    // build(). Note there is no `?? 'School Staff'` fallback any more — that
+    // attributed arrivals to staff even when nobody was signed in.
+    if (me == null || !me.role.canSaveAttendance) {
+      if (!mounted) return;
+      svSnack(context, 'Your account cannot record gate check-ins',
+          error: true);
+      return;
+    }
+    final reporter = me.name;
+    try {
+      await SafetyRepository().record(
+        studentId: s.id,
+        type: GateEventType.arrival,
+        reporter: reporter,
+        detail: 'ID check-in verified at gate',
+      );
+    } catch (e) {
+      // Previously this await was unguarded, so a gate-store failure escaped
+      // into the button's onPressed and left the user with no feedback.
+      debugPrint('[CheckIn] gate record failed: $e');
+      if (!mounted) return;
+      svSnack(context, 'Could not record the arrival at the gate', error: true);
+      return;
+    }
 
     // Reflect arrival on today's class roll when possible.
+    var rollUpdated = true;
     try {
       final records =
           await AttendanceRepository().forClassDate(s.classId, _today());
@@ -98,13 +134,20 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
           ..[s.id] = AttendanceStatus.present;
         await AttendanceRepository().saveDay(s.classId, _today(), statuses);
       }
-    } catch (_) {}
+    } catch (e) {
+      // An empty catch here meant a roll update that never landed still
+      // reported a clean check-in.
+      rollUpdated = false;
+      debugPrint('[CheckIn] attendance roll update failed: $e');
+    }
 
     if (!mounted) return;
     final now = DateTime.now();
     final hh = now.hour.toString().padLeft(2, '0');
     final mm = now.minute.toString().padLeft(2, '0');
-    setState(() => _outcome = '${s.fullName} checked in today at $hh:$mm');
+    setState(() => _outcome = rollUpdated
+        ? '${s.fullName} checked in today at $hh:$mm'
+        : '${s.fullName} recorded at $hh:$mm — attendance roll not updated');
     _query.clear();
     _results = const [];
 
@@ -129,6 +172,21 @@ class _StudentCheckInScreenState extends State<StudentCheckInScreen> {
             return const SvLoading();
           }
           all = snap.data?.$1 ?? const <Student>[];
+          final user = snap.data?.$2;
+          // S6: recording a gate arrival is staff work. The dashboard module
+          // lists keep this screen off students' and parents' home screens,
+          // but a module list is not an authorization boundary — the Student
+          // ID card's "Scan mode" pushed straight into here, and any deep link
+          // or future navigation change would do the same. Refuse here, at the
+          // screen that actually performs the write.
+          if (user == null || !user.role.canSaveAttendance) {
+            return const SvEmptyState(
+              icon: Icons.lock_outline,
+              title: 'Access restricted',
+              message: 'Gate check-in is for school staff, teachers and '
+                  'admins. Ask your administrator if you need access.',
+            );
+          }
           return Column(
             children: [
               Padding(

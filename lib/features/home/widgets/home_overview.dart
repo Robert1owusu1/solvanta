@@ -91,7 +91,10 @@ class _HomeOverviewState extends State<HomeOverview> {
       final perf =
           ClassPerformance(assessments: assessments, subs: subs, students: students);
       atRisk = perf.atRisk(threshold: 50).length;
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('[HomeOverview] metric failed: $e');
+      debugPrint(st.toString());
+    }
 
     final stats = <OverviewStat>[
       OverviewStat(
@@ -167,7 +170,10 @@ class _HomeOverviewState extends State<HomeOverview> {
       final perf =
           ClassPerformance(assessments: assessments, subs: subs, students: students);
       atRisk = perf.atRisk(threshold: 50).length;
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('[HomeOverview] metric failed: $e');
+      debugPrint(st.toString());
+    }
     for (final a in assessments) {
       final roster = students.where((s) => s.classId == a.classId).length;
       final done = subs.where((s) => s.assessmentId == a.id).length;
@@ -233,7 +239,10 @@ class _HomeOverviewState extends State<HomeOverview> {
     try {
       unread = await NotificationsRepository().unreadCount(
           widget.user, await studentsRepo.active());
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('[HomeOverview] metric failed: $e');
+      debugPrint(st.toString());
+    }
 
     final stats = <OverviewStat>[
       OverviewStat(
@@ -279,7 +288,10 @@ class _HomeOverviewState extends State<HomeOverview> {
             detail: 'Check attendance for details',
           ));
         }
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('[HomeOverview] child attendance failed: $e');
+        debugPrint(st.toString());
+      }
     }
     if (attention.isEmpty) {
       attention.add(AttentionItem(
@@ -308,7 +320,10 @@ class _HomeOverviewState extends State<HomeOverview> {
           .length;
       recentResult = (await AssessmentRepository().submissions())
           .any((s) => s.studentId == studentId);
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('[HomeOverview] metric failed: $e');
+      debugPrint(st.toString());
+    }
 
     final stats = <OverviewStat>[
       OverviewStat(
