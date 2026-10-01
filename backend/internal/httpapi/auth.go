@@ -69,7 +69,9 @@ func (s *Server) updateSchool(c *gin.Context) {
 			firstNonEmpty(body.Address, old.Address), firstNonEmpty(body.Phone, old.Phone),
 			firstNonEmpty(body.Email, old.Email), firstNonEmpty(body.Region, old.Region)
 	}
-	s.store.SaveSchool(body)
+	if writeFailed(c, s.store.SaveSchool(body)) {
+		return
+	}
 	s.audit(c, "school.update", body.ID, "School profile updated", "")
 	sendJSON(c, body)
 }
@@ -87,7 +89,9 @@ func (s *Server) updateTerm(c *gin.Context) {
 		Start: firstNonEmpty(body.Start, old.Start),
 		End:   firstNonEmpty(body.End, old.End),
 	}
-	s.store.SaveTerm(body)
+	if writeFailed(c, s.store.SaveTerm(body)) {
+		return
+	}
 	s.audit(c, "term.update", body.Label(), "Academic term updated", "")
 	sendJSON(c, body)
 }

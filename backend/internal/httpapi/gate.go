@@ -63,7 +63,9 @@ func (s *Server) createGateEvent(c *gin.Context) {
 		Person:    body.Person,
 		Detail:    body.Detail,
 	}
-	s.store.AddGateEvent(ev)
+	if writeFailed(c, s.store.AddGateEvent(ev)) {
+		return
+	}
 	s.audit(c, "gate.update", ev.ID, "Gate event "+ev.Type+" for "+st.FullName(), body.Detail)
 
 	if p := userForStudent(s, st); p.ID != "" {

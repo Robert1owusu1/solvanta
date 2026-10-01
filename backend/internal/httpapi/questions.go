@@ -83,7 +83,9 @@ func (s *Server) createQuestion(c *gin.Context) {
 	if q.ClassID == "" {
 		q.ClassID = u.ClassID
 	}
-	s.store.SaveQuestion(q)
+	if writeFailed(c, s.store.SaveQuestion(q)) {
+		return
+	}
 	s.audit(c, "question.create", q.ID, "Added "+q.Type+" question on "+q.Topic, "")
 	sendCreated(c, q)
 }
@@ -98,7 +100,9 @@ func (s *Server) updateQuestion(c *gin.Context) {
 	if !bind(c, &q) {
 		return
 	}
-	s.store.SaveQuestion(q)
+	if writeFailed(c, s.store.SaveQuestion(q)) {
+		return
+	}
 	s.audit(c, "question.update", q.ID, "Updated question on "+q.Topic, "")
 	sendJSON(c, q)
 }
@@ -110,7 +114,9 @@ func (s *Server) deleteQuestion(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Question not found")
 		return
 	}
-	s.store.DeleteQuestion(id)
+	if writeFailed(c, s.store.DeleteQuestion(id)) {
+		return
+	}
 	s.audit(c, "question.delete", id, "Deleted question", "")
 	sendJSON(c, gin.H{"deleted": id})
 }
@@ -140,7 +146,9 @@ func (s *Server) aiRequest(c *gin.Context) {
 		CreatedAt:     now(),
 		Status:        domain.QGenPending,
 	}
-	s.store.SaveAIRequest(req)
+	if writeFailed(c, s.store.SaveAIRequest(req)) {
+		return
+	}
 	s.audit(c, "questiongen.req", req.ID, "Requested "+itoa(req.Count)+" "+req.Type+" on "+req.Topic, "")
 	sendCreated(c, req)
 }
@@ -161,7 +169,9 @@ func (s *Server) aiGenerate(c *gin.Context) {
 	drafts := questionDraftFor(req)
 	req.Drafts = drafts
 	req.Status = domain.QGenGenerated
-	s.store.SaveAIRequest(req)
+	if writeFailed(c, s.store.SaveAIRequest(req)) {
+		return
+	}
 	s.notify(req.RequesterID, domain.NotifAssessment,
 		"AI question drafts ready",
 		itoa(len(drafts))+" "+req.Type+" questions drafted for "+req.SubjectID+" · "+req.Topic+". Review them.",
@@ -186,11 +196,15 @@ func (s *Server) aiPublish(c *gin.Context) {
 		if req.Drafts[i].ID == "" {
 			req.Drafts[i].ID = newID("Q")
 		}
-		s.store.SaveQuestion(req.Drafts[i])
+		if writeFailed(c, s.store.SaveQuestion(req.Drafts[i])) {
+			return
+		}
 	}
 	req.Status = domain.QGenPublished
 	req.PublishedAt = now()
-	s.store.SaveAIRequest(req)
+	if writeFailed(c, s.store.SaveAIRequest(req)) {
+		return
+	}
 	s.notify(req.RequesterID, domain.NotifAssessment,
 		"Questions published to the bank",
 		itoa(len(req.Drafts))+" "+req.SubjectID+" questions on "+req.Topic+" are now in the question bank.",
@@ -209,7 +223,9 @@ func (s *Server) aiReject(c *gin.Context) {
 	}
 	req.Status = domain.QGenRejected
 	req.Drafts = nil
-	s.store.SaveAIRequest(req)
+	if writeFailed(c, s.store.SaveAIRequest(req)) {
+		return
+	}
 	s.audit(c, "questiongen.reject", req.ID, "Rejected generation request", "")
 	sendJSON(c, req)
 }

@@ -56,7 +56,9 @@ func (s *Server) createAnnouncement(c *gin.Context) {
 		AuthorName:    u.Name,
 		Timestamp:     now(),
 	}
-	s.store.AddAnnouncement(a)
+	if writeFailed(c, s.store.AddAnnouncement(a)) {
+		return
+	}
 	// fan out to parents of the target class
 	targets := map[string]bool{}
 	for _, st := range s.store.Students() {
@@ -116,7 +118,9 @@ func (s *Server) sendMessage(c *gin.Context) {
 		RelatedStudentID: body.RelatedStudentID,
 		Subject:          body.Subject, Body: body.Body, Timestamp: now(),
 	}
-	s.store.SaveMessage(m)
+	if writeFailed(c, s.store.SaveMessage(m)) {
+		return
+	}
 	s.notify(body.ToID, domain.NotifMessage, body.Subject, body.Body, body.RelatedStudentID)
 	s.audit(c, "message.send", m.ID, "Message from "+u.Name, "")
 	sendCreated(c, m)
@@ -186,7 +190,9 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Notification not found")
 		return
 	}
-	s.store.SetNotificationRead(id)
+	if writeFailed(c, s.store.SetNotificationRead(id)) {
+		return
+	}
 	sendJSON(c, gin.H{"read": id})
 }
 
@@ -197,7 +203,9 @@ func (s *Server) markAllNotificationsRead(c *gin.Context) {
 		if !notificationAllowed(u, n) || n.Read {
 			continue
 		}
-		s.store.SetNotificationRead(n.ID)
+		if writeFailed(c, s.store.SetNotificationRead(n.ID)) {
+			return
+		}
 		count++
 	}
 	sendJSON(c, gin.H{"marked": count})

@@ -37,7 +37,9 @@ func (s *Server) createAssignment(c *gin.Context) {
 		CreatedBy:    firstNonEmpty(body.CreatedBy, u.Name),
 		CreatedAt:    today(),
 	}
-	s.store.SaveAssignment(a)
+	if writeFailed(c, s.store.SaveAssignment(a)) {
+		return
+	}
 	// notify parents of target class
 	seen := map[string]bool{}
 	for _, st := range s.store.Students() {
@@ -70,6 +72,8 @@ func (s *Server) completeAssignment(c *gin.Context) {
 		}
 	}
 	a.CompletedBy = append(a.CompletedBy, studentID)
-	s.store.SaveAssignment(a)
+	if writeFailed(c, s.store.SaveAssignment(a)) {
+		return
+	}
 	sendJSON(c, a)
 }

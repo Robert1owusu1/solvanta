@@ -31,9 +31,14 @@ func postgresTest(t *testing.T) *Postgres {
 		 END $$`); err != nil {
 		t.Fatalf("reset schema: %v", err)
 	}
-	// Any storage failure during the test would otherwise be invisible: the
-	// Store contract has no error channel, so a failed write only surfaces as a
-	// later assertion failing for no apparent reason ("students: got 0, want 8").
+	// Any storage failure during the test would otherwise be invisible: most
+	// callers — this file included — discard what a write returns, so a failed
+	// write only surfaces later as an assertion failing for no apparent reason
+	// ("students: got 0, want 8"). The Store contract does return errors now,
+	// but the latch is what catches a caller that drops one, and it is what
+	// tells a real defect apart from a dropped connection: the transport error
+	// is reported verbatim instead of arriving as a data mismatch a minute or
+	// two later. Expect exactly that against a remote pooler on a bad day.
 	before, _, _ := pg.StoreErrors()
 	t.Cleanup(func() {
 		if after, last, _ := pg.StoreErrors(); after != before {
@@ -188,10 +193,11 @@ func TestPostgresWritePaths(t *testing.T) {
 	// SaveDay replaces one class/date bucket, keeping other days intact
 	att := pg.Attendance()
 	if len(att) == 0 {
-		// An empty table here means the seed's writes were swallowed: the Store
-		// contract has no error channel, so a failed SaveAttendance only shows
-		// up as a confusing index-out-of-range further down.
-		t.Fatal("attendance empty after Seed(pg); a write failed and was only logged")
+		// An empty table here means the seed's writes failed. Seed discards
+		// what SaveAttendance returns — postgresTest's cleanup reports the
+		// latch — so on its own this surfaces only as a confusing
+		// index-out-of-range further down.
+		t.Fatal("attendance empty after Seed(pg); a write failed and was not checked")
 	}
 	total := len(att)
 	firstDay := att[0].Date

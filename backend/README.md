@@ -49,7 +49,7 @@ psql "$POSTGRES_DSN" -c 'CREATE DATABASE solvanta_test'
 
 # 2. point the suite at it and run
 TEST_POSTGRES_DSN='postgres://…@aws-0-eu-west-2.pooler.supabase.com:5432/solvanta_test?sslmode=require' \
-  go test ./internal/store/ -count=1
+  go test ./internal/store/ -count=1 -timeout 30m
 ```
 
 Both DSNs belong in `.env`, which `run-dev.*` exports to the server process:
@@ -66,12 +66,22 @@ Three properties worth knowing before reading a failure:
 
 - **The tests are slow by design.** Each query is a round trip to a remote
   pooler (~150 ms), so a full run takes minutes. `NewPostgres` runs the
-  migrations and the test's own setup, not just the assertions.
-- **A failure can be an outage, not a bug.** The store has no error channel, so
-  a dropped connection mid-test shows up as an assertion mismatch 100+ seconds
-  in rather than as a connection error. The suite now records storage failures
-  and reports them alongside the assertion (`N storage operation(s) failed and
-  were only logged`), which tells the two apart.
+  migrations and the test's own setup, not just the assertions. Because of
+  that, always pass an explicit budget — `go test` kills a package after the
+  default `-timeout 10m`, and a degraded connection has been seen to push the
+  store suite to 14 minutes:
+
+  ```sh
+  go test ./... -count=1 -timeout 30m
+  ```
+
+  The kill is reported as `*** Test killed: ran too long (11m0s)` with **no
+  failing assertion**, which reads like a hang rather than an outage.
+- **A failure can be an outage, not a bug.** Payload writes return an `error`
+  now, but the connection itself can still drop minutes into a run. The suite
+  records storage failures and reports them alongside the assertion
+  (`N storage operation(s) failed and were only logged`), which tells a bad
+  network from a bad change.
 - **It is not safe to run twice concurrently** — the tests share one database.
 
 ### Windows

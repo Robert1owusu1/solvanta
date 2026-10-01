@@ -2,12 +2,27 @@ package httpapi
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
 )
+
+// writeFailed reports a failed store write as a 500 and tells the caller to
+// stop. The store has already recorded the detail (Postgres.errLog, surfaced
+// on /health as storageErrors), so the client gets a generic message and no
+// SQL, table or constraint name leaves the process. A handler that skips this
+// would answer 200 for a row that was never written — the exact failure this
+// project spent a whole workstream removing.
+func writeFailed(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	fail(c, http.StatusInternalServerError, "Could not save your changes. Please try again.")
+	return true
+}
 
 // newID builds a short unique id with the given prefix.
 func newID(prefix string) string {

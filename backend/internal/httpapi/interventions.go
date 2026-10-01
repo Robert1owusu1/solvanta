@@ -63,7 +63,9 @@ func (s *Server) createIntervention(c *gin.Context) {
 		CreatedDate: firstNonEmpty(body.CreatedDate, today()),
 		Status:      domain.IntOpen,
 	}
-	s.store.SaveIntervention(i)
+	if writeFailed(c, s.store.SaveIntervention(i)) {
+		return
+	}
 	st, _ := s.store.StudentByID(i.StudentID)
 	if st.ParentUserID != "" {
 		s.notify(st.ParentUserID, domain.NotifIntervention, "Intervention assigned",
@@ -93,7 +95,9 @@ func (s *Server) updateInterventionStatus(c *gin.Context) {
 		return
 	}
 	i.Status = body.Status
-	s.store.SaveIntervention(i)
+	if writeFailed(c, s.store.SaveIntervention(i)) {
+		return
+	}
 	st, _ := s.store.StudentByID(i.StudentID)
 	if st.ParentUserID != "" {
 		s.notify(st.ParentUserID, domain.NotifIntervention, "Intervention "+stringStatus(body.Status),
@@ -121,7 +125,9 @@ func (s *Server) attachReassessment(c *gin.Context) {
 		return
 	}
 	i.ReassessmentAssessmentID = body.AssessmentID
-	s.store.SaveIntervention(i)
+	if writeFailed(c, s.store.SaveIntervention(i)) {
+		return
+	}
 	s.audit(c, "intervention.reassessment", i.ID, "Reassessment "+body.AssessmentID+" attached", "")
 	sendJSON(c, i)
 }

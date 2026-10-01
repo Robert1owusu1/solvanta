@@ -141,7 +141,9 @@ func (s *Server) createAssessment(c *gin.Context) {
 		CreatedBy: firstNonEmpty(body.CreatedBy, u.Name),
 		Questions: body.Questions,
 	}
-	s.store.SaveAssessment(a)
+	if writeFailed(c, s.store.SaveAssessment(a)) {
+		return
+	}
 	s.audit(c, "assessment.create", a.ID, "Created "+a.Type+" assessment "+a.Title, "")
 	sendCreated(c, a)
 }
@@ -311,7 +313,9 @@ func (s *Server) submitAssessment(c *gin.Context) {
 		TeacherMarks: map[string]float64{},
 		Earned:       earned,
 	}
-	s.store.SaveSubmission(sub)
+	if writeFailed(c, s.store.SaveSubmission(sub)) {
+		return
+	}
 
 	hasSubjective := hasSubjectiveQuestions(a.Questions)
 	if hasSubjective {
@@ -356,12 +360,16 @@ func (s *Server) markVerdicts(c *gin.Context) {
 	remaining := subjectiveNeedingVerdict(a.Questions, sub)
 	if len(remaining) > 0 {
 		sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
-		s.store.SaveSubmission(sub)
+		if writeFailed(c, s.store.SaveSubmission(sub)) {
+			return
+		}
 		fail(c, http.StatusUnprocessableEntity, "Still "+itoa(len(remaining))+" questions lacking verdicts")
 		return
 	}
 	sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
-	s.store.SaveSubmission(sub)
+	if writeFailed(c, s.store.SaveSubmission(sub)) {
+		return
+	}
 
 	st, _ := s.store.StudentByID(sub.StudentID)
 	var pct float64

@@ -127,7 +127,9 @@ func (s *Server) createStudent(c *gin.Context) {
 		EmergencyContacts: body.EmergencyContacts,
 		AuthorizedPickup:  body.AuthorizedPickup,
 	}
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "student.create", st.ID, "Created student "+st.FullName(), "")
 	sendCreated(c, st)
 }
@@ -199,7 +201,9 @@ func (s *Server) updateStudent(c *gin.Context) {
 	if body.AuthorizedPickup != nil {
 		st.AuthorizedPickup = body.AuthorizedPickup
 	}
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "student.update", st.ID, "Updated student "+st.FullName(), "")
 	sendJSON(c, st)
 }
@@ -217,7 +221,9 @@ func (s *Server) promoteStudent(c *gin.Context) {
 		return
 	}
 	st.ClassID = next
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "student.promote", st.ID, "Promoted "+st.FullName()+" to "+next, "")
 	sendJSON(c, st)
 }
@@ -230,7 +236,9 @@ func (s *Server) graduateStudent(c *gin.Context) {
 		return
 	}
 	st.Status = "graduated"
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "student.graduate", st.ID, "Graduated "+st.FullName(), "")
 	sendJSON(c, st)
 }
@@ -247,7 +255,9 @@ func (s *Server) authorizePickup(c *gin.Context) {
 		return
 	}
 	st.AuthorizedPickup = append(st.AuthorizedPickup, domain.Person{Name: p.Name, Phone: p.Phone, Relation: p.Relation})
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "pickup.authorize", st.ID, p.Name+" authorized for "+st.FullName(), "")
 	s.notify(userForStudent(s, st).ID, domain.NotifGate, "Pickup authorization updated",
 		p.Name+" is now on the authorized pickup list for "+st.FullName()+".", st.ID)
@@ -273,7 +283,9 @@ func (s *Server) revokePickup(c *gin.Context) {
 		kept = append(kept, existing)
 	}
 	st.AuthorizedPickup = kept
-	s.store.SaveStudent(st)
+	if writeFailed(c, s.store.SaveStudent(st)) {
+		return
+	}
 	s.audit(c, "pickup.revoke", st.ID, p.Name+" removed for "+st.FullName(), "")
 	sendJSON(c, st.AuthorizedPickup)
 }

@@ -51,6 +51,21 @@ per *collection*:
 
 ### Fixed
 
+- **A failed write was reported to the client as success.** `Store` methods
+  returned nothing, so every handler discarded the outcome: when the connection
+  to Supabase dropped mid-request the API logged the error, answered `200`/`201`
+  and the row simply never existed — a gate arrival, a student's contacts, an
+  announcement or a marked paper that the app then displayed as saved. The 21
+  payload-writing methods now return `error`, and every call site maps a failure
+  to `500` with a generic message, so a client can retry instead of moving on;
+  the SQL stays in the log and on `/health`, never in the response.
+  `AddAudit` and `AddNotification` deliberately stay best-effort: they are
+  incurred *after* the primary write, so failing the parent there would make
+  clients replay requests that already succeeded and duplicate the announcement
+  or message. `store.SaveStudent` contacts ride the same transaction as the
+  student row, so a failing contact kind rolls the whole save back rather than
+  committing a student whose guardians were dropped. Covered by tests that
+  inject a failing store and assert `500` (and no SQL leak) instead of `201`.
 - **A gate arrival could appear twice.** The gate device records locally and
   pushes afterwards, but `POST /api/gate/events` discarded the client's `id`
   (the request struct had no such field) and minted a new one each time. A

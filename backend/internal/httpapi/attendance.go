@@ -50,7 +50,9 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 			raw[i].ID = newID("ATT")
 		}
 	}
-	s.store.SaveDay(classID, date, raw)
+	if writeFailed(c, s.store.SaveDay(classID, date, raw)) {
+		return
+	}
 	s.audit(c, "attendance.save", classID+"/"+date, "Saved "+itoa(len(raw))+" attendance records", "")
 	sendJSON(c, raw)
 }
@@ -136,7 +138,9 @@ func (s *Server) checkIn(c *gin.Context) {
 		ID: "ATT" + date + "-" + st.ID, StudentID: st.ID, ClassID: body.ClassID, Date: date,
 		Status: domain.AttPresent, CheckIn: checkInTime,
 	}
-	s.store.SaveDay(body.ClassID, date, mergeDay(s.store.AttendanceForClassDate(body.ClassID, date), rec))
+	if writeFailed(c, s.store.SaveDay(body.ClassID, date, mergeDay(s.store.AttendanceForClassDate(body.ClassID, date), rec))) {
+		return
+	}
 	s.audit(c, "attendance.checkin", st.ID, "Check-in recorded for "+st.FullName()+" at "+checkInTime, "")
 	sendJSON(c, rec)
 }
@@ -170,7 +174,9 @@ func (s *Server) attendanceCorrection(c *gin.Context) {
 	}
 	for _, r := range changed {
 		r.Reason = body.Reason
-		s.store.SaveDay(r.ClassID, r.Date, mergeDay(s.store.AttendanceForClassDate(r.ClassID, r.Date), r))
+		if writeFailed(c, s.store.SaveDay(r.ClassID, r.Date, mergeDay(s.store.AttendanceForClassDate(r.ClassID, r.Date), r))) {
+			return
+		}
 	}
 	s.audit(c, "attendance.correction", body.PlanDate, "Corrected "+itoa(len(changed))+" records to "+body.Status, body.Reason)
 	sendJSON(c, changed)

@@ -95,7 +95,9 @@ func (s *Server) createUser(c *gin.Context) {
 		ClassID:    body.ClassID,
 		StudentIDs: body.StudentIDs,
 	}
-	s.store.SaveUser(nu)
+	if writeFailed(c, s.store.SaveUser(nu)) {
+		return
+	}
 	s.audit(c, "user.create", nu.ID, "Created "+nu.Role+" account "+nu.Name, "")
 	nu.Password = ""
 	sendCreated(c, nu)
@@ -132,7 +134,9 @@ func (s *Server) changePassword(c *gin.Context) {
 		return
 	}
 	u.Password = hashPassword(body.New)
-	s.store.SaveUser(u)
+	if writeFailed(c, s.store.SaveUser(u)) {
+		return
+	}
 	s.audit(c, "user.password", u.ID, "Password changed", "")
 	// revoke all outstanding sessions for this account
 	if tc, ok := s.claimsFromRequest(c); ok {
