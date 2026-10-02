@@ -130,6 +130,7 @@ func (s *Server) sendMessage(c *gin.Context) {
 //   - addressed to a user → only that user;
 //   - student-scoped (no user) → the student's parents (and super admins);
 //   - unaddressed → everyone.
+//
 // Used by both unread listing and read-state mutations so a user can never
 // act on a notification they cannot see.
 func notificationAllowed(u domain.User, n domain.Notification) bool {

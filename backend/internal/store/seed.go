@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -267,6 +269,111 @@ func Seed(st Store) {
 	} {
 		st.SaveAssignment(a)
 	}
+
+	// Fees mirror the client's FeesRepository._buildSeed so the API and a fee
+	// screen opened on a phone describe the same bill. `st.Students()` rather
+	// than the literal above: Postgres orders by id and Memory keeps insertion
+	// order, and both are the order the client rotates its paid/partial/
+	// overdue/due states through.
+	seedFees(st, st.Term(), st.Students())
+}
+
+// seedFees raises this term's invoices exactly as the client's
+// FeesRepository._buildSeed does: one invoice per student, tuition priced by
+// class plus the school-wide levies, and the same four-way rotation over the
+// student list — settled, part-paid, past due, untouched — so the demo shows
+// every state a bursar meets.
+//
+// Only the invoice itself is stored. The payments below are what the read side
+// sums back into amountPaid, which is why the two always agree here instead of
+// being written twice and left to drift.
+func seedFees(st Store, term domain.SchoolTerm, students []domain.Student) {
+	tuitionByClass := map[string]int{
+		"JHS1A": 1450, "JHS1B": 1450, "JHS2A": 1550,
+		"JHS2B": 1550, "JHS3A": 1700, "JHS3B": 1700,
+	}
+	schoolWide := []domain.FeeLineItem{
+		{Name: "Feeding levy", Amount: 450},
+		{Name: "PTA levy", Amount: 200},
+		{Name: "Exam fee", Amount: 150},
+	}
+	issue := term.Start
+	due := seedShiftDate(issue, 30)
+	termCode := feeTermCode(term)
+	bursar := "Mrs. Adjoa Amankwah (Bursar)"
+
+	for i, s := range students {
+		tuition, priced := tuitionByClass[s.ClassID]
+		if !priced {
+			continue // a class with no fee schedule is billed nothing, not something
+		}
+		items := append(
+			[]domain.FeeLineItem{{Name: "Tuition — " + s.ClassID, Amount: tuition}},
+			schoolWide...)
+
+		pattern := i % 4
+		invDue := due
+		if pattern == 2 {
+			// The "past due" invoice must actually be past due, so it lapses
+			// a week in rather than on the ordinary 30-day date.
+			invDue = seedShiftDate(issue, 10)
+		}
+		inv := domain.Invoice{
+			ID: "INV-" + termCode + "-" + s.ID, StudentID: s.ID,
+			IssueDate: issue, DueDate: invDue, LineItems: items, Term: term.Label(),
+		}
+
+		paid := 0
+		switch pattern {
+		case 0:
+			paid = inv.Total() // settled
+		case 1:
+			paid = inv.Total() * 60 / 100 // part-paid
+		}
+		if paid > 0 {
+			method, ref := "cash", fmt.Sprintf("CASH-%d00", i+1)
+			if pattern == 0 {
+				method, ref = "mobileMoney", fmt.Sprintf("MOMO-%d00", i+1)
+			}
+			st.SavePayment(domain.Payment{
+				ID: "PAY-SEED-" + s.ID, InvoiceID: inv.ID, StudentID: s.ID,
+				Amount: paid, Method: method, Reference: ref,
+				PaidAt: seedShiftDate(issue, i%7+1) + " 10:30", RecordedBy: bursar,
+			})
+		}
+		st.SaveInvoice(inv)
+	}
+}
+
+// seedShiftDate moves a 'yyyy-MM-dd' by days and returns it in the same
+// format — _shiftDate in the client's fees repository, seed edition. An
+// unparseable base is returned unchanged, as the client does.
+func seedShiftDate(base string, days int) string {
+	d, err := time.Parse("2006-01-02", base)
+	if err != nil {
+		return base
+	}
+	return d.AddDate(0, 0, days).Format("2006-01-02")
+}
+
+// feeTermCode builds the invoice-key segment for a term, e.g. `2026T1` for
+// "Term 1 · 2026/2027" — the client's _termCode: the calendar year before the
+// slash, then T and the digits left in the term name.
+func feeTermCode(term domain.SchoolTerm) string {
+	year := term.Year
+	if i := strings.IndexByte(year, '/'); i >= 0 {
+		year = year[:i]
+	}
+	digits := make([]rune, 0, len(term.Name))
+	for _, r := range term.Name {
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+		}
+	}
+	if len(digits) == 0 {
+		return year + "T"
+	}
+	return year + "T" + string(digits)
 }
 
 // lastWeekdayDates returns count most recent weekdays ending the day before the

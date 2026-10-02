@@ -269,6 +269,7 @@ class Payment {
   const Payment({
     required this.id,
     required this.invoiceId,
+    required this.studentId,
     required this.amount,
     required this.method,
     this.reference = '',
@@ -278,6 +279,13 @@ class Payment {
 
   final String id;
   final String invoiceId;
+
+  /// Student the payment is for, taken from the invoice it settles.
+  ///
+  /// Sent with every recorded payment so the API can scope a read to one
+  /// student without resolving the invoice first — the same value the receipt
+  /// below already carries. Read back as '' for rows stored before it existed.
+  final String studentId;
 
   /// Amount in GHS.
   final int amount;
@@ -294,6 +302,7 @@ class Payment {
   factory Payment.fromJson(Map<String, dynamic> json) => Payment(
         id: json['id'] as String,
         invoiceId: json['invoiceId'] as String,
+        studentId: (json['studentId'] ?? '') as String,
         amount: (json['amount'] as num).toInt(),
         method: PaymentMethod.fromKey((json['method'] ?? 'cash') as String),
         reference: (json['reference'] ?? '') as String,
@@ -304,6 +313,7 @@ class Payment {
   Map<String, dynamic> toJson() => {
         'id': id,
         'invoiceId': invoiceId,
+        'studentId': studentId,
         'amount': amount,
         'method': method.name,
         'reference': reference,

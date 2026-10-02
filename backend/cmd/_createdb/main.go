@@ -8,8 +8,9 @@
 // `go vet ./...` and `go test ./...` never pick it up.
 //
 // Usage (POSTGRES_DSN comes from .env):
-//     run-dev.cmd -Check          &rem confirms the env is parsed
-//     go run ./cmd/_createdb      &rem creates solvanta_test if missing
+//
+//	run-dev.cmd -Check          &rem confirms the env is parsed
+//	go run ./cmd/_createdb      &rem creates solvanta_test if missing
 package main
 
 import (
@@ -51,7 +52,7 @@ func main() {
 
 	// Simple-query protocol via PgConn: CREATE DATABASE must not run inside a
 	// transaction block, and a bare Exec() would be free to open one.
-	if _, err := conn.PgConn().Exec(ctx, "CREATE DATABASE " + name).ReadAll(); err != nil {
+	if _, err := conn.PgConn().Exec(ctx, "CREATE DATABASE "+name).ReadAll(); err != nil {
 		fmt.Fprintf(os.Stderr, "create %q: %v\n", name, err)
 		os.Exit(1)
 	}

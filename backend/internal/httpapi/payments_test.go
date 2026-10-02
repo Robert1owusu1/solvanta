@@ -7,13 +7,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"solvanta/backend/internal/domain"
 	"solvanta/backend/internal/store"
 )
 
-// newPaymentServer builds the API over a fresh seeded store and hands back the
-// store as well: payments have no list endpoint yet, so the only way to prove a
-// replay was not recorded twice is to look at what was actually written.
-func newPaymentServer(t *testing.T) (*gin.Engine, store.Store) {
+// newFeesServer builds the API over a fresh seeded store and hands back the
+// store as well. The list endpoints answer only for whoever is asking, so when
+// the question is "did a replay land twice?" the store is still the honest
+// place to count what was written.
+func newFeesServer(t *testing.T) (*gin.Engine, store.Store) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	st := store.New()
@@ -32,7 +34,7 @@ func newPaymentServer(t *testing.T) (*gin.Engine, store.Store) {
 // payment IS recorded) and the store must hold it exactly once, because
 // recording it twice pays the same collection in twice.
 func TestPaymentReplayIsRecordedOnce(t *testing.T) {
-	r, st := newPaymentServer(t)
+	r, st := newFeesServer(t)
 	tok := login(t, r, "admin@solvanta.app", "admin123")
 	hdr := map[string]string{"Authorization": "Bearer " + tok}
 
@@ -51,14 +53,21 @@ func TestPaymentReplayIsRecordedOnce(t *testing.T) {
 			second.Code, second.Body.String())
 	}
 
-	got := st.Payments()
-	if len(got) != 1 {
-		t.Fatalf("replay produced %d copies of one payment, want exactly 1", len(got))
+	// The seed writes its own payments, so count the ones this test pushed:
+	// both attempts together must have added exactly one row with this id.
+	var mine []domain.Payment
+	for _, p := range st.Payments() {
+		if p.ID == "PAY-REPLAY-1" {
+			mine = append(mine, p)
+		}
 	}
-	if got[0].Amount != 150 || got[0].InvoiceID != "INV-TEST-1" ||
-		got[0].Method != "mobileMoney" || got[0].Reference != "MP261001.442.A7711" ||
-		got[0].PaidAt != "2026-10-01 09:41" || got[0].RecordedBy != "Ama Owusu" {
-		t.Fatalf("stored payment does not match what was sent: %+v", got[0])
+	if len(mine) != 1 {
+		t.Fatalf("replay produced %d copies of one payment, want exactly 1", len(mine))
+	}
+	if mine[0].Amount != 150 || mine[0].InvoiceID != "INV-TEST-1" ||
+		mine[0].Method != "mobileMoney" || mine[0].Reference != "MP261001.442.A7711" ||
+		mine[0].PaidAt != "2026-10-01 09:41" || mine[0].RecordedBy != "Ama Owusu" {
+		t.Fatalf("stored payment does not match what was sent: %+v", mine[0])
 	}
 }
 
@@ -67,9 +76,10 @@ func TestPaymentReplayIsRecordedOnce(t *testing.T) {
 // as transient and retries it forever, so the handler has to catch a payment
 // with no invoice or no money before it ever reaches storage.
 func TestPaymentRejectsMalformedMoney(t *testing.T) {
-	r, st := newPaymentServer(t)
+	r, st := newFeesServer(t)
 	tok := login(t, r, "admin@solvanta.app", "admin123")
 	hdr := map[string]string{"Authorization": "Bearer " + tok}
+	before := len(st.Payments())
 
 	for name, body := range map[string]string{
 		"missing invoice":  `{"id":"PAY-BAD-1","amount":100,"method":"cash","paidAt":"2026-10-01 09:41"}`,
@@ -82,8 +92,8 @@ func TestPaymentRejectsMalformedMoney(t *testing.T) {
 			t.Fatalf("%s: got %d %s, want 400", name, rec.Code, rec.Body.String())
 		}
 	}
-	if len(st.Payments()) != 0 {
-		t.Fatalf("malformed payments reached the store: %+v", st.Payments())
+	if got := len(st.Payments()); got != before {
+		t.Fatalf("malformed payments reached the store: %d before the probe, %d after", before, got)
 	}
 }
 
@@ -92,7 +102,8 @@ func TestPaymentRejectsMalformedMoney(t *testing.T) {
 // the app hides — otherwise a forged request from a student's or parent's
 // session could post money against an invoice they do not own.
 func TestPaymentRequiresStaff(t *testing.T) {
-	r, st := newPaymentServer(t)
+	r, st := newFeesServer(t)
+	before := len(st.Payments())
 
 	for _, acct := range []struct{ email, pw string }{
 		{"kojo.owusu@school.gh", "student123"},
@@ -107,8 +118,8 @@ func TestPaymentRequiresStaff(t *testing.T) {
 			t.Fatalf("%s: got %d %s, want 403", acct.email, rec.Code, rec.Body.String())
 		}
 	}
-	if len(st.Payments()) != 0 {
-		t.Fatalf("a forbidden role wrote a payment: %+v", st.Payments())
+	if got := len(st.Payments()); got != before {
+		t.Fatalf("a forbidden role wrote a payment: %d before, %d after", before, got)
 	}
 }
 

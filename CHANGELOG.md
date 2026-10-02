@@ -45,6 +45,23 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The migration runner embeds every `backend/migrations/*.sql` in filename
   order instead of one hard-coded file, so a numbered migration is applied at
   boot rather than silently ignored.
+- The fees module gained a read side: an `invoices` table behind
+  `GET /api/invoices`, `GET /api/invoices/:id` and `POST /api/invoices`, plus
+  `GET /api/payments?studentId=&invoiceId=` and a `student_id` column on
+  payments. Fees were previously readable only on the device that raised them,
+  so a bursar on a second device, a parent portal or any report could not ask
+  what was billed or what had been paid. Invoice `amountPaid` and `status` are
+  deliberately **not stored**: they are derived on every read by summing the
+  payments table and resolving the client's own rule (paid / overdue / partial
+  / due), because a copy written when the bill was raised would be right only
+  until the next payment — which may arrive from another device. `student_id`
+  is nullable and carries no FK on purpose: a payment must never be rejected
+  over its index, as `ApiClient` drops a 4xx from the outbox and the money
+  would go with it. Reads apply one rule — staff see every student, a parent
+  their own children, a student themselves — and a student outside the
+  caller's scope yields an empty list rather than an error naming them. The
+  seed now raises the same one-invoice-per-term bill the app's `_buildSeed`
+  does, so both sides describe the same fees.
 
 ### Performance
 

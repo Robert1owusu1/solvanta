@@ -281,8 +281,19 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
 `GET/POST /api/assignments` · `POST /api/assignments/:id/complete`
 
 ### Fees & payments
-`POST /api/payments` (schoolStaff; the fees module's device-side outbox replays
-`payment.record` here, idempotent on the client-chosen payment id)
+`GET /api/invoices` · `GET /api/invoices/:id` · `GET /api/payments?studentId=&invoiceId=`
+
+`POST /api/invoices` · `POST /api/payments` (schoolStaff; idempotent on the
+client-chosen id — the fees module's device-side outbox replays `payment.record`
+here, and a bill may equally be re-sent after a lost response)
+
+Every fees read is scoped in the handler: staff see every student, a parent
+their own children, a student only themselves, and `?studentId=` narrows a
+caller who is already entitled to it — asking for someone else's student
+returns an empty list rather than an error naming them. Invoice `amountPaid`
+and `status` are derived on read (summed from `payments`, resolved from the due
+date with the client's paid/overdue/partial/due rule) instead of stored, so a
+payment recorded on one device shows on the bill every device reads.
 
 ### Reports (doc §22, §33–34)
 `GET /api/reports/students/:studentId/report-card` ·

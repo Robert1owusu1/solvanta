@@ -429,14 +429,106 @@ func SubjectName(id string) string {
 // write has to be idempotent — a replay of the same payment must be a no-op or
 // one collection is recorded twice.
 type Payment struct {
-	ID         string `json:"id"`
-	InvoiceID  string `json:"invoiceId"`
+	ID        string `json:"id"`
+	InvoiceID string `json:"invoiceId"`
+	// Student the payment is for, so reads can be scoped per student without
+	// resolving the invoice first. Nullable in storage and omitted from the
+	// wire when empty: a client that predates it still sends a payment we
+	// must record, not reject.
+	StudentID  string `json:"studentId,omitempty"`
 	Amount     int    `json:"amount"` // GHS, whole units as the app sends them
 	Method     string `json:"method"` // cash | card | mobileMoney | bank
 	Reference  string `json:"reference,omitempty"`
 	PaidAt     string `json:"paidAt"` // 'yyyy-MM-dd HH:mm', as the receipt renders it
 	RecordedBy string `json:"recordedBy"`
 }
+
+// FeeLineItem mirrors the client FeeLineItem: one charge on an invoice.
+type FeeLineItem struct {
+	Name   string `json:"name"`
+	Amount int    `json:"amount"` // GHS
+}
+
+// Invoice status keys, mirroring the client's InvoiceStatus enum.
+const (
+	InvoiceStatusDue     = "due"
+	InvoiceStatusPartial = "partial"
+	InvoiceStatusOverdue = "overdue"
+	InvoiceStatusPaid    = "paid"
+)
+
+// Invoice mirrors the client's fees Invoice (lib/features/fees).
+//
+// AmountPaid and Status are part of the wire contract — the client serialises
+// both — but they are DERIVED on read and never read back from storage: the
+// sum comes from the payments table and the status from ResolveStatus, so a
+// payment recorded on a second device is reflected immediately instead of
+// being masked by the snapshot written when the invoice was created.
+type Invoice struct {
+	ID         string        `json:"id"`
+	StudentID  string        `json:"studentId"`
+	IssueDate  string        `json:"issueDate"` // 'yyyy-MM-dd'
+	DueDate    string        `json:"dueDate"`   // 'yyyy-MM-dd'
+	LineItems  []FeeLineItem `json:"lineItems"`
+	Term       string        `json:"term"`
+	AmountPaid int           `json:"amountPaid"` // derived: SUM of payments
+	Status     string        `json:"status"`     // derived: see ResolveStatus
+}
+
+// Total is the sum of the line items (GHS), mirroring Invoice.total.
+func (i Invoice) Total() int {
+	total := 0
+	for _, item := range i.LineItems {
+		total += item.Amount
+	}
+	return total
+}
+
+// Balance is what is still owed, never negative (GHS).
+func (i Invoice) Balance() int {
+	if b := i.Total() - i.AmountPaid; b > 0 {
+		return b
+	}
+	return 0
+}
+
+// ResolveStatus mirrors the client's Invoice.resolveStatus: settled → paid;
+// past the due date with a balance → overdue; part-paid → partial; otherwise
+// due. `today` is 'yyyy-MM-dd', and since every date involved is a
+// zero-padded ISO date, comparing the strings is the same ordering the client
+// gets by parsing both sides.
+func (i Invoice) ResolveStatus(today string) string {
+	if i.Balance() <= 0 {
+		return InvoiceStatusPaid
+	}
+	if i.DueDate != "" && today > i.DueDate {
+		return InvoiceStatusOverdue
+	}
+	if i.AmountPaid > 0 {
+		return InvoiceStatusPartial
+	}
+	return InvoiceStatusDue
+}
+
+// WithDerived returns the invoice as the read side serves it: AmountPaid
+// summed from every payment against this invoice, Status resolved from the
+// dates. Storing either would let a payment recorded on a second device be
+// masked by the snapshot written at creation time, so neither is ever read
+// back from storage.
+func (i Invoice) WithDerived(payments []Payment, today string) Invoice {
+	paid := 0
+	for _, p := range payments {
+		if p.InvoiceID == i.ID {
+			paid += p.Amount
+		}
+	}
+	i.AmountPaid = paid
+	i.Status = i.ResolveStatus(today)
+	return i
+}
+
+// Key returns the primary identifier; used by the store layer upsert helper.
+func (i Invoice) Key() string { return i.ID }
 
 // Key returns the primary identifier; used by the store layer upsert helper.
 func (u User) Key() string         { return u.ID }

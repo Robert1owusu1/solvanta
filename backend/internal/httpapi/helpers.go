@@ -35,6 +35,19 @@ func now() string { return time.Now().Format("2006-01-02T15:04") }
 // today returns the YYYY-MM-DD date.
 func today() string { return time.Now().Format("2006-01-02") }
 
+// isISODate reports whether s is a real 'yyyy-MM-dd' calendar date. Checked
+// here rather than left to the database so both stores answer the same way:
+// the memory store would happily keep "next Tuesday" as a date string where
+// PostgreSQL rejects it, and a validation error that depends on which store is
+// configured is a bug nobody can reproduce.
+func isISODate(s string) bool {
+	if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	_, err := time.Parse("2006-01-02", s)
+	return err == nil
+}
+
 // audit records an action against the audit log (doc §49).
 func (s *Server) audit(c *gin.Context, action, target, detail, reason string) {
 	u := currentUser(c)

@@ -6,9 +6,10 @@
 -- nothing the second time. Without that, a retried push would record the same
 -- collection twice.
 --
--- No FK on invoice_id on purpose: fees invoices are still a device-local
--- record, so this column is a cross-reference into that record rather than a
--- constraint against a table the backend does not own yet.
+-- No FK on invoice_id: a cross-reference, not a constraint. Rows recorded
+-- before 003 gave the backend an invoices table point at device-local
+-- invoices that may not exist here at all, and validating that link would
+-- reject the payment carrying the real money over its index.
 CREATE TABLE IF NOT EXISTS payments (
     id          TEXT PRIMARY KEY,
     invoice_id  TEXT NOT NULL,

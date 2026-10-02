@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"solvanta/backend/internal/domain"
 )
@@ -99,11 +100,13 @@ type Store interface {
 	AssignmentByID(id string) (domain.Assignment, bool)
 	SaveAssignment(a domain.Assignment) error
 
-	// Fees & payments (client's fees module). Only the write is served over
-	// HTTP: invoices are still a device-local record, so there is no list
-	// endpoint for a client to read back yet. Payments() backs the tests — its
-	// job is to prove the idempotency below against a real database, where
-	// "the replay wrote nothing" cannot be observed from the API surface alone.
+	// Fees & payments (client's fees module). The handler scopes these per
+	// student, so like Students() the store hands back whole collections;
+	// invoice amounts and statuses are derived (payments summed, status
+	// computed) rather than stored — see domain.Invoice.
+	Invoices() []domain.Invoice
+	InvoiceByID(id string) (domain.Invoice, bool)
+	SaveInvoice(inv domain.Invoice) error
 	Payments() []domain.Payment
 	SavePayment(p domain.Payment) error // idempotent: the client owns the id
 
@@ -138,6 +141,7 @@ type Memory struct {
 	announcements []domain.Announcement
 	notifications []domain.Notification
 	assignments   []domain.Assignment
+	invoices      []domain.Invoice
 	payments      []domain.Payment
 	audit         []domain.AuditEntry
 	refreshTokens map[string]refreshRecord
@@ -604,6 +608,45 @@ func (m *Memory) SaveAssignment(a domain.Assignment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.assignments = upsert(m.assignments, a.ID, a)
+
+	return nil
+}
+
+// todayString is the 'yyyy-MM-dd' the derived invoice status is judged
+// against — the same zero-padded ISO format the client compares against.
+func todayString() string { return time.Now().Format("2006-01-02") }
+
+// Invoices returns every invoice with AmountPaid and Status already derived —
+// the memory store mirrors what Postgres does by joining payments, so a test
+// written against one store holds for the other.
+func (m *Memory) Invoices() []domain.Invoice {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]domain.Invoice, 0, len(m.invoices))
+	for _, inv := range m.invoices {
+		out = append(out, inv.WithDerived(m.payments, todayString()))
+	}
+	return out
+}
+
+func (m *Memory) InvoiceByID(id string) (domain.Invoice, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inv := range m.invoices {
+		if inv.ID == id {
+			return inv.WithDerived(m.payments, todayString()), true
+		}
+	}
+	return domain.Invoice{}, false
+}
+
+// SaveInvoice upserts on the client-chosen id: an invoice's terms are edited,
+// not minted, so a corrected version replaces the old one (and a replayed
+// POST of the same invoice is a no-op).
+func (m *Memory) SaveInvoice(inv domain.Invoice) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invoices = upsert(m.invoices, inv.ID, inv)
 
 	return nil
 }

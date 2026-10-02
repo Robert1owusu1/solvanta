@@ -238,6 +238,7 @@ class FeesRepository {
     final payment = Payment(
       id: 'PAY-${now.millisecondsSinceEpoch}',
       invoiceId: invoice.id,
+      studentId: invoice.studentId,
       amount: amount,
       method: method,
       reference: reference.trim(),
@@ -480,6 +481,7 @@ class FeesRepository {
         final payment = Payment(
           id: 'PAY-SEED-${student.id}',
           invoiceId: invoice.id,
+          studentId: student.id,
           amount: paid,
           method: pattern == 0 ? PaymentMethod.mobileMoney : PaymentMethod.cash,
           reference: pattern == 0 ? 'MOMO-${index + 1}00' : 'CASH-${index + 1}00',

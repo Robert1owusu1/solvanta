@@ -49,6 +49,13 @@ func (f *failingStore) SavePayment(p domain.Payment) error {
 	return f.Store.SavePayment(p)
 }
 
+func (f *failingStore) SaveInvoice(inv domain.Invoice) error {
+	if err := f.failure("SaveInvoice"); err != nil {
+		return err
+	}
+	return f.Store.SaveInvoice(inv)
+}
+
 // newFailingServer builds the API over a store whose named write fails.
 func newFailingServer(t *testing.T, failOn string) *gin.Engine {
 	t.Helper()

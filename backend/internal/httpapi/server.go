@@ -406,15 +406,26 @@ func (s *Server) Router() *gin.Engine {
 		assignments.POST("/:id/complete", requireRole(domain.RoleStudent), s.completeAssignment)
 	}
 
-	// Fees & payments (client: lib/features/fees). POST only: the device pushes
-	// from its sync outbox, and the read side still lives in the client's own
-	// store until invoices get a backend representation of their own. The role
-	// allow-list is IsSchoolStaff() — the same five roles the client's fees
-	// screens gate the "Record payment" affordance on, so the API never rejects
-	// an action the app just offered, nor accepts one it hides.
+	// Fees (client: lib/features/fees). The device pushes payments from its
+	// sync outbox; the reads are scoped per student inside the handlers (see
+	// studentVisible) so a parent or a pupil sees only their own money. The
+	// role allow-list on a write is IsSchoolStaff() — the same five roles the
+	// client's fee screens gate the "Record payment" affordance on, so the API
+	// never rejects an action the app just offered, nor accepts one it hides.
 	payments := api.Group("/payments", s.schoolScope())
 	{
+		payments.GET("", s.listPayments)
 		payments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createPayment)
+	}
+
+	// Invoices are the bill, payments against it are the money — the two
+	// halves of one fee screen, hence the same scoping and the same write
+	// allow-list as /payments above.
+	invoices := api.Group("/invoices", s.schoolScope())
+	{
+		invoices.GET("", s.listInvoices)
+		invoices.GET("/:id", s.invoiceDetail)
+		invoices.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createInvoice)
 	}
 
 	reports := api.Group("/reports", s.schoolScope())

@@ -286,10 +286,11 @@ func TestPostgresWritePaths(t *testing.T) {
 	// a replayed payment is stored once: the device pushes payment.record until
 	// it gets an answer, so SavePayment is handed the identical id again after
 	// a timeout. ON CONFLICT (id) DO NOTHING must swallow it — two rows would
-	// double-bill the same collection.
+	// double-bill the same collection. StudentID travels with it (003), which
+	// is what lets a read be scoped per student without resolving invoices.
 	pay := domain.Payment{
-		ID: "PAY-T", InvoiceID: "INV-T", Amount: 250, Method: "cash",
-		Reference: "RCPT-9", PaidAt: "2026-10-01 09:41", RecordedBy: "Bursar",
+		ID: "PAY-T", InvoiceID: "INV-T", StudentID: "STU-001", Amount: 250,
+		Method: "cash", Reference: "RCPT-9", PaidAt: "2026-10-01 09:41", RecordedBy: "Bursar",
 	}
 	if err := pg.SavePayment(pay); err != nil {
 		t.Fatalf("SavePayment: %v", err)
@@ -301,13 +302,59 @@ func TestPostgresWritePaths(t *testing.T) {
 	for _, p := range pg.Payments() {
 		if p.ID == "PAY-T" {
 			n++
-			if p.Amount != 250 || p.InvoiceID != "INV-T" || p.Method != "cash" {
+			if p.Amount != 250 || p.InvoiceID != "INV-T" || p.Method != "cash" ||
+				p.StudentID != "STU-001" {
 				t.Fatalf("stored payment wrong: %+v", p)
 			}
 		}
 	}
 	if n != 1 {
 		t.Fatalf("replayed payment stored %d times, want 1", n)
+	}
+
+	// invoices: the JSONB line items and the ::text dates must round-trip, an
+	// upsert must not duplicate, and the amount must be SUMMED from the
+	// payment above rather than read back — no amount_paid column exists.
+	inv := domain.Invoice{
+		ID: "INV-T", StudentID: "STU-001", IssueDate: "2026-09-07",
+		DueDate: "2026-10-07", Term: "Term 1 · 2026/2027",
+		LineItems: []domain.FeeLineItem{{Name: "Tuition — JHS2A", Amount: 1000}},
+	}
+	if err := pg.SaveInvoice(inv); err != nil {
+		t.Fatalf("SaveInvoice: %v", err)
+	}
+	if err := pg.SaveInvoice(inv); err != nil {
+		t.Fatalf("SaveInvoice replay: %v", err)
+	}
+	// A corrected bill replaces the terms rather than adding a second invoice.
+	inv.LineItems = append(inv.LineItems, domain.FeeLineItem{Name: "Trip levy", Amount: 250})
+	if err := pg.SaveInvoice(inv); err != nil {
+		t.Fatalf("SaveInvoice correction: %v", err)
+	}
+	stored := 0
+	for _, g := range pg.Invoices() {
+		if g.ID != "INV-T" {
+			continue
+		}
+		stored++
+		if len(g.LineItems) != 2 || g.LineItems[0].Name != "Tuition — JHS2A" ||
+			g.LineItems[1].Amount != 250 || g.Term != "Term 1 · 2026/2027" ||
+			g.IssueDate != "2026-09-07" || g.DueDate != "2026-10-07" {
+			t.Fatalf("invoice did not round-trip: %+v", g)
+		}
+		if g.AmountPaid != 250 {
+			t.Fatalf("amountPaid = %d, want 250 — summed from the payment above, "+
+				"not stored on the invoice", g.AmountPaid)
+		}
+		if g.Status == "" {
+			t.Fatal("status not derived on read")
+		}
+	}
+	if stored != 1 {
+		t.Fatalf("invoice stored %d times after upsert, want 1", stored)
+	}
+	if len(pg.Invoices()) < 8 {
+		t.Fatalf("seed raised %d invoices, want the 8 one-per-student bills", len(pg.Invoices()))
 	}
 
 	// school/term upserts are idempotent

@@ -1511,6 +1511,79 @@ func (p *Postgres) SaveAssignment(a domain.Assignment) error {
 
 // --- Fees & payments (client's fees module) ---
 
+// Invoices returns every invoice with AmountPaid summed from the payments
+// table in the same round trip, and Status resolved in Go from those two
+// numbers and the due date. Neither is a column: a payment recorded on a
+// second device would leave a stored copy wrong, and the whole point of this
+// table is that two devices see one bill. Dates come back as ::text because
+// the client writes 'yyyy-MM-dd' strings and reads them back the same way.
+func (p *Postgres) Invoices() []domain.Invoice {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT i.id, i.student_id, i.issue_date::text, i.due_date::text,
+		       i.term, COALESCE(i.line_items, '[]'::jsonb), COALESCE(p.paid, 0)
+		FROM invoices i
+		LEFT JOIN (SELECT invoice_id, SUM(amount) AS paid
+		           FROM payments GROUP BY invoice_id) p
+		  ON p.invoice_id = i.id
+		ORDER BY i.issue_date, i.id`)
+	if err != nil {
+		p.errLog("Invoices", err)
+		return nil
+	}
+	defer rows.Close()
+	today := todayString()
+	var out []domain.Invoice
+	for rows.Next() {
+		var inv domain.Invoice
+		var items string
+		if err := rows.Scan(&inv.ID, &inv.StudentID, &inv.IssueDate, &inv.DueDate,
+			&inv.Term, &items, &inv.AmountPaid); err != nil {
+			p.errLog("Invoices scan", err)
+			continue
+		}
+		// An empty line_items is written as '{}'/'[]' — tolerate a NULL from
+		// a hand-edited row rather than dropping the whole invoice.
+		if items != "" {
+			_ = json.Unmarshal([]byte(items), &inv.LineItems)
+		}
+		inv.Status = inv.ResolveStatus(today)
+		out = append(out, inv)
+	}
+	return out
+}
+
+func (p *Postgres) InvoiceByID(id string) (domain.Invoice, bool) {
+	for _, inv := range p.Invoices() {
+		if inv.ID == id {
+			return inv, true
+		}
+	}
+	return domain.Invoice{}, false
+}
+
+// SaveInvoice upserts on the client-chosen id: invoice terms are corrected
+// rather than re-minted, so a replayed POST of an unchanged invoice is a
+// no-op and a genuinely edited one replaces the previous terms. The derived
+// amountPaid/status the client may also send are ignored — they are recomputed
+// on read, from payments this server has seen.
+func (p *Postgres) SaveInvoice(inv domain.Invoice) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO invoices (id, student_id, issue_date, due_date, term, line_items)
+		VALUES ($1,$2,$3,$4,$5,COALESCE($6::jsonb,'[]'::jsonb))
+		ON CONFLICT (id) DO UPDATE SET
+			student_id = EXCLUDED.student_id, issue_date = EXCLUDED.issue_date,
+			due_date = EXCLUDED.due_date, term = EXCLUDED.term,
+			line_items = EXCLUDED.line_items`,
+		inv.ID, inv.StudentID, inv.IssueDate, inv.DueDate,
+		nullStr(inv.Term), toJSON(inv.LineItems))
+	if err != nil {
+		p.errLog("SaveInvoice", err)
+		return err
+	}
+
+	return nil
+}
+
 // SavePayment records one money movement. ON CONFLICT (id) DO NOTHING rather
 // than DO UPDATE: the device firm-commits a payment locally and replays it
 // through the outbox, so the same id arriving twice is one collection seen
@@ -1518,11 +1591,11 @@ func (p *Postgres) SaveAssignment(a domain.Assignment) error {
 // that races the original writes nothing the second time.
 func (p *Postgres) SavePayment(pay domain.Payment) error {
 	_, err := p.db.ExecContext(contextTODO(), `
-		INSERT INTO payments (id, invoice_id, amount, method, reference, paid_at, recorded_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO payments (id, invoice_id, student_id, amount, method, reference, paid_at, recorded_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (id) DO NOTHING`,
-		pay.ID, pay.InvoiceID, pay.Amount, pay.Method, nullStr(pay.Reference),
-		pay.PaidAt, pay.RecordedBy)
+		pay.ID, pay.InvoiceID, nullStr(pay.StudentID), pay.Amount, pay.Method,
+		nullStr(pay.Reference), pay.PaidAt, pay.RecordedBy)
 	if err != nil {
 		p.errLog("SavePayment", err)
 		return err
@@ -1533,7 +1606,8 @@ func (p *Postgres) SavePayment(pay domain.Payment) error {
 
 func (p *Postgres) Payments() []domain.Payment {
 	rows, err := p.db.QueryContext(contextTODO(), `
-		SELECT id, invoice_id, amount, method, reference, paid_at, recorded_by
+		SELECT id, invoice_id, COALESCE(student_id,''), amount, method,
+		       reference, paid_at, recorded_by
 		FROM payments ORDER BY paid_at, id`)
 	if err != nil {
 		p.errLog("Payments", err)
@@ -1543,8 +1617,8 @@ func (p *Postgres) Payments() []domain.Payment {
 	var out []domain.Payment
 	for rows.Next() {
 		var pay domain.Payment
-		if err := rows.Scan(&pay.ID, &pay.InvoiceID, &pay.Amount, &pay.Method,
-			&pay.Reference, &pay.PaidAt, &pay.RecordedBy); err != nil {
+		if err := rows.Scan(&pay.ID, &pay.InvoiceID, &pay.StudentID, &pay.Amount,
+			&pay.Method, &pay.Reference, &pay.PaidAt, &pay.RecordedBy); err != nil {
 			p.errLog("Payments scan", err)
 			continue
 		}
