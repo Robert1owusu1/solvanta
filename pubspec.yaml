@@ -51,7 +51,7 @@ dependencies:
   # Local notifications: due-date reminders, attendance alerts, sync results.
   flutter_local_notifications: ^18.0.1
   # Biometric unlock for the app lock (fingerprint / face), PIN fallback.
-  local_auth: ^2.3.0
+  local_auth: ^3.0.2
   # Reachability signal driving the offline sync queue + offline-lite mode.
   connectivity_plus: ^6.1.0
   # Zoned scheduling for reminder notifications (direct so the
