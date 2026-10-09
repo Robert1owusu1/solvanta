@@ -53,7 +53,7 @@ dependencies:
   # Biometric unlock for the app lock (fingerprint / face), PIN fallback.
   local_auth: ^2.3.0
   # Reachability signal driving the offline sync queue + offline-lite mode.
-  connectivity_plus: ^6.1.0
+  connectivity_plus: ^7.3.1
   # Zoned scheduling for reminder notifications (direct so the
   # `depend_on_referenced_packages` ignore in NotificationService can go).
   timezone: ^0.10.1
