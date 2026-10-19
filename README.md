@@ -37,12 +37,52 @@ This is **locked in by tests**, not by convention:
   flags, dashboard routing, and the self-registration role picker
   (teacher/parent/student only).
 
-## Run the app
+## Run the project
+
+Run the API, then the mobile and/or web client, each in its own terminal.
+Without the API both clients still start, offline on the seeded `LocalStore`.
+
+### 1. Backend
+
+```sh
+cd backend
+ALLOWED_ORIGINS=http://localhost:5000 go run ./cmd/server
+```
+
+Listens on `127.0.0.1:8080` with the in-memory store (see
+[Run the backend](#run-the-backend) for PostgreSQL and Docker).
+`ALLOWED_ORIGINS` is only needed for the web client: the API sends CORS
+headers to allow-listed origins only, so the browser blocks every call
+otherwise.
+
+> On this machine Go lives on the external drive; if `go` is not found, add
+> `export PATH="$PATH:/mnt/devdrive/DevTools/go/go/bin:$GOPATH/bin"` to
+> `~/.bashrc` and open a new terminal.
+
+### 2. Mobile app
 
 ```sh
 flutter pub get
-flutter run                 # device/emulator; adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8080 tcp:8080   # lets the device reach the API on 127.0.0.1:8080
+flutter run                     # pick the Android device/emulator
 ```
+
+### 3. Web app
+
+```sh
+flutter run -d chrome --web-port 5000                              # Chrome/Chromium/Edge
+flutter run -d web-server --web-port 5000 --web-hostname localhost # any browser, e.g. Firefox
+```
+
+Keep the port at `5000` so the origin matches `ALLOWED_ORIGINS` (Flutter
+picks a random port otherwise). With `web-server`, open
+`http://localhost:5000` yourself — `localhost`, not `127.0.0.1`, which is a
+different CORS origin — and press `R` + refresh the tab to pick up changes. If
+Chromium isn't found, set `CHROME_EXECUTABLE=$(which chromium)`. On the web,
+biometrics are skipped and scan images are only partly supported.
+
+Point either client at another API with
+`--dart-define=SOLVANTA_API=http://<host>:8080`.
 
 > ⚠️ **Sideloading gotcha:** `flutter test integration_test/…` rewrites
 > `build/app/outputs/flutter-apk/app-debug.apk` with a *test-listener* entrypoint
