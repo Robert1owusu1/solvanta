@@ -62,6 +62,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   caller's scope yields an empty list rather than an error naming them. The
   seed now raises the same one-invoice-per-term bill the app's `_buildSeed`
   does, so both sides describe the same fees.
+- The Flutter client builds and runs in a browser (`flutter build web`).
+  Generated files — fee PDFs, report cards, report exports, QR badges — go
+  through one `saveAndShareFile()` helper: the share sheet on devices, a
+  download on web, where there is no temp directory. On web the API endpoint
+  comes only from `--dart-define=SOLVANTA_API` (`Platform.environment` throws in
+  the browser), the lock screen skips `local_auth` (no web implementation) and
+  goes to the PIN, and scan capture previews the photo from memory because
+  `Image.file` cannot load image_picker's blob URL. The web client's origin must
+  be listed in `ALLOWED_ORIGINS`; `backend/.env.example` shows the value.
+  Known gap: a scan page captured on web stores only that blob URL as its
+  `imagePath`, which dies with the tab — web scans need the bytes persisted or
+  uploaded before the page can be processed later.
 
 ### Performance
 
