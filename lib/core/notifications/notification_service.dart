@@ -303,7 +303,9 @@ class NotificationService {
       );
 
   int _nextAutoId() {
-    _autoId = _autoId >= 0x7ffffffe ? 1 : _autoId + 1;
+    // 31-bit wrap that skips 0; store the skip so the next id isn't 1 again.
+    _autoId = (_autoId + 1) & 0x7fffffff;
+    if (_autoId == 0) _autoId = 1;
     return _autoId;
   }
 }

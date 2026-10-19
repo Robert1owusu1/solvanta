@@ -101,8 +101,18 @@ class AppSettings extends ChangeNotifier {
 
   /// Reads persisted values. Safe to call more than once; only the first
   /// call does I/O.
-  Future<void> load() async {
-    if (_loaded) return;
+  ///
+  /// Concurrent callers (app startup + the lock gate + the settings screen)
+  /// share one in-flight read, so the legacy-PIN migration below runs once.
+  /// A failed read clears the cached future so the next call can retry.
+  Future<void> load() {
+    if (_loaded) return Future.value();
+    return _loading ??= _load().whenComplete(() => _loading = null);
+  }
+
+  Future<void>? _loading;
+
+  Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     themeMode = switch (p.getString(_kThemeMode)) {
       'light' => ThemeMode.light,
@@ -240,3 +250,4 @@ class AppSettings extends ChangeNotifier {
   /// True when entrance animations should be collapsed everywhere.
   bool get motionOff => reduceMotion || dataSaver;
 }
+

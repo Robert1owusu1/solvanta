@@ -34,6 +34,10 @@ class AssessmentBuilderPresets {
 class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
   late final TextEditingController _title;
   final _repo = AssessmentRepository();
+
+  /// Fetched once: every dropdown change calls setState, and a fresh future
+  /// per build blanked the class list (and its picker) on each one.
+  late final Future<List<ClassRoom>> _classes = StudentsRepository().classes();
   String _subjectId = 'MATH';
   late AssessmentType _type;
   User? _user;
@@ -155,7 +159,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('New assessment')),
       body: FutureBuilder<List<ClassRoom>>(
-        future: StudentsRepository().classes(),
+        future: _classes,
         builder: (context, snap) {
           final classes = snap.data ?? [];
           return ListView(

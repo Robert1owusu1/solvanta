@@ -256,6 +256,39 @@ void svSnack(BuildContext context, String message, {bool error = false}) {
     );
 }
 
+/// Asks the user to confirm an action before it runs. Resolves to true only
+/// when [confirmLabel] is tapped; dismissing or cancelling resolves false.
+/// Use [destructive] for actions that end a session or discard data.
+Future<bool> svConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+  bool destructive = false,
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: destructive
+              ? FilledButton.styleFrom(backgroundColor: AppColors.danger)
+              : null,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
 /// Fades + slides [child] in once when it first appears. Use [delay] with an
 /// index-based offset to stagger lists: `SvEntrance(delay: Duration(milliseconds: 60 * i), child: …)`.
 class SvEntrance extends StatefulWidget {

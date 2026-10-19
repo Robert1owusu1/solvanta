@@ -86,12 +86,19 @@ class AuthRepository {
         u.email.toLowerCase() == email.trim().toLowerCase());
     if (exists) return null;
 
+    // `length + 1` alone collides once any account has been removed or ids
+    // were assigned elsewhere; take the first number nobody holds yet.
+    final taken = users.map((u) => u.id).toSet();
+    var n = users.length + 1;
+    while (taken.contains('USR-$n')) {
+      n++;
+    }
     final user = User(
-      id: 'USR-${users.length + 1}',
+      id: 'USR-$n',
       name: name.trim(),
       email: email.trim(),
       phone: phone.trim(),
-      password: password,
+      password: hashSecret(password), // Store hashed from the start
       role: role,
       schoolId: 'SCH-001',
     );

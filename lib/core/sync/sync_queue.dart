@@ -388,9 +388,10 @@ class SyncQueue extends ChangeNotifier {
   /// at five minutes so a long-offline device doesn't hammer the server the
   /// moment it reconnects.
   static Duration backoffFor(int attempts) {
-    var shift = attempts - 1;
-    if (shift < 0) shift = 0;
-    if (shift > 6) shift = 6;
+    // Clamp attempts to [1, 7] to prevent shift overflow and excessive backoff.
+    // attempts=1 → 5s, 2→10s, 3→20s, 4→40s, 5→80s, 6→160s, 7→300s (capped)
+    final clampedAttempts = attempts.clamp(1, 7);
+    final shift = clampedAttempts - 1;
     final seconds = 5 << shift;
     return Duration(seconds: seconds > 300 ? 300 : seconds);
   }

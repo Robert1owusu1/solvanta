@@ -51,7 +51,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       if (user != null) {
-        Navigator.of(context).pushReplacementNamed('/home');
+        // Clear the stack: from Register the login route sits underneath, and
+        // Back from the dashboard must never land a signed-in user on it.
+        Navigator.of(context).pushNamedAndRemoveUntil('/home', (_) => false);
       } else {
         svSnack(context, 'An account with this email exists', error: true);
       }
@@ -82,6 +84,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             offset: const Offset(0, .04),
             child: Form(
               key: _formKey,
+              // Lets the platform password manager save the new account.
+              child: AutofillGroup(
               child: Column(
                 crossAxisAlignment: .stretch,
                 children: [
@@ -144,7 +148,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     textInputAction: .next,
                     decoration: const InputDecoration(labelText: 'Email'),
                     validator: (v) {
-                      if (v == null || !v.contains('@')) {
+                      final t = v?.trim() ?? '';
+                      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(t)) {
                         return 'Enter a valid email';
                       }
                       return null;
@@ -205,6 +210,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: const Text('I already have an account'),
                   ),
                 ],
+              ),
               ),
             ),
           ),

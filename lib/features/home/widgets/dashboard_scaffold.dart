@@ -205,12 +205,12 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
           NavigationDestination(
             icon: Badge(
               isLabelVisible: _unread > 0,
-              label: Text('$_unread'),
+              label: Text(_badgeText(_unread)),
               child: const Icon(Icons.notifications_none),
             ),
             selectedIcon: Badge(
               isLabelVisible: _unread > 0,
-              label: Text('$_unread'),
+              label: Text(_badgeText(_unread)),
               child: const Icon(Icons.notifications),
             ),
             label: 'Inbox',
@@ -225,6 +225,21 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
       ),
     );
   }
+}
+
+/// Badge text capped so a large backlog can't stretch the pill over the icon.
+String _badgeText(int n) => n > 99 ? '99+' : '$n';
+
+/// Up to two initials for an avatar, skipping honorifics ("Ms.", "Mrs.") so
+/// "Ms. Efua Mensah" reads EM; '?' when the name is blank.
+String _initials(String name) {
+  final words = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  final named = words.where((p) => !p.endsWith('.')).toList();
+  final s = (named.isEmpty ? words : named)
+      .take(2)
+      .map((p) => p[0].toUpperCase())
+      .join();
+  return s.isEmpty ? '?' : s;
 }
 
 /// Branded hero shared by every top-level tab: greeting, role and the two
@@ -298,7 +313,13 @@ class _ShellHeader extends StatelessWidget {
               if (user != null) ...[
                 CircleAvatar(
                   backgroundColor: Colors.white.withValues(alpha: .2),
-                  child: const Icon(Icons.person, color: Colors.white),
+                  child: Text(
+                    _initials(user!.name),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15),
+                  ),
                 ),
                 const SizedBox(width: 12),
               ],
@@ -345,7 +366,7 @@ class _ShellHeader extends StatelessWidget {
                   },
                   icon: Badge(
                     isLabelVisible: unread > 0,
-                    label: Text('$unread'),
+                    label: Text(_badgeText(unread)),
                     child:
                         const Icon(Icons.notifications, color: Colors.white),
                   ),
@@ -606,12 +627,7 @@ class _AccountTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials = user.name
-        .split(RegExp(r'\s+'))
-        .where((p) => p.isNotEmpty)
-        .take(2)
-        .map((p) => p[0].toUpperCase())
-        .join();
+    final initials = _initials(user.name);
     return SvRefresh(
       onRefresh: onRefresh,
       child: ListView(
@@ -653,7 +669,7 @@ class _AccountTab extends StatelessWidget {
                     ),
                     alignment: Alignment.center,
                     child: Text(
-                      initials.isEmpty ? '?' : initials,
+                      initials,
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 20,
@@ -816,14 +832,19 @@ class _ModuleGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Two columns on a phone, more as the width allows (tablet, landscape,
+    // desktop), and taller cards as text scales up so labels never clip.
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final width = MediaQuery.sizeOf(context).width;
+    final columns = (width / 220).floor().clamp(2, 6);
     return GridView.count(
-      crossAxisCount: 2,
+      crossAxisCount: columns,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
-      childAspectRatio: 1.32,
+      childAspectRatio: (1.32 / textScale.clamp(1.0, 2.2)).clamp(.6, 1.32),
       children: [
         for (var i = 0; i < modules.length; i++)
           SvEntrance(

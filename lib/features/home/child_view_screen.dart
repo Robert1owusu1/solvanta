@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
+import '../../core/ui/ui_kit.dart';
 import '../assessment/results_screen.dart';
 import '../auth/auth_repository.dart';
 import '../students/student_profile_screen.dart';
@@ -158,40 +159,59 @@ class _ParentScaffoldState extends State<_ParentScaffold> {
   }
 }
 
-class StudentResultsScreen extends StatelessWidget {
-  const StudentResultsScreen({super.key});
+/// Resolves the signed-in student's own record id and builds [builder] with
+/// it. Shows a spinner while the session loads rather than flashing
+/// "Not signed in" on every open.
+class _OwnStudentId extends StatefulWidget {
+  const _OwnStudentId({required this.builder});
+
+  final Widget Function(String studentId) builder;
+
+  @override
+  State<_OwnStudentId> createState() => _OwnStudentIdState();
+}
+
+class _OwnStudentIdState extends State<_OwnStudentId> {
+  late final Future<User?> _user = AuthRepository().currentUser();
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<User?>(
-      future: AuthRepository().currentUser(),
+      future: _user,
       builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Scaffold(body: SvLoading());
+        }
         final user = snap.data;
         if (user == null) {
           return const Scaffold(body: Center(child: Text('Not signed in')));
         }
-        final studentId = user.id.replaceFirst('USR-', '');
-        return ResultsScreen(studentId: studentId, title: 'My Results');
+        // Derive student ID from the user's linked studentIds, not from the
+        // user ID pattern (which assumes USR-STU-xxx format and breaks for
+        // manually created accounts or migrated data).
+        final studentId = user.studentIds.isNotEmpty
+            ? user.studentIds.first
+            : user.id.replaceFirst('USR-', '');
+        return widget.builder(studentId);
       },
     );
   }
+}
+
+class StudentResultsScreen extends StatelessWidget {
+  const StudentResultsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => _OwnStudentId(
+        builder: (id) => ResultsScreen(studentId: id, title: 'My Results'),
+      );
 }
 
 class StudentSelfViewScreen extends StatelessWidget {
   const StudentSelfViewScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<User?>(
-      future: AuthRepository().currentUser(),
-      builder: (context, snap) {
-        final user = snap.data;
-        if (user == null) {
-          return const Scaffold(body: Center(child: Text('Not signed in')));
-        }
-        final studentId = user.id.replaceFirst('USR-', '');
-        return StudentProfileScreen(studentId: studentId);
-      },
-    );
-  }
+  Widget build(BuildContext context) => _OwnStudentId(
+        builder: (id) => StudentProfileScreen(studentId: id),
+      );
 }

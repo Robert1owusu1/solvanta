@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/settings/app_settings.dart';
@@ -86,7 +87,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
 
               // -------------------------------------------------------------
-              const SvSectionTitle('Feedback'),
+              const SvSectionTitle('Alerts & feedback'),
+              _SwitchRow(
+                icon: Icons.notifications_outlined,
+                color: AppColors.info,
+                title: 'Notifications',
+                subtitle: 'Attendance, results, messages and reminders',
+                value: s.notificationsEnabled,
+                onChanged: s.setNotificationsEnabled,
+              ),
               _SwitchRow(
                 icon: Icons.vibration,
                 color: AppColors.info,
@@ -109,14 +118,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: s.dataSaver,
                 onChanged: s.setDataSaver,
               ),
-              _SwitchRow(
-                icon: Icons.notifications_outlined,
-                color: AppColors.info,
-                title: 'Notifications',
-                subtitle: 'Attendance, results, messages and reminders',
-                value: s.notificationsEnabled,
-                onChanged: s.setNotificationsEnabled,
-              ),
 
               // -------------------------------------------------------------
               const SvSectionTitle('Security'),
@@ -124,14 +125,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.lock_outline,
                 color: AppColors.brand,
                 title: 'App lock',
-                subtitle: 'Require biometrics or PIN when the app opens',
+                subtitle: kIsWeb
+                    ? 'Require a PIN when the app opens'
+                    : 'Require biometrics or PIN when the app opens',
                 value: s.lockEnabled,
                 onChanged: (v) {
                   svHaptic(SvHaptic.medium);
                   s.setLockEnabled(v);
                 },
               ),
-              if (s.lockEnabled)
+              // Browsers have no biometric API here (local_auth has no web
+              // implementation), so a biometric lock would only ever offer
+              // Continue. On web the PIN is the lock — say so plainly.
+              if (s.lockEnabled && kIsWeb)
+                _Note(
+                  s.hasLockPin
+                      ? 'In the browser the app unlocks with your PIN.'
+                      : 'In the browser only a PIN can lock the app. Set one '
+                          'below — until then anyone can tap Continue.',
+                  icon: Icons.lock_outline,
+                ),
+              if (s.lockEnabled && !kIsWeb)
                 _Card(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,9 +305,10 @@ class _SwitchRow extends StatelessWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note(this.text);
+  const _Note(this.text, {this.icon = Icons.accessibility_new});
 
   final String text;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -302,7 +317,7 @@ class _Note extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.accessibility_new, size: 16, color: AppColors.muted),
+          Icon(icon, size: 16, color: AppColors.muted),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

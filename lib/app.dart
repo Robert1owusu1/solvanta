@@ -174,15 +174,23 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
   }
 }
 
-class _SessionGate extends StatelessWidget {
+class _SessionGate extends StatefulWidget {
   const _SessionGate({required this.auth});
 
   final AuthRepository auth;
 
   @override
+  State<_SessionGate> createState() => _SessionGateState();
+}
+
+class _SessionGateState extends State<_SessionGate> {
+  /// Resolved once per gate, so a rebuild can't restart the session lookup.
+  late final Future<User?> _user = widget.auth.currentUser();
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<User?>(
-      future: auth.currentUser(),
+      future: _user,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Scaffold(

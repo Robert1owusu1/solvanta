@@ -123,6 +123,9 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _settings.removeListener(_onSettingsChanged);
+    // Ensure the lock overlay is removed if the gate is disposed while locked.
+    // This prevents a stale OverlayEntry from leaking into the next app session.
+    _releaseLockEntry();
     super.dispose();
   }
 

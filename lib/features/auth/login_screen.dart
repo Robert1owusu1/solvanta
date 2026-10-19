@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -12,10 +13,24 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
+/// Seeded offline accounts, one per role, offered as tap-to-fill chips so a
+/// demo never needs credentials read off a slide.
+const _demoAccounts = <(String, String, String)>[
+  ('Teacher', 'efua.mensah@school.gh', 'teacher123'),
+  ('Headteacher', 'head@school.gh', 'head123'),
+  ('School admin', 'admin@solvanta.app', 'admin123'),
+  ('Parent', 'ama.owusu@school.gh', 'parent123'),
+  ('Student', 'kojo.owusu@school.gh', 'student123'),
+];
+
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController(text: 'efua.mensah@school.gh');
-  final _password = TextEditingController(text: 'teacher123');
+  // Debug builds (and tests) start prefilled with the teacher account; a
+  // release build never ships a password sitting in the field.
+  final _email =
+      TextEditingController(text: kDebugMode ? _demoAccounts.first.$2 : '');
+  final _password =
+      TextEditingController(text: kDebugMode ? _demoAccounts.first.$3 : '');
   var _busy = false;
   var _obscure = true;
 
@@ -26,18 +41,27 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _useDemo((String, String, String) account) {
+    svHaptic(SvHaptic.light);
+    _email.text = account.$2;
+    _password.text = account.$3;
+    _formKey.currentState?.validate();
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     setState(() => _busy = true);
     try {
       final user = await AuthRepository().login(
-        email: _email.text,
+        email: _email.text.trim(),
         password: _password.text,
       );
       if (!mounted) return;
       if (user != null) {
-        Navigator.of(context).pushReplacementNamed('/home');
+        // Clear the stack so Back from the dashboard never lands a signed-in
+        // user on the sign-in form.
+        Navigator.of(context).pushNamedAndRemoveUntil('/home', (_) => false);
       } else {
         svSnack(context, 'Invalid email or password', error: true);
       }
@@ -128,6 +152,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           padding: const EdgeInsets.all(22),
                           child: Form(
                             key: _formKey,
+                            // Lets the platform password manager offer and
+                            // save credentials for the email/password pair.
+                            child: AutofillGroup(
                             child: Column(
                               crossAxisAlignment: .start,
                               children: [
@@ -149,9 +176,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                   textInputAction: .next,
                                   decoration:
                                       const InputDecoration(labelText: 'Email'),
-                                  validator: (v) => (v == null || !v.contains('@'))
-                                      ? 'Enter a valid email'
-                                      : null,
+                                  validator: (v) {
+                                    final t = v?.trim() ?? '';
+                                    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                            .hasMatch(t)
+                                        ? null
+                                        : 'Enter a valid email';
+                                  },
                                 ),
                                 const SizedBox(height: 14),
                                 TextFormField(
@@ -199,6 +230,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ],
                             ),
+                            ),
                           ),
                         ),
                       ),
@@ -214,21 +246,52 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: const Text('Create an account',
                                 style: TextStyle(color: Colors.white)),
                           ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: .12),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'Demo: efua.mensah@school.gh / teacher123',
-                              textAlign: .center,
+                          const SizedBox(height: 10),
+                          Text('Try a demo account',
                               style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: Colors.white,
-                                  fontWeight: .w600),
+                                  fontSize: 12,
+                                  fontWeight: .w700,
+                                  letterSpacing: .3,
+                                  color: Colors.white.withValues(alpha: .75))),
+                          const SizedBox(height: 8),
+                          // Rebuild on typing so the highlighted chip always
+                          // matches the email actually in the field.
+                          ListenableBuilder(
+                            listenable: _email,
+                            // A chip's Material is canvas-typed, so it paints
+                            // theme.canvasColor (opaque white) under its own
+                            // translucent fill; on the navy ramp that hid the
+                            // white labels. Clear the canvas for this row.
+                            builder: (context, _) => Theme(
+                              data: Theme.of(context)
+                                  .copyWith(canvasColor: Colors.transparent),
+                              child: Wrap(
+                                alignment: WrapAlignment.center,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (final a in _demoAccounts)
+                                    ActionChip(
+                                      label: Text(a.$1),
+                                      tooltip: 'Fill in ${a.$2}',
+                                      onPressed: _busy ? null : () => _useDemo(a),
+                                      labelStyle: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: .w700,
+                                        color: _email.text == a.$2
+                                            ? AppTheme.navy900
+                                            : Colors.white,
+                                      ),
+                                      backgroundColor: _email.text == a.$2
+                                          ? AppTheme.gold
+                                          : Colors.white.withValues(alpha: .12),
+                                      side: BorderSide(
+                                          color:
+                                              Colors.white.withValues(alpha: .22)),
+                                      shape: const StadiumBorder(),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ],

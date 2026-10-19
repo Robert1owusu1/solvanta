@@ -67,6 +67,9 @@ void main() {
     }
     await tester.tap(signOutBtn);
     await tester.pumpAndSettle();
+    // Sign-out asks for confirmation; the dialog's button carries the label.
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign out'));
+    await tester.pumpAndSettle();
     await waitFor(tester, find.text('Sign in'));
   }
 
