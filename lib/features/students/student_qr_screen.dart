@@ -1,13 +1,11 @@
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
+import '../../core/platform/file_share.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
@@ -171,15 +169,8 @@ class _StudentQrScreenState extends State<StudentQrScreen> {
       if (byteData == null) {
         throw StateError('PNG encoding failed');
       }
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'image/png')],
-          fileNameOverrides: [fileName],
-        ),
-      );
+      await saveAndShareFile(
+          byteData.buffer.asUint8List(), fileName, 'image/png');
       svHaptic(SvHaptic.medium);
     } catch (e) {
       debugPrint('[StudentQr] share failed: $e');

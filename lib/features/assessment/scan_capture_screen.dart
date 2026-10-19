@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -31,6 +32,7 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
   final _repo = ScansRepository();
 
   String? _imagePath;
+  Uint8List? _imageBytes;
   ScanImageStats? _stats;
   List<String> _warnings = const [];
   int _pageNumber = 1;
@@ -52,6 +54,7 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
       if (!mounted) return;
       setState(() {
         _imagePath = file.path;
+        _imageBytes = bytes;
         _stats = stats;
         _warnings = ScanQualityCheck.evaluate(stats);
       });
@@ -68,6 +71,7 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
   void _retake() {
     setState(() {
       _imagePath = null;
+      _imageBytes = null;
       _stats = null;
       _warnings = const [];
     });
@@ -92,6 +96,7 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
       _submittedPages++;
       _pageNumber++;
       _imagePath = null;
+      _imageBytes = null;
       _stats = null;
       _warnings = const [];
     });
@@ -173,6 +178,13 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
     );
   }
 
+  static Widget _brokenImage(BuildContext _, Object _, StackTrace? _) =>
+      Container(
+        height: 200,
+        color: AppColors.border,
+        child: const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+
   Widget _reviewPanel() {
     final stats = _stats;
     return Column(
@@ -182,16 +194,21 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
           constraints: const BoxConstraints(maxHeight: 360),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.file(
-              File(_imagePath!),
-              width: double.infinity,
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => Container(
-                height: 200,
-                color: AppColors.border,
-                child: const Center(child: Icon(Icons.broken_image_outlined)),
-              ),
-            ),
+            // The browser has no file system: image_picker hands back a blob
+            // URL there, so preview the bytes already read for the check.
+            child: kIsWeb
+                ? Image.memory(
+                    _imageBytes!,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: _brokenImage,
+                  )
+                : Image.file(
+                    File(_imagePath!),
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                    errorBuilder: _brokenImage,
+                  ),
           ),
         ),
         const SizedBox(height: 14),

@@ -1,8 +1,4 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/models/assessment.dart';
 import '../../core/models/attendance.dart';
@@ -11,6 +7,7 @@ import '../../core/models/school_term.dart';
 import '../../core/models/submission.dart';
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
+import '../../core/platform/file_share.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/sync/offline_lite.dart';
@@ -155,18 +152,10 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
     setState(() => _working = true);
     try {
       final bytes = await buildReportCardPdf(card, _template);
-      final dir = await getTemporaryDirectory();
       final name = 'report_${card.studentId}_${_template.name}';
-      final file = File('${dir.path}/$name.pdf');
-      await file.writeAsBytes(bytes, flush: true);
       svHaptic(SvHaptic.medium);
       if (!mounted) return;
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'application/pdf')],
-          fileNameOverrides: ['$name.pdf'],
-        ),
-      );
+      await saveAndShareFile(bytes, '$name.pdf', 'application/pdf');
     } catch (_) {
       if (mounted) {
         reportCardFailSnack(

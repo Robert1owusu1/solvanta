@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
@@ -116,6 +117,7 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
 
   /// Resolves a face/fingerprint icon so the button matches the device.
   Future<void> _resolveBiometricIcon() async {
+    if (kIsWeb) return;
     try {
       final types = await _localAuth.getAvailableBiometrics();
       if (!mounted || types.isEmpty) return;
@@ -142,7 +144,9 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
       _message = null;
     });
     try {
-      if (!await _localAuth.isDeviceSupported()) {
+      // local_auth has no web implementation, so the browser goes straight to
+      // the PIN / Continue path instead of surfacing a plugin error.
+      if (kIsWeb || !await _localAuth.isDeviceSupported()) {
         if (!mounted) return;
         setState(() {
           _bioFailed = true;

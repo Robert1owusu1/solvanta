@@ -79,11 +79,15 @@ class ApiClient {
   /// the default localhost fallback.
   static bool get isConfigured =>
       _defineKey.isNotEmpty ||
-      (Platform.environment['SOLVANTA_API_URL']?.trim().isNotEmpty ?? false);
+      (!kIsWeb &&
+          (Platform.environment['SOLVANTA_API_URL']?.trim().isNotEmpty ??
+              false));
 
   static String defaultApiBaseUrl() {
     if (_defineKey.isNotEmpty) return _defineKey;
-    final env = Platform.environment['SOLVANTA_API_URL'];
+    // Platform.environment is unsupported in the browser; web builds take
+    // the endpoint from --dart-define=SOLVANTA_API only.
+    final env = kIsWeb ? null : Platform.environment['SOLVANTA_API_URL'];
     if (env != null && env.trim().isNotEmpty) return env.trim();
     return 'http://127.0.0.1:8080';
   }

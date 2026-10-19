@@ -1,13 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/models/school.dart';
 import '../../core/models/student.dart';
+import '../../core/platform/file_share.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/theme/app_theme.dart';
 import 'fee_models.dart';
@@ -337,15 +335,7 @@ class FeesPdf {
   /// Writes [bytes] to the temp directory as `<name>.pdf` and opens the
   /// share sheet. Throws only for the caller to surface a friendly message.
   Future<void> saveAndShare(Uint8List bytes, String name) async {
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name.pdf');
-    await file.writeAsBytes(bytes, flush: true);
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, mimeType: 'application/pdf')],
-        fileNameOverrides: ['$name.pdf'],
-      ),
-    );
+    await saveAndShareFile(bytes, '$name.pdf', 'application/pdf');
   }
 
   /// Shares plain receipt/invoice text (no file) — the lightweight path

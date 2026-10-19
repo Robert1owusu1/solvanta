@@ -1,16 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/models/assessment.dart';
 import '../../core/models/student.dart';
 import '../../core/models/school_term.dart';
 import '../../core/models/submission.dart';
 import '../../core/models/subjects.dart';
+import '../../core/platform/file_share.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../analytics/analytics_service.dart';
@@ -56,15 +54,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<void> _save(Uint8List bytes, String name, String extension,
       String mime) async {
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$name.$extension');
-    await file.writeAsBytes(bytes);
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path, mimeType: mime)],
-        fileNameOverrides: ['$name.$extension'],
-      ),
-    );
+    await saveAndShareFile(bytes, '$name.$extension', mime);
   }
 
   Future<void> _shareCsv(String csv, String name) =>
