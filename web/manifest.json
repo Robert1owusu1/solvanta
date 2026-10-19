@@ -1,12 +1,11 @@
 {
-    "name": "solvanta",
-    "short_name": "solvanta",
+    "name": "SOLVANTA",
+    "short_name": "SOLVANTA",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#1B3B6F",
+    "theme_color": "#1B3B6F",
+    "description": "School management, assessment and student safety for Ghanaian schools.",
     "prefer_related_applications": false,
     "icons": [
         {
