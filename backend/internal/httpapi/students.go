@@ -86,7 +86,8 @@ type studentRequest struct {
 	Guardians         []domain.Person `json:"guardians"`
 	EmergencyContacts []domain.Person `json:"emergencyContacts"`
 	AuthorizedPickup  []domain.Person `json:"authorizedPickup"`
-	ParentUserID      string          `json:"parentUserId,omitempty"`
+	ParentUserID      *string         `json:"parentUserId,omitempty"`
+	Status            string          `json:"status,omitempty"`
 }
 
 // createStudent adds a student (doc §10).
@@ -122,7 +123,8 @@ func (s *Server) createStudent(c *gin.Context) {
 		AdmissionNo:       body.AdmissionNo,
 		ClassID:           body.ClassID,
 		SchoolID:          firstNonEmpty(body.SchoolID, s.userSchool(u)),
-		ParentUserID:      body.ParentUserID,
+		ParentUserID:      deref(body.ParentUserID),
+		Status:            firstNonEmpty(body.Status, "Active"),
 		Guardians:         body.Guardians,
 		EmergencyContacts: body.EmergencyContacts,
 		AuthorizedPickup:  body.AuthorizedPickup,
@@ -191,6 +193,25 @@ func (s *Server) updateStudent(c *gin.Context) {
 	}
 	if body.ClassID != "" {
 		st.ClassID = body.ClassID
+	}
+	if body.AdmissionNo != "" {
+		st.AdmissionNo = body.AdmissionNo
+	}
+	if body.AdmissionDate != "" {
+		st.AdmissionDate = body.AdmissionDate
+	}
+	if body.Status != "" {
+		st.Status = body.Status
+	}
+	// Present-but-empty unlinks the parent; absent leaves the link alone.
+	if body.ParentUserID != nil {
+		if id := *body.ParentUserID; id != "" {
+			if p, ok := s.store.UserByID(id); !ok || p.Role != domain.RoleParent {
+				fail(c, http.StatusBadRequest, "parentUserId must be a parent account")
+				return
+			}
+		}
+		st.ParentUserID = *body.ParentUserID
 	}
 	if body.Guardians != nil {
 		st.Guardians = body.Guardians
@@ -297,4 +318,12 @@ func userForStudent(s *Server, st domain.Student) domain.User {
 	}
 	u, _ := s.store.UserByID(st.ParentUserID)
 	return u
+}
+
+// deref returns the pointed-to string, or "" for nil.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

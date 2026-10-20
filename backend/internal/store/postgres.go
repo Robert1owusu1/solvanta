@@ -883,6 +883,27 @@ func (p *Postgres) DeleteQuestion(id string) error {
 	return nil
 }
 
+func (p *Postgres) DeleteAnnouncement(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM announcements WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteAnnouncement", err)
+		return err
+	}
+
+	return nil
+}
+
+// DeleteAssignment removes an assignment; its completions cascade.
+func (p *Postgres) DeleteAssignment(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM assignments WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteAssignment", err)
+		return err
+	}
+
+	return nil
+}
+
 // --- AI generation requests (doc §43) ---
 
 func (p *Postgres) AIRequests() []domain.GenRequest {

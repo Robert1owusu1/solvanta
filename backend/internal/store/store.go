@@ -91,6 +91,7 @@ type Store interface {
 	SaveMessage(m domain.Message) error
 	Announcements() []domain.Announcement
 	AddAnnouncement(a domain.Announcement) error
+	DeleteAnnouncement(id string) error
 	Notifications() []domain.Notification
 	AddNotification(n domain.Notification) // best-effort side effect, see above
 	SetNotificationRead(id string) error
@@ -99,6 +100,7 @@ type Store interface {
 	Assignments() []domain.Assignment
 	AssignmentByID(id string) (domain.Assignment, bool)
 	SaveAssignment(a domain.Assignment) error
+	DeleteAssignment(id string) error
 
 	// Fees & payments (client's fees module). The handler scopes these per
 	// student, so like Students() the store hands back whole collections;
@@ -562,6 +564,20 @@ func (m *Memory) AddAnnouncement(a domain.Announcement) error {
 	return nil
 }
 
+func (m *Memory) DeleteAnnouncement(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.announcements[:0:0]
+	for _, a := range m.announcements {
+		if a.ID != id {
+			out = append(out, a)
+		}
+	}
+	m.announcements = out
+
+	return nil
+}
+
 func (m *Memory) Notifications() []domain.Notification {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -608,6 +624,20 @@ func (m *Memory) SaveAssignment(a domain.Assignment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.assignments = upsert(m.assignments, a.ID, a)
+
+	return nil
+}
+
+func (m *Memory) DeleteAssignment(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.assignments[:0:0]
+	for _, a := range m.assignments {
+		if a.ID != id {
+			out = append(out, a)
+		}
+	}
+	m.assignments = out
 
 	return nil
 }

@@ -307,6 +307,7 @@ func (s *Server) Router() *gin.Engine {
 		school.GET("/term", func(c *gin.Context) { sendJSON(c, s.store.Term()) })
 		school.PUT("/term", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateTerm)
 		school.GET("/classes", func(c *gin.Context) { sendJSON(c, s.store.Classes()) })
+		school.PUT("/classes/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.saveClass)
 	}
 
 	users := api.Group("/users", s.schoolScope())
@@ -314,6 +315,7 @@ func (s *Server) Router() *gin.Engine {
 		users.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.listUsers)
 		users.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.createUser)
 		users.PATCH("/:id/password", s.changePassword)
+		users.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.updateUser)
 	}
 
 	students := api.Group("/students", s.schoolScope())
@@ -330,6 +332,7 @@ func (s *Server) Router() *gin.Engine {
 
 	attendance := api.Group("/attendance", s.schoolScope())
 	{
+		attendance.GET("", s.listAttendance)
 		attendance.GET("/class/:classId/date/:date", s.attendanceForClassDate)
 		attendance.PUT("/class/:classId/date/:date", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.saveAttendanceDay)
 		attendance.GET("/students/:studentId/history", s.studentAttendanceHistory)
@@ -363,12 +366,15 @@ func (s *Server) Router() *gin.Engine {
 	{
 		assessments.GET("", s.listAssessments)
 		assessments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssessment)
+		assessments.PUT("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateAssessment)
 		assessments.GET("/:id", s.assessmentDetail)
 		assessments.POST("/:id/blueprint", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.blueprintGenerate)
 		assessments.POST("/:id/submit", s.submitAssessment)
 		assessments.POST("/:id/verdicts", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.markVerdicts)
 		assessments.GET("/:id/results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.assessmentResults)
 	}
+
+	api.GET("/submissions", s.schoolScope(), s.listSubmissions)
 
 	analytics := api.Group("/analytics", s.schoolScope())
 	{
@@ -392,8 +398,10 @@ func (s *Server) Router() *gin.Engine {
 	{
 		comm.GET("/announcements", s.listAnnouncements)
 		comm.POST("/announcements", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createAnnouncement)
+		comm.DELETE("/announcements/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.deleteAnnouncement)
 		comm.GET("/messages", s.listMessages)
 		comm.POST("/messages", s.sendMessage)
+		comm.GET("/notifications", s.listNotifications)
 		comm.GET("/notifications/unread", s.unreadNotifications)
 		comm.POST("/notifications/:id/read", s.markNotificationRead)
 		comm.POST("/notifications/read-all", s.markAllNotificationsRead)
@@ -403,6 +411,7 @@ func (s *Server) Router() *gin.Engine {
 	{
 		assignments.GET("", s.listAssignments)
 		assignments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssignment)
+		assignments.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.deleteAssignment)
 		assignments.POST("/:id/complete", requireRole(domain.RoleStudent), s.completeAssignment)
 	}
 
