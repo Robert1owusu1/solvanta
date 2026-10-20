@@ -883,6 +883,18 @@ func (p *Postgres) DeleteQuestion(id string) error {
 	return nil
 }
 
+// DeleteClass removes a class. The handler refuses classes still in use, so
+// no foreign key to class_rooms is left dangling.
+func (p *Postgres) DeleteClass(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM class_rooms WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteClass", err)
+		return err
+	}
+
+	return nil
+}
+
 func (p *Postgres) DeleteAnnouncement(id string) error {
 	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM announcements WHERE id = $1`, id)
 	if err != nil {

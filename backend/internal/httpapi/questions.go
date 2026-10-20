@@ -133,8 +133,14 @@ func (s *Server) aiRequest(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
+	if body.ID != "" {
+		if _, exists := s.store.AIRequestByID(body.ID); exists {
+			fail(c, http.StatusConflict, "A request with this id already exists")
+			return
+		}
+	}
 	req := domain.GenRequest{
-		ID:            newID("QGEN"),
+		ID:            firstNonEmpty(body.ID, newID("QGEN")),
 		RequesterID:   u.ID,
 		RequesterName: u.Name,
 		SubjectID:     body.SubjectID,

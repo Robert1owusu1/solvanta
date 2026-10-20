@@ -75,6 +75,7 @@ func Seed(st Store) {
 		{ID: "USR-PRN-007", Name: "Esi Manu", Email: "esi.manu@school.gh", Phone: "0246800001", Password: pw("parent123"), Role: domain.RoleParent, SchoolID: "SCH-001", StudentIDs: []string{"STU-007"}},
 		{ID: "USR-PRN-008", Name: "Ama Amponsah", Email: "ama.amponsah@school.gh", Phone: "0246900001", Password: pw("parent123"), Role: domain.RoleParent, SchoolID: "SCH-001", StudentIDs: []string{"STU-008"}},
 		{ID: "USR-STU-001", Name: "Kojo Owusu", Email: "kojo.owusu@school.gh", Phone: "0245000005", Password: pw("student123"), Role: domain.RoleStudent, SchoolID: "SCH-001", ClassID: "JHS2A"},
+		{ID: "USR-STF-001", Name: "Mr. Yaw Asante", Email: "staff@school.gh", Phone: "0247000007", Password: pw("staff123"), Role: domain.RoleStaff, SchoolID: "SCH-001"},
 	}
 
 	// Pass 1: users without student links (students do not exist yet, but a
@@ -254,6 +255,11 @@ func Seed(st Store) {
 		st.SaveMessage(m)
 	}
 
+	// Fixed timestamps, so every boot (and the app seed) agree.
+	for _, a := range seedAnnouncements {
+		st.AddAnnouncement(a)
+	}
+
 	notifTS := seedYesterday().Format("2006-01-02")
 	for _, n := range []domain.Notification{
 		{ID: "NOTIF-001", Kind: domain.NotifGate, Title: "Kojo arrived at school", Body: "Arrival verified at the gate at 07:40.", Timestamp: notifTS + " 07:40", StudentID: "STU-001"},
@@ -287,6 +293,13 @@ func Seed(st Store) {
 // Only the invoice itself is stored. The payments below are what the read side
 // sums back into amountPaid, which is why the two always agree here instead of
 // being written twice and left to drift.
+// seedAnnouncements mirrors LocalStore's seed in the app.
+var seedAnnouncements = []domain.Announcement{
+	{ID: "ANN-SEED-001", Title: "Mid-term break", Body: "School closes on Friday 23 October for the mid-term break and reopens on Monday 2 November.", Audience: domain.AudSchool, AuthorID: "USR-HRT-001", AuthorName: "Kwame Boateng", Timestamp: "2026-09-29 09:00"},
+	{ID: "ANN-SEED-002", Title: "JHS 2A science practical", Body: "Bring a notebook and a pencil for Thursday's practical in the science lab.", Audience: domain.AudClasses, TargetClassID: "JHS2A", AuthorID: "USR-TCH-001", AuthorName: "Ms. Efua Mensah", Timestamp: "2026-09-28 14:30"},
+	{ID: "ANN-SEED-003", Title: "PTA meeting", Body: "The termly PTA meeting is on Saturday 10 October at 10:00 in the assembly hall. All parents are welcome.", Audience: domain.AudSchool, AuthorID: "USR-ADM-001", AuthorName: "Mrs. Adjoa Amankwah", Timestamp: "2026-09-25 11:00"},
+}
+
 func seedFees(st Store, term domain.SchoolTerm, students []domain.Student) {
 	tuitionByClass := map[string]int{
 		"JHS1A": 1450, "JHS1B": 1450, "JHS2A": 1550,

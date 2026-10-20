@@ -167,6 +167,57 @@ func (s *Server) saveClass(c *gin.Context) {
 	sendJSON(c, body)
 }
 
+// deleteClass removes a class nothing refers to any more: no students,
+// assessments, assignments or attendance.
+func (s *Server) deleteClass(c *gin.Context) {
+	id := c.Param("id")
+	cls, ok := s.store.ClassByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "Class not found")
+		return
+	}
+	inUse := ""
+	for _, st := range s.store.Students() {
+		if st.ClassID == id {
+			inUse = "students"
+			break
+		}
+	}
+	if inUse == "" {
+		for _, a := range s.store.Assessments() {
+			if a.ClassID == id {
+				inUse = "assessments"
+				break
+			}
+		}
+	}
+	if inUse == "" {
+		for _, a := range s.store.Assignments() {
+			if a.ClassID == id {
+				inUse = "assignments"
+				break
+			}
+		}
+	}
+	if inUse == "" {
+		for _, r := range s.store.Attendance() {
+			if r.ClassID == id {
+				inUse = "attendance records"
+				break
+			}
+		}
+	}
+	if inUse != "" {
+		fail(c, http.StatusConflict, "This class still has "+inUse+" and cannot be removed")
+		return
+	}
+	if writeFailed(c, s.store.DeleteClass(id)) {
+		return
+	}
+	s.audit(c, "class.delete", id, "Removed class "+cls.Name+" "+cls.Stream, "")
+	sendJSON(c, gin.H{"deleted": id})
+}
+
 // updateAssessment replaces an existing assessment's paper and details,
 // with the same checks as createAssessment.
 func (s *Server) updateAssessment(c *gin.Context) {

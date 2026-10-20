@@ -15,7 +15,7 @@ import (
 func (s *Server) attendanceForClassDate(c *gin.Context) {
 	u := currentUser(c)
 	classID := c.Param("classId")
-	if !u.IsSchoolStaff() && s.viewClassID(u) != classID {
+	if !u.IsSchoolStaff() && !s.viewsClass(u, classID) {
 		fail(c, http.StatusForbidden, "You may only view your own class attendance")
 		return
 	}
@@ -50,8 +50,29 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 			raw[i].ID = newID("ATT")
 		}
 	}
+	before := map[string]string{}
+	for _, r := range s.store.AttendanceForClassDate(classID, date) {
+		before[r.StudentID] = r.Status
+	}
 	if writeFailed(c, s.store.SaveDay(classID, date, raw)) {
 		return
+	}
+	// Tell parents about a new absence or late arrival — only on a change,
+	// so re-saving the same roll doesn't repeat the notice.
+	for _, r := range raw {
+		if (r.Status != domain.AttAbsent && r.Status != domain.AttLate) || before[r.StudentID] == r.Status {
+			continue
+		}
+		st, ok := s.store.StudentByID(r.StudentID)
+		if !ok || st.ParentUserID == "" {
+			continue
+		}
+		word := "absent"
+		if r.Status == domain.AttLate {
+			word = "late"
+		}
+		s.notify(st.ParentUserID, domain.NotifAttendance, st.FullName()+" "+word,
+			st.FullName()+" was marked "+word+" on "+date+".", st.ID)
 	}
 	s.audit(c, "attendance.save", classID+"/"+date, "Saved "+itoa(len(raw))+" attendance records", "")
 	sendJSON(c, raw)

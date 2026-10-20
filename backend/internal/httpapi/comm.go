@@ -22,7 +22,7 @@ func (s *Server) listAnnouncements(c *gin.Context) {
 			visible = append(visible, a)
 			continue
 		}
-		if a.Audience == domain.AudClasses && a.TargetClassID == s.viewClassID(u) {
+		if a.Audience == domain.AudClasses && s.viewsClass(u, a.TargetClassID) {
 			visible = append(visible, a)
 		}
 	}

@@ -14,7 +14,7 @@ func (s *Server) listAssignments(c *gin.Context) {
 	u := currentUser(c)
 	var out []domain.Assignment
 	for _, a := range s.store.Assignments() {
-		if u.IsSchoolStaff() || a.ClassID == s.viewClassID(u) {
+		if u.IsSchoolStaff() || s.viewsClass(u, a.ClassID) {
 			out = append(out, a)
 		}
 	}
@@ -74,6 +74,10 @@ func (s *Server) completeAssignment(c *gin.Context) {
 	a.CompletedBy = append(a.CompletedBy, studentID)
 	if writeFailed(c, s.store.SaveAssignment(a)) {
 		return
+	}
+	if st, ok := s.store.StudentByID(studentID); ok && st.ParentUserID != "" {
+		s.notify(st.ParentUserID, domain.NotifAssignment, st.FullName()+" submitted an assignment",
+			"Completed \""+a.Title+"\" — "+a.Instructions, st.ID)
 	}
 	sendJSON(c, a)
 }

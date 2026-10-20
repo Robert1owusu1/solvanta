@@ -43,6 +43,7 @@ type Store interface {
 	Classes() []domain.ClassRoom
 	ClassByID(id string) (domain.ClassRoom, bool)
 	SaveClass(c domain.ClassRoom) error
+	DeleteClass(id string) error
 
 	// Students (doc §10)
 	Students() []domain.Student
@@ -560,6 +561,20 @@ func (m *Memory) AddAnnouncement(a domain.Announcement) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.announcements = append([]domain.Announcement{a}, m.announcements...)
+
+	return nil
+}
+
+func (m *Memory) DeleteClass(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.classes[:0:0]
+	for _, c := range m.classes {
+		if c.ID != id {
+			out = append(out, c)
+		}
+	}
+	m.classes = out
 
 	return nil
 }

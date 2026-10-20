@@ -192,3 +192,93 @@ func TestDeleteAnnouncementAndAssignment(t *testing.T) {
 		t.Fatalf("delete assignment: %d", rec.Code)
 	}
 }
+
+func TestDeleteClassRefusesClassesInUse(t *testing.T) {
+	r := newTestServer(t, Config{})
+	admin := authFor(t, r, "schoolAdmin")
+	if rec := do(r, "DELETE", "/api/school/classes/JHS2A", "", admin); rec.Code != http.StatusConflict {
+		t.Errorf("deleting a class with students: got %d, want 409", rec.Code)
+	}
+	do(r, "PUT", "/api/school/classes/JHS1C", `{"name":"JHS 1","stream":"C"}`, admin)
+	if rec := do(r, "DELETE", "/api/school/classes/JHS1C", "", admin); rec.Code != http.StatusOK {
+		t.Errorf("deleting an empty class: got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSavingAttendanceNotifiesParentsOfChanges(t *testing.T) {
+	r := newTestServer(t, Config{})
+	teacher := authFor(t, r, "teacher")
+	parent := authFor(t, r, "parent")
+	count := func() int {
+		return len(listIDs(t, do(r, "GET", "/api/notifications", "", parent).Body.Bytes()))
+	}
+	start := count()
+	day := `{"records":[{"studentId":"STU-001","status":"absent"}]}`
+	if rec := do(r, "PUT", "/api/attendance/class/JHS2A/date/2026-11-02", day, teacher); rec.Code != http.StatusOK {
+		t.Fatalf("save day: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := count(); got != start+1 {
+		t.Errorf("parent notifications after absence = %d, want %d", got, start+1)
+	}
+	do(r, "PUT", "/api/attendance/class/JHS2A/date/2026-11-02", day, teacher)
+	if got := count(); got != start+1 {
+		t.Errorf("re-saving the same roll notified again (%d)", got)
+	}
+}
+
+func TestCreateKeepsClientIDButNeverOverwrites(t *testing.T) {
+	r := newTestServer(t, Config{})
+	teacher := authFor(t, r, "teacher")
+	body := `{"id":"ASSMT-LOCAL-1","title":"Quiz","type":"quiz","subjectId":"MATH","classId":"JHS2A",` +
+		`"questions":[{"id":"Q1","type":"mcq","subjectId":"MATH","stem":"1+1?","options":["2","3"],"correctAnswer":"2","marks":1}]}`
+	rec := do(r, "POST", "/api/assessments", body, teacher)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var a struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &a)
+	if a.ID != "ASSMT-LOCAL-1" {
+		t.Errorf("id = %q, want the client's", a.ID)
+	}
+	if rec := do(r, "POST", "/api/assessments", body, teacher); rec.Code != http.StatusConflict {
+		t.Errorf("re-creating the same id: got %d, want 409", rec.Code)
+	}
+}
+
+func TestParentWithChildrenInTwoClassesSeesBoth(t *testing.T) {
+	r := newTestServer(t, Config{})
+	admin := authFor(t, r, "schoolAdmin")
+	// STU-001 is in JHS2A; link a second child from another class.
+	var other string
+	var students []struct {
+		ID      string `json:"id"`
+		ClassID string `json:"classId"`
+	}
+	_ = json.Unmarshal(do(r, "GET", "/api/students", "", admin).Body.Bytes(), &students)
+	for _, st := range students {
+		if st.ClassID != "JHS2A" {
+			other = st.ClassID
+			if rec := do(r, "PATCH", "/api/users/USR-PRN-001", `{"studentIds":["STU-001","`+st.ID+`"]}`, admin); rec.Code != http.StatusOK {
+				t.Fatalf("link: %d", rec.Code)
+			}
+			break
+		}
+	}
+	if other == "" {
+		t.Skip("seed has no student outside JHS2A")
+	}
+	do(r, "POST", "/api/assignments", `{"classId":"`+other+`","subjectId":"MATH","title":"Other class work","deadline":"2026-12-01"}`, admin)
+	var list []struct {
+		ClassID string `json:"classId"`
+	}
+	_ = json.Unmarshal(do(r, "GET", "/api/assignments", "", authFor(t, r, "parent")).Body.Bytes(), &list)
+	seen := map[string]bool{}
+	for _, a := range list {
+		seen[a.ClassID] = true
+	}
+	if !seen[other] {
+		t.Errorf("parent of a %s child doesn't see that class's assignments (saw %v)", other, seen)
+	}
+}

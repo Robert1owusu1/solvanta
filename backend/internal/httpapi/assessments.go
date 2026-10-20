@@ -62,14 +62,13 @@ func (s *Server) listAssessments(c *gin.Context) {
 		sendJSON(c, all)
 		return
 	}
-	viewClassID := s.viewClassID(u)
 	subj := c.Query("subject")
 	var mine []domain.Assessment
 	for _, a := range all {
 		if subj != "" && a.SubjectID != subj {
 			continue
 		}
-		if a.ClassID == viewClassID {
+		if s.viewsClass(u, a.ClassID) {
 			// Learner roles get the paper without its answer key.
 			mine = append(mine, assessmentFor(a, u))
 		}
@@ -77,22 +76,25 @@ func (s *Server) listAssessments(c *gin.Context) {
 	sendJSON(c, mine)
 }
 
-// viewClassID returns the class a non-staff viewer should see (their own for
-// students, their child's for parents).
-func (s *Server) viewClassID(u domain.User) string {
+// viewsClass reports whether a non-staff viewer follows classID: a pupil
+// their own class, a parent the class of any of their children.
+func (s *Server) viewsClass(u domain.User, classID string) bool {
+	if classID == "" {
+		return false
+	}
 	switch u.Role {
 	case domain.RoleStudent:
 		if st, ok := s.store.StudentByID(stringToStudentID(u.ID)); ok {
-			return st.ClassID
+			return st.ClassID == classID
 		}
 	case domain.RoleParent:
 		for _, id := range u.StudentIDs {
-			if st, ok := s.store.StudentByID(id); ok && st.ClassID != "" {
-				return st.ClassID
+			if st, ok := s.store.StudentByID(id); ok && st.ClassID == classID {
+				return true
 			}
 		}
 	}
-	return ""
+	return false
 }
 
 // createAssessment adds a complete assessment (doc §16).
@@ -131,8 +133,16 @@ func (s *Server) createAssessment(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "at least one question is required")
 		return
 	}
+	// An offline client names its own assessment so screens can refer to it
+	// before it syncs; never let that id overwrite an existing one.
+	if body.ID != "" {
+		if _, exists := s.store.AssessmentByID(body.ID); exists {
+			fail(c, http.StatusConflict, "An assessment with this id already exists")
+			return
+		}
+	}
 	a := domain.Assessment{
-		ID:        newID("ASSMT"),
+		ID:        firstNonEmpty(body.ID, newID("ASSMT")),
 		Title:     body.Title,
 		Type:      body.Type,
 		SubjectID: body.SubjectID,
@@ -184,7 +194,7 @@ func (s *Server) assessmentDetail(c *gin.Context) {
 		return
 	}
 	u := currentUser(c)
-	if !u.IsSchoolStaff() && a.ClassID != s.viewClassID(u) {
+	if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view your own class assessments")
 		return
 	}

@@ -29,8 +29,9 @@ func newID(prefix string) string {
 	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().Unix(), time.Now().Nanosecond()%100000)
 }
 
-// now returns a compact local timestamp string.
-func now() string { return time.Now().Format("2006-01-02T15:04") }
+// now returns a compact local timestamp string, in the 'yyyy-MM-dd HH:mm'
+// form the client and the seed use.
+func now() string { return time.Now().Format("2006-01-02 15:04") }
 
 // today returns the YYYY-MM-DD date.
 func today() string { return time.Now().Format("2006-01-02") }

@@ -308,6 +308,7 @@ func (s *Server) Router() *gin.Engine {
 		school.PUT("/term", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateTerm)
 		school.GET("/classes", func(c *gin.Context) { sendJSON(c, s.store.Classes()) })
 		school.PUT("/classes/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.saveClass)
+		school.DELETE("/classes/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteClass)
 	}
 
 	users := api.Group("/users", s.schoolScope())
