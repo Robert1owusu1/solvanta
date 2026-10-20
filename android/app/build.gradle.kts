@@ -18,9 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.solvanta.app"
-        // mobile_scanner (QR ID scanning) requires API 23 (Android 6.0),
-        // above Flutter's default floor — take whichever is higher.
-        minSdk = maxOf(23, flutter.minSdkVersion)
+        // local_auth 3 (app lock) requires API 24 (Android 7.0) and
+        // mobile_scanner (QR ID scanning) API 23 — take whichever is higher.
+        minSdk = maxOf(24, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

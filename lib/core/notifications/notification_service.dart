@@ -87,7 +87,7 @@ class NotificationService {
         requestSoundPermission: true,
       );
       await _plugin.initialize(
-        const InitializationSettings(android: android, iOS: ios),
+        settings: const InitializationSettings(android: android, iOS: ios),
         onDidReceiveNotificationResponse: (response) =>
             _dispatchOpened(response.payload),
       );
@@ -166,7 +166,13 @@ class NotificationService {
       await _ensureInitialized();
       if (!_initialized) return null;
       final nid = id ?? _nextAutoId();
-      await _plugin.show(nid, title, body, _details(), payload: payload);
+      await _plugin.show(
+        id: nid,
+        title: title,
+        body: body,
+        notificationDetails: _details(),
+        payload: payload,
+      );
       return nid;
     } catch (e) {
       debugPrint('[NotificationService] show failed: $e');
@@ -183,7 +189,7 @@ class NotificationService {
       if (id == null) {
         await _plugin.cancelAll();
       } else {
-        await _plugin.cancel(id);
+        await _plugin.cancel(id: id);
       }
     } catch (e) {
       debugPrint('[NotificationService] cancel failed: $e');
@@ -266,15 +272,13 @@ class NotificationService {
       await _ensureInitialized();
       if (!_initialized) return;
       await _plugin.zonedSchedule(
-        id,
-        title,
-        body,
+        id: id,
+        title: title,
+        body: body,
         // Absolute instant, anchored to UTC: correct regardless of the
         // (unavailable) local zone id. See [scheduleDaily].
-        tz.TZDateTime.from(when, tz.UTC),
-        _details(),
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+        scheduledDate: tz.TZDateTime.from(when, tz.UTC),
+        notificationDetails: _details(),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         matchDateTimeComponents: match,
         payload: payload,

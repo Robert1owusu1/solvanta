@@ -160,12 +160,10 @@ class _LockScreenState extends State<LockScreen> with SingleTickerProviderStateM
       }
       final ok = await _localAuth.authenticate(
         localizedReason: 'Unlock SOLVANTA to access your school data',
-        options: const AuthenticationOptions(
-          // Also offer the device PIN/pattern/passcode inside the prompt…
-          biometricOnly: false,
-          // …and resume the prompt if the app is briefly backgrounded.
-          stickyAuth: true,
-        ),
+        // Also offer the device PIN/pattern/passcode inside the prompt…
+        biometricOnly: false,
+        // …and resume the prompt if the app is briefly backgrounded.
+        persistAcrossBackgrounding: true,
       );
       if (!mounted) return;
       if (ok) {
