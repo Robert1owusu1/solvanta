@@ -75,6 +75,24 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `imagePath`, which dies with the tab — web scans need the bytes persisted or
   uploaded before the page can be processed later.
 
+- **Every module syncs with the backend.** With `--dart-define=SOLVANTA_API`
+  set, only sign-in and gate events used to reach the server, so attendance,
+  marks, announcements, messages and fees entered on one device never showed
+  on another. `ServerSync` now pulls each collection into the offline store
+  (at sign-in, startup, resume, reconnect and every two minutes, never over
+  unsent outbox writes) and every repository mirrors its writes, queued while
+  offline. New API routes support it: `GET /api/attendance`,
+  `/api/submissions`, `/api/notifications`; `PATCH /api/users/:id`;
+  `PUT`/`DELETE /api/school/classes/:id`; `PUT /api/assessments/:id`;
+  `DELETE /api/announcements/:id` and `/api/assignments/:id`.
+  `test/server_sync_live_test.dart` checks four cross-device flows live.
+- Responsive layouts for tablet and desktop widths (students, assessments,
+  analytics, login, dashboard), and `test/screen_smoke_test.dart`, which opens
+  every role's dashboard and modules at six widths and fails on any layout
+  error.
+- A support-staff demo account (`staff@school.gh` / `staff123`) and three
+  seeded announcements, on both the app and the API.
+
 ### Performance
 
 Every query against the remote pooler costs a round trip (~150 ms), so the
@@ -160,8 +178,23 @@ per *collection*:
   separately proves a non-canonical twin is rejected, and checks the untouched
   token still works — so a broken login can no longer masquerade as a pass.
 
+- Responsive screens crashed at most widths (every laptop browser and phones
+  in landscape): `ResponsiveBuilder` threw for device classes it had no
+  builder for, and the desktop class was unreachable. The dashboard module
+  grid also never rendered (unbounded height inside a list).
+- Phone overflows: long subject names in dropdowns, the ID-card footer and
+  report-card subject rows.
+- A parent with children in two classes only saw the first child's class
+  work; parents now get notices for new absences, late arrivals and
+  completed assignments from the server.
+- Deleting a class is refused while it still has students.
+- Self sign-up is hidden against a backend, where it created an account that
+  could never sync.
+
 ### Security
 
+- New staff accounts no longer get a hidden `pass1234` default password;
+  the form requires one that meets the API's password policy.
 - **Bearer tokens are no longer malleable.** `parseToken` decoded the signature
   with Go's raw base64url decoder, which ignores the trailing bits a 32-byte
   HMAC does not use: the final character of a signature could be any of four
