@@ -1,6 +1,7 @@
 import '../../core/models/qgen_request.dart';
 import '../../core/models/question.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class QuestionGenRepository {
   QuestionGenRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -13,19 +14,36 @@ class QuestionGenRepository {
   Future<void> create(QuestionGenRequest request) async {
     final all = await _store.loadQuestionGenRequests();
     await _store.saveQuestionGenRequests([request, ...all]);
+    await ServerSync.instance.send('POST', '/api/questions/ai/requests',
+        body: request.toJson());
   }
 
   Future<void> update(QuestionGenRequest request) async {
     final all = await _store.loadQuestionGenRequests();
-    final list = <QuestionGenRequest>[];
-    for (final e in all) {
-      if (e.id == request.id) {
-        list.add(request);
-      } else {
-        list.add(e);
-      }
-    }
-    await _store.saveQuestionGenRequests(list);
+    final before = all.where((e) => e.id == request.id).firstOrNull;
+    await _save(request);
+
+    // The API moves a request on through explicit steps; send the one this
+    // update made. Generation happens there too, so keep its drafts (they
+    // are what publishing puts in the shared bank).
+    if (before == null || before.status == request.status) return;
+    final step = switch (request.status) {
+      QGenStatus.generated => 'generate',
+      QGenStatus.published => 'publish',
+      QGenStatus.rejected => 'reject',
+      QGenStatus.pending => null,
+    };
+    if (step == null) return;
+    final saved = await ServerSync.instance.sendFor('POST',
+        '/api/questions/ai/requests/${request.id}/$step', null,
+        QuestionGenRequest.fromJson);
+    if (saved != null) await _save(saved);
+  }
+
+  Future<void> _save(QuestionGenRequest request) async {
+    final all = await _store.loadQuestionGenRequests();
+    await _store.saveQuestionGenRequests(
+        [for (final e in all) e.id == request.id ? request : e]);
   }
 
   /// Simulated AI generation: drafts are produced locally from templates so

@@ -22,6 +22,7 @@ const _demoAccounts = <(String, String, String)>[
   ('School admin', 'admin@solvanta.app', 'admin123'),
   ('Parent', 'ama.owusu@school.gh', 'parent123'),
   ('Student', 'kojo.owusu@school.gh', 'student123'),
+  ('Staff', 'staff@school.gh', 'staff123'),
 ];
 
 class _LoginScreenState extends State<LoginScreen> {
@@ -256,12 +257,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         delay: const Duration(milliseconds: 300),
                         child: Column(
                           children: [
-                            TextButton(
-                              onPressed: () =>
-                                  Navigator.of(context).pushNamed('/register'),
-                              child: const Text('Create an account',
-                                  style: TextStyle(color: Colors.white)),
-                            ),
+                            // Against a live backend accounts are created by
+                            // the school (the API has no public sign-up), so
+                            // a device-only account would never sync.
+                            if (ApiClient.isConfigured)
+                              Text(
+                                'Need an account? Ask your school administrator.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: Colors.white.withValues(alpha: .8)),
+                              )
+                            else
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(context).pushNamed('/register'),
+                                child: const Text('Create an account',
+                                    style: TextStyle(color: Colors.white)),
+                              ),
                             const SizedBox(height: 12),
                             Text('Try a demo account',
                                 style: TextStyle(

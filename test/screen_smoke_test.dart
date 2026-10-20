@@ -3,9 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solvanta/core/models/role.dart';
-import 'package:solvanta/core/models/user.dart';
-import 'package:solvanta/core/storage/local_store.dart';
 import 'package:solvanta/core/theme/app_theme.dart';
 import 'package:solvanta/features/auth/auth_repository.dart';
 import 'package:solvanta/features/home/dashboards.dart';
@@ -25,26 +22,8 @@ const _accounts = <(String, String)>[
   ('efua.mensah@school.gh', 'teacher123'),
   ('ama.owusu@school.gh', 'parent123'),
   ('kojo.owusu@school.gh', 'student123'),
-  ('staff.smoke@school.gh', 'staff123'),
+  ('staff@school.gh', 'staff123'),
 ];
-
-/// The seed has no staff account, so add one for the staff dashboard.
-Future<void> _addStaffUser() async {
-  final store = LocalStore();
-  final users = await store.loadUsers();
-  await store.saveUsers([
-    ...users,
-    User(
-      id: 'U-STAFF-SMOKE',
-      name: 'Smoke Staff',
-      email: 'staff.smoke@school.gh',
-      phone: '0200000000',
-      password: 'staff123',
-      role: AppRole.staff,
-      schoolId: users.first.schoolId,
-    ),
-  ]);
-}
 
 Future<void> _show(WidgetTester tester, double width, Widget home) async {
   tester.view.physicalSize = Size(width, 900);
@@ -75,10 +54,8 @@ void main() {
         (tester) async {
       addTearDown(tester.view.reset);
       SharedPreferences.setMockInitialValues({});
-      final user = await tester.runAsync(() async {
-        await _addStaffUser();
-        return AuthRepository().login(email: email, password: password);
-      });
+      final user = await tester.runAsync(
+          () => AuthRepository().login(email: email, password: password));
       expect(user, isNotNull, reason: 'demo login for $email');
 
       for (final width in _widths) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'core/api/api_client.dart';
@@ -7,6 +9,7 @@ import 'core/notifications/deep_link.dart';
 import 'core/notifications/notifications.dart';
 import 'core/settings/app_settings.dart';
 import 'core/storage/local_store.dart';
+import 'core/sync/server_sync.dart';
 import 'core/sync/sync.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/auth_repository.dart';
@@ -33,6 +36,12 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
+  /// Lets non-widget code (server write rejections) show a SnackBar.
+  static final GlobalKey<ScaffoldMessengerState> messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+
+  StreamSubscription<String>? _rejections;
+
   @override
   void initState() {
     super.initState();
@@ -46,9 +55,27 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
     // startup and replayed writes would otherwise go out with no Authorization
     // header and 401 on the very first attempt. Failure-silent like the rest
     // of startup: a missing plugin (tests, web, desktop) can't break launch.
-    _restoreApiToken().whenComplete(ConnectivityMonitor.instance.start).ignore();
+    _restoreApiToken()
+        .whenComplete(ConnectivityMonitor.instance.start)
+        .whenComplete(_startServerSync)
+        .ignore();
+    // A write the server refused (validation, permissions) would otherwise
+    // vanish silently at the next pull; say so while the user is still here.
+    _rejections = ServerSync.instance.rejections.listen((message) {
+      messengerKey.currentState?.showSnackBar(SnackBar(
+        content: Text('The school server didn\'t accept that change: $message'),
+      ));
+    });
     NotificationService.instance.init();
     NotificationService.instance.configureOnNotificationOpened(_onNotificationOpened);
+  }
+
+  /// Refreshes from the backend (when one is configured and a session was
+  /// restored), then keeps refreshing in the background.
+  Future<void> _startServerSync() async {
+    if (!ServerSync.instance.enabled) return;
+    ServerSync.instance.start();
+    await ServerSync.instance.pull();
   }
 
   /// Re-publish the persisted backend token into `ApiClient.sharedToken`.
@@ -114,8 +141,15 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _rejections?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Coming back to the app: pick up what other devices changed meanwhile.
+    if (state == AppLifecycleState.resumed) ServerSync.instance.pull().ignore();
   }
 
   @override
@@ -138,6 +172,7 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
           title: 'SOLVANTA',
           debugShowCheckedModeBanner: false,
           navigatorKey: navigatorKey,
+          scaffoldMessengerKey: messengerKey,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: settings.themeMode,

@@ -216,10 +216,12 @@ void main() {
           containsAll(['USR-TCH-001', 'USR-PRN-001']));
       expect(await admin.messages(), isEmpty);
 
-      // announcements are never seeded; audit, however, gains auth.login rows
-      // during a live session — both must serialize as arrays and parse cleanly
-      final announcements = await admin.client.get('/api/announcements') as List;
-      expect(announcements, isEmpty);
+      // announcements are seeded identically on both sides; audit gains
+      // auth.login rows during a live session — both must parse cleanly
+      final announcements = await admin.announcements();
+      final appAnnouncements = await LocalStore().loadAnnouncements();
+      expect(announcements.map((a) => a.id).toList()..sort(),
+          appAnnouncements.map((a) => a.id).toList()..sort());
       final audit = await admin.client.get('/api/audit') as List;
       expect(audit, isNotEmpty);
       for (final e in audit) {

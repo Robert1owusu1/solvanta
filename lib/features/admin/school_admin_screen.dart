@@ -300,9 +300,15 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              final repo = AdminRepository();
-              final classes = await repo.classes();
-              await repo.saveClasses(classes.where((x) => x.id != c.id).toList());
+              final refused = await AdminRepository().deleteClass(c.id);
+              if (refused != null) {
+                if (ctx.mounted) Navigator.pop(ctx, false);
+                if (mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(refused)));
+                }
+                return;
+              }
               await AuditRepository().log(
                 action: 'class.delete',
                 actor: 'Admin',

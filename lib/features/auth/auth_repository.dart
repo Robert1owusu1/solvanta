@@ -4,6 +4,7 @@ import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../../core/security/secret_hash.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 /// Authenticates against the local seed store by default. When an API endpoint
 /// is configured (`--dart-define=SOLVANTA_API=<url>` or `SOLVANTA_API_URL`),
@@ -57,6 +58,12 @@ class AuthRepository {
       // made a cold start silently unauthenticated: signed in, 401 on every
       // write, and offline-first fallbacks hiding it behind local data.
       await _store.setApiToken(res.token);
+      // Fill the device with this account's data before the dashboard opens
+      // (bounded, so a slow network still lets the user in on local data).
+      ServerSync.instance.start();
+      await ServerSync.instance
+          .pull()
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
       return user;
     }
 
@@ -119,6 +126,7 @@ class AuthRepository {
   }
 
   Future<void> logout() async {
+    ServerSync.instance.stop();
     final remote = _remote;
     if (remote != null) {
       try {

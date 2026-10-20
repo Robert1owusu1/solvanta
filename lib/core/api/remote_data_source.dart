@@ -8,11 +8,14 @@ import '../../core/models/class_room.dart';
 import '../../core/models/gate_event.dart';
 import '../../core/models/intervention.dart';
 import '../../core/models/message.dart';
+import '../../core/models/qgen_request.dart';
 import '../../core/models/question.dart';
 import '../../core/models/school.dart';
 import '../../core/models/school_term.dart';
 import '../../core/models/student.dart';
+import '../../core/models/submission.dart';
 import '../../core/models/user.dart';
+import '../../features/fees/fee_models.dart';
 import 'api_client.dart';
 
 typedef JsonMap = Map<String, dynamic>;
@@ -214,6 +217,12 @@ class RemoteDataSource {
     return out;
   }
 
+  /// Every attendance record the signed-in user may see.
+  Future<List<AttendanceRecord>> attendance() async =>
+      ((await client.get('/api/attendance')) as List)
+          .map((e) => AttendanceRecord.fromJson(e as JsonMap))
+          .toList();
+
   Future<AttendanceSummary> attendanceSummaryForStudent(String studentId) async =>
       AttendanceSummary.fromJson(
         await client.get('/api/attendance/students/$studentId/summary')
@@ -251,6 +260,17 @@ class RemoteDataSource {
     return Assessment.fromJson(res['assessment'] as JsonMap);
   }
 
+  /// Every submission (answers + marks) the signed-in user may see.
+  Future<List<AssessmentSubmission>> submissions() async =>
+      ((await client.get('/api/submissions')) as List)
+          .map((e) => AssessmentSubmission.fromJson(e as JsonMap))
+          .toList();
+
+  Future<List<QuestionGenRequest>> aiRequests() async =>
+      ((await client.get('/api/questions/ai/requests')) as List)
+          .map((e) => QuestionGenRequest.fromJson(e as JsonMap))
+          .toList();
+
   Future<List<StudentResult>> resultsForStudent(String studentId) async =>
       ((await client.get('/api/analytics/students/$studentId/results')) as List)
           .map((e) => StudentResult.fromJson(e as JsonMap))
@@ -273,6 +293,12 @@ class RemoteDataSource {
           .map((e) => Message.fromJson(e as JsonMap))
           .toList();
 
+  /// Every notification visible to the signed-in user, read or not.
+  Future<List<AppNotification>> notifications() async =>
+      ((await client.get('/api/notifications')) as List)
+          .map((e) => AppNotification.fromJson(e as JsonMap))
+          .toList();
+
   Future<List<AppNotification>> unreadNotifications() async =>
       ((await client.get('/api/notifications/unread')) as List)
           .map((e) => AppNotification.fromJson(e as JsonMap))
@@ -281,6 +307,16 @@ class RemoteDataSource {
   Future<List<Assignment>> assignments() async =>
       ((await client.get('/api/assignments')) as List)
           .map((e) => Assignment.fromJson(e as JsonMap))
+          .toList();
+
+  Future<List<Invoice>> invoices() async =>
+      ((await client.get('/api/invoices')) as List)
+          .map((e) => Invoice.fromJson(e as JsonMap))
+          .toList();
+
+  Future<List<Payment>> payments() async =>
+      ((await client.get('/api/payments')) as List)
+          .map((e) => Payment.fromJson(e as JsonMap))
           .toList();
 
   Future<List<AuditEntry>> auditLogs() async =>

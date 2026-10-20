@@ -335,12 +335,51 @@ class LocalStore {
   Future<List<Announcement>> loadAnnouncements() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_announcementsKey);
-    if (raw == null) return const [];
+    if (raw == null) {
+      final list = _seedAnnouncements();
+      await saveAnnouncements(list);
+      return list;
+    }
     final list = jsonDecode(raw) as List;
     return list
         .map((e) => Announcement.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  /// Mirrors the backend's `seedAnnouncements` (fixed timestamps).
+  List<Announcement> _seedAnnouncements() => const [
+        Announcement(
+          id: 'ANN-SEED-001',
+          title: 'Mid-term break',
+          body: 'School closes on Friday 23 October for the mid-term break '
+              'and reopens on Monday 2 November.',
+          audience: AnnouncementAudience.school,
+          authorId: 'USR-HRT-001',
+          authorName: 'Kwame Boateng',
+          timestamp: '2026-09-29 09:00',
+        ),
+        Announcement(
+          id: 'ANN-SEED-002',
+          title: 'JHS 2A science practical',
+          body: "Bring a notebook and a pencil for Thursday's practical in "
+              'the science lab.',
+          audience: AnnouncementAudience.classes,
+          targetClassId: 'JHS2A',
+          authorId: 'USR-TCH-001',
+          authorName: 'Ms. Efua Mensah',
+          timestamp: '2026-09-28 14:30',
+        ),
+        Announcement(
+          id: 'ANN-SEED-003',
+          title: 'PTA meeting',
+          body: 'The termly PTA meeting is on Saturday 10 October at 10:00 '
+              'in the assembly hall. All parents are welcome.',
+          audience: AnnouncementAudience.school,
+          authorId: 'USR-ADM-001',
+          authorName: 'Mrs. Adjoa Amankwah',
+          timestamp: '2026-09-25 11:00',
+        ),
+      ];
 
   Future<void> saveAnnouncements(List<Announcement> items) async {
     final prefs = await SharedPreferences.getInstance();
@@ -629,6 +668,15 @@ class LocalStore {
         role: AppRole.student,
         schoolId: 'SCH-001',
         classId: 'JHS2A',
+      ),
+      const User(
+        id: 'USR-STF-001',
+        name: 'Mr. Yaw Asante',
+        email: 'staff@school.gh',
+        phone: '0247000007',
+        password: 'staff123',
+        role: AppRole.staff,
+        schoolId: 'SCH-001',
       ),
     ];
     prefs.setString(

@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/models/class_room.dart';
 import '../../core/models/role.dart';
 import '../../core/models/user.dart';
+import '../../core/security/password_policy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../audit/audit_repository.dart';
+import '../auth/auth_repository.dart';
 import 'admin_repository.dart';
 
 class StaffScreen extends StatefulWidget {
@@ -41,7 +43,8 @@ class _StaffScreenState extends State<StaffScreen> {
     // Never seed this from the stored account: passwords are hashed at rest
     // now, so the stored value would be a digest (unreadable, and wrong if it
     // were saved back). Blank means "keep the current one" — see the save path.
-    final password = TextEditingController(text: existing == null ? 'pass1234' : '');
+    final password = TextEditingController();
+    String? passwordError;
     AppRole role = existing?.role ?? AppRole.teacher;
     String? classId = existing?.classId;
 
@@ -84,8 +87,9 @@ class _StaffScreenState extends State<StaffScreen> {
                     autofillHints: const [AutofillHints.newPassword],
                     decoration: InputDecoration(
                         labelText: 'Password (for sign-in)',
+                        errorText: passwordError,
                         helperText: existing == null
-                            ? null
+                            ? 'At least 8 characters with upper- and lower-case letters and a digit'
                             : 'Leave blank to keep the current password')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<AppRole>(
@@ -131,18 +135,25 @@ class _StaffScreenState extends State<StaffScreen> {
                     style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14)),
                     onPressed: () async {
+                      final pw = password.text.trim();
+                      final problem = (existing != null && pw.isEmpty)
+                          ? null
+                          : passwordProblem(pw);
+                      if (problem != null) {
+                        setSheet(() => passwordError = problem);
+                        return;
+                      }
                       final repo = AdminRepository();
                       final users = await repo.users();
+                      final me = await AuthRepository().currentUser();
                       await repo.addOrUpdateUser(User(
                         id: existing?.id ?? repo.nextUserId(users),
                         name: name.text.trim(),
                         email: email.text.trim(),
                         phone: phone.text.trim(),
-                        password: password.text.trim().isEmpty
-                            ? (existing?.password ?? 'pass1234')
-                            : password.text.trim(),
+                        password: pw.isEmpty ? existing!.password : pw,
                         role: role,
-                        schoolId: 'SCH-001',
+                        schoolId: existing?.schoolId ?? me?.schoolId ?? 'SCH-001',
                         classId: classId,
                         studentIds: existing?.studentIds ?? const [],
                       ));
@@ -199,7 +210,7 @@ class _StaffScreenState extends State<StaffScreen> {
                 phone: u.phone,
                 password: u.password,
                 role: u.role,
-                schoolId: 'SCH-001',
+                schoolId: u.schoolId,
                 classId: classId,
                 studentIds: u.studentIds,
               ));

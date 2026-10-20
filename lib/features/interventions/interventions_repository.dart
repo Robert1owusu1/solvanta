@@ -2,6 +2,7 @@ import '../../core/models/intervention.dart';
 import '../../core/models/student.dart';
 import '../../core/models/submission.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class InterventionsRepository {
   InterventionsRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -38,6 +39,15 @@ class InterventionsRepository {
           '${n.year}-${p(n.month)}-${p(n.day)}',
     );
     await _store.saveInterventions([intervention, ...all]);
+    final saved = await ServerSync.instance.sendFor('POST',
+        '/api/interventions', intervention.toJson(), Intervention.fromJson);
+    if (saved != null) await _replace(intervention.id, saved);
+  }
+
+  Future<void> _replace(String id, Intervention saved) async {
+    final all = await _store.loadInterventions();
+    await _store
+        .saveInterventions([for (final i in all) i.id == id ? saved : i]);
   }
 
   Future<void> updateStatus(
@@ -47,6 +57,8 @@ class InterventionsRepository {
       if (i.id == id) return i.copyWith(status: status);
       return i;
     }).toList());
+    await ServerSync.instance.send('POST', '/api/interventions/$id/status',
+        body: {'status': status.name});
   }
 
   Future<void> attachReassessment(
@@ -61,6 +73,11 @@ class InterventionsRepository {
       }
       return i;
     }).toList());
+    await ServerSync.instance.send(
+        'POST', '/api/interventions/$id/reassessment',
+        body: {'assessmentId': assessmentId});
+    await ServerSync.instance.send('POST', '/api/interventions/$id/status',
+        body: {'status': InterventionStatus.inProgress.name});
   }
 
   Future<(double? before, double? after)> improvement({

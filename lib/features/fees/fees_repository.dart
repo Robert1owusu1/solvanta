@@ -272,6 +272,49 @@ class FeesRepository {
     return (invoice: updated, payment: payment, receipt: receipt);
   }
 
+  /// Replaces invoices and payments with the server's copies (fee
+  /// structures stay local) and cuts a receipt for any payment that has none
+  /// yet, e.g. one recorded on another device. Called by `ServerSync` only
+  /// when the outbox is empty, so no local payment is still unsent.
+  Future<void> mirrorFromServer({
+    required List<Invoice> invoices,
+    required List<Payment> payments,
+  }) async {
+    final store = await _read();
+    final existing = {for (final r in store.receipts) r.paymentId: r};
+    final byInvoice = {for (final i in invoices) i.id: i};
+    final sorted = [...payments]..sort((a, b) => a.paidAt.compareTo(b.paidAt));
+    final paidSoFar = <String, int>{};
+    final receipts = <Receipt>[];
+    for (final p in sorted) {
+      final paid = (paidSoFar[p.invoiceId] ?? 0) + p.amount;
+      paidSoFar[p.invoiceId] = paid;
+      final mine = existing[p.id];
+      if (mine != null) {
+        receipts.add(mine);
+        continue;
+      }
+      final total = byInvoice[p.invoiceId]?.total ?? paid;
+      receipts.add(Receipt(
+        id: 'RCT-${p.id}',
+        paymentId: p.id,
+        invoiceId: p.invoiceId,
+        studentId: p.studentId,
+        amount: p.amount,
+        method: p.method,
+        reference: p.reference,
+        issuedAt: p.paidAt,
+        issuedBy: p.recordedBy,
+        balanceAfter: (total - paid).clamp(0, total),
+      ));
+    }
+    store
+      ..invoices = invoices
+      ..payments = sorted
+      ..receipts = receipts;
+    await _write(store);
+  }
+
   // ---------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------

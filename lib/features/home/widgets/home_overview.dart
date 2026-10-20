@@ -4,6 +4,7 @@ import '../../../core/models/assessment.dart';
 import '../../../core/models/attendance.dart';
 import '../../../core/models/student.dart';
 import '../../../core/models/user.dart';
+import '../../../core/sync/server_sync.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/ui_kit.dart';
 import '../../analytics/analytics_screen.dart';
@@ -42,9 +43,19 @@ class _HomeOverviewState extends State<HomeOverview> {
   void initState() {
     super.initState();
     _future = _load();
+    // A background pull (cold start, resume, timer) brings new numbers.
+    ServerSync.instance.addListener(_reload);
   }
 
-  void _reload() => setState(() => _future = _load());
+  @override
+  void dispose() {
+    ServerSync.instance.removeListener(_reload);
+    super.dispose();
+  }
+
+  void _reload() {
+    if (mounted) setState(() => _future = _load());
+  }
 
   String _today() {
     final d = DateTime.now();

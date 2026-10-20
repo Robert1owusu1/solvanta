@@ -2,6 +2,7 @@ import '../../core/models/class_room.dart';
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class StudentsRepository {
   StudentsRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -94,6 +95,16 @@ class StudentsRepository {
     }
     if (!added) list.add(student);
     await _store.saveStudents(list);
+    // Students keep their client id on the server, so no swap is needed.
+    await ServerSync.instance.send(
+      added ? 'PATCH' : 'POST',
+      added ? '/api/students/${student.id}' : '/api/students',
+      body: {
+        ...student.toJson(),
+        // An explicit empty value unlinks the parent on the server.
+        'parentUserId': student.parentUserId ?? '',
+      },
+    );
   }
 
   Future<void> deleteStudent(String id) async {

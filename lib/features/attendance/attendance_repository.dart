@@ -1,6 +1,7 @@
 import '../../core/models/attendance.dart';
 import '../../core/models/app_notification.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 import '../audit/audit_repository.dart';
 import '../notifications/notifications_repository.dart';
 
@@ -65,6 +66,16 @@ class AttendanceRepository {
         ),
     ];
     await _store.saveAttendance([...otherDays, ...untouchedToday, ...records]);
+    // The server replaces the whole day, so send all of it.
+    await ServerSync.instance.send(
+      'PUT',
+      '/api/attendance/class/$classId/date/$date',
+      body: {
+        'records': [
+          for (final r in [...untouchedToday, ...records]) r.toJson(),
+        ],
+      },
+    );
 
     if (reason != null && reason.trim().isNotEmpty) {
       await AuditRepository().log(
@@ -75,6 +86,9 @@ class AttendanceRepository {
         reason: reason.trim(),
       );
     }
+
+    // With a backend the server notifies parents itself, on their devices.
+    if (ServerSync.instance.enabled) return;
 
     final students = await _store.loadStudents();
     final studentsById = {for (final s in students) s.id: s};

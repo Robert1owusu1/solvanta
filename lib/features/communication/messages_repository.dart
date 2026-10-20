@@ -2,6 +2,7 @@ import '../../core/models/message.dart';
 import '../../core/models/user.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/sync/connectivity_monitor.dart';
+import '../../core/sync/server_sync.dart';
 import '../../core/sync/sync_queue.dart';
 
 /// Persists parent↔teacher conversation threads in the offline-first local
@@ -187,8 +188,20 @@ class MessagesRepository {
       state: online ? MessageState.sent : MessageState.queued,
     );
     await _store.saveMessages([...all, msg]);
-    if (!online) await _captureOffline(msg);
-    return msg;
+    if (!online) {
+      await _captureOffline(msg);
+      return msg;
+    }
+    // Online: deliver through the API and keep the server's copy (its id is
+    // what the recipient's device will pull).
+    final res = await ServerSync.instance.send('POST', '/api/messages',
+        body: msg.toJson());
+    if (res is! Map<String, dynamic>) return msg;
+    final sent = Message.fromJson(res).copyWith(state: MessageState.sent);
+    final now = await _store.loadMessages();
+    await _store.saveMessages(
+        [for (final m in now) m.id == msg.id ? sent : m]);
+    return sent;
   }
 
   // ---------------------------------------------------------------------

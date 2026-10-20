@@ -3,6 +3,7 @@ import '../../core/models/student.dart';
 import '../../core/models/user.dart';
 import '../../core/notifications/notification_bridge.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class NotificationsRepository {
   NotificationsRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -77,6 +78,9 @@ class NotificationsRepository {
       if (n.id == id) return n.copyWith(read: true);
       return n;
     }).toList());
+    // A notification raised only on this device 404s there; nothing to show.
+    await ServerSync.instance
+        .send('POST', '/api/notifications/$id/read', report: false);
   }
 
   Future<void> markAllRead(User user, List<Student> students) async {
@@ -89,5 +93,9 @@ class NotificationsRepository {
       if (ids.contains(n.id)) return n.copyWith(read: true);
       return n;
     }).toList());
+    if (ids.isNotEmpty) {
+      await ServerSync.instance
+          .send('POST', '/api/notifications/read-all', report: false);
+    }
   }
 }

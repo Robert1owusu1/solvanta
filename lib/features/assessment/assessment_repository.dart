@@ -2,6 +2,7 @@ import '../../core/models/assessment.dart';
 import '../../core/models/question.dart';
 import '../../core/models/submission.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class AssessmentRepository {
   AssessmentRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -24,12 +25,19 @@ class AssessmentRepository {
     }
     if (!added) list.add(q);
     await _store.saveQuestionBank(list);
+    // Questions keep their client id on the server.
+    await ServerSync.instance.send(
+      added ? 'PATCH' : 'POST',
+      added ? '/api/questions/${q.id}' : '/api/questions',
+      body: q.toJson(),
+    );
   }
 
   Future<void> deleteBankQuestion(String id) async {
     final all = await _store.loadQuestionBank();
     await _store.saveQuestionBank(
         all.where((q) => q.id != id).toList());
+    await ServerSync.instance.send('DELETE', '/api/questions/$id');
   }
 
   Future<List<Assessment>> assessments() => _store.loadAssessments();
@@ -55,6 +63,12 @@ class AssessmentRepository {
     }
     if (!added) list.add(a);
     await _store.saveAssessments(list);
+    // The server keeps the client id, so screens holding [a] stay valid.
+    await ServerSync.instance.send(
+      added ? 'PUT' : 'POST',
+      added ? '/api/assessments/${a.id}' : '/api/assessments',
+      body: a.toJson(),
+    );
   }
 
   Future<List<AssessmentSubmission>> submissions() =>
@@ -94,6 +108,28 @@ class AssessmentRepository {
     subs.removeWhere((s) =>
         s.assessmentId == assessment.id && s.studentId == studentId);
     await _store.saveSubmissions([...subs, sub]);
+
+    // The API auto-marks the answers, then takes the teacher's marks as
+    // verdicts. Partial marking is normal here: the server keeps the marks
+    // it got and answers 422 for the rest, which isn't worth surfacing.
+    await ServerSync.instance.send(
+      'POST',
+      '/api/assessments/${assessment.id}/submit',
+      body: {
+        'studentId': studentId,
+        'answers': answers,
+        'classId': assessment.classId,
+        'date': date,
+      },
+    );
+    if (teacherMarks.isNotEmpty) {
+      await ServerSync.instance.send(
+        'POST',
+        '/api/assessments/${assessment.id}/verdicts',
+        body: {'studentId': studentId, 'teacherMarks': teacherMarks},
+        report: false,
+      );
+    }
   }
 
   Future<List<({Assessment assessment, AssessmentSubmission? submission})>>

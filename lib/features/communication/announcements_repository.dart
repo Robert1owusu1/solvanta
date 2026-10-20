@@ -3,6 +3,7 @@ import '../../core/models/app_notification.dart';
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 import '../notifications/notifications_repository.dart';
 import '../students/students_repository.dart';
 
@@ -71,6 +72,20 @@ class AnnouncementsRepository {
     final items = await _store.loadAnnouncements();
     await _store.saveAnnouncements([item, ...items]);
 
+    // With a backend, the server stores it (with its own id) and fans out
+    // the notifications itself; keep its copy so every device agrees.
+    if (ServerSync.instance.enabled) {
+      final res = await ServerSync.instance
+          .send('POST', '/api/announcements', body: item.toJson());
+      if (res is Map<String, dynamic>) {
+        final saved = Announcement.fromJson(res);
+        final now = await _store.loadAnnouncements();
+        await _store.saveAnnouncements(
+            [for (final a in now) a.id == item.id ? saved : a]);
+      }
+      return;
+    }
+
     // Thread the announcement into the Notifications inbox.
     final notif = NotificationsRepository(store: _store);
     final prefix = audience == AnnouncementAudience.emergency
@@ -100,6 +115,7 @@ class AnnouncementsRepository {
   Future<void> delete(String id) async {
     final items = await _store.loadAnnouncements();
     await _store.saveAnnouncements(items.where((a) => a.id != id).toList());
+    await ServerSync.instance.send('DELETE', '/api/announcements/$id');
   }
 
   String _stamp() {
