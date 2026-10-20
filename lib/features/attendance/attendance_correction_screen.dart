@@ -122,6 +122,7 @@ class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen>
                   style: TextStyle(fontSize: 13, color: AppColors.muted)),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _classId,
                 decoration: const InputDecoration(labelText: '1. Class'),
                 items: [
@@ -134,6 +135,7 @@ class _AttendanceCorrectionScreenState extends State<AttendanceCorrectionScreen>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _date,
                 decoration: const InputDecoration(labelText: '2. Date'),
                 items: [

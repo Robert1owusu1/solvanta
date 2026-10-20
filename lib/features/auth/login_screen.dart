@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/api/api_client.dart';
-import '../../../core/responsive.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/ui/ui_kit.dart';
+import '../../core/api/api_client.dart';
+import '../../core/responsive.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 import 'auth_repository.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -85,8 +85,8 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final dc = context.deviceClass;
-    final isDesktop = dc == DeviceClass.desktop || dc == DeviceClass.largeDesktop;
-    final isTablet = dc == DeviceClass.tablet || dc == DeviceClass.largeTablet;
+    final isDesktop = dc.isDesktopLike;
+    final isTablet = dc.isTabletLike;
 
     return Scaffold(
       body: Stack(

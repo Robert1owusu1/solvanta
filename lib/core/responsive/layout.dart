@@ -1,9 +1,8 @@
-library solvanta_responsive_layout;
-
 /// Responsive layout widgets for SOLVANTA.
 ///
 /// These widgets adapt their layout based on the available width and device class.
 /// They follow Material Design 3 responsive patterns.
+library;
 
 import 'package:flutter/material.dart';
 import 'breakpoints.dart';
@@ -28,7 +27,8 @@ class ResponsiveBuilder extends StatelessWidget {
   final Widget Function(BuildContext, DeviceClass)? builder;
 
   /// Optional specific builders for each device class.
-  /// If not provided, falls back to [builder] or throws if neither is provided.
+  /// A missing one falls back to the nearest provided class (see
+  /// [_fallbacks]), then to [builder].
   final Widget Function(BuildContext)? phone;
   final Widget Function(BuildContext)? smallTablet;
   final Widget Function(BuildContext)? tablet;
@@ -36,18 +36,46 @@ class ResponsiveBuilder extends StatelessWidget {
   final Widget Function(BuildContext)? desktop;
   final Widget Function(BuildContext)? largeDesktop;
 
+  /// Search order per device class: itself first, then the closest sizes.
+  /// A small tablet (often a phone in landscape) prefers the phone layout,
+  /// whose lists fit its width better than a two-column grid.
+  static const _fallbacks = {
+    DeviceClass.phone: [DeviceClass.phone, DeviceClass.smallTablet,
+        DeviceClass.tablet, DeviceClass.largeTablet, DeviceClass.desktop,
+        DeviceClass.largeDesktop],
+    DeviceClass.smallTablet: [DeviceClass.smallTablet, DeviceClass.phone,
+        DeviceClass.tablet, DeviceClass.largeTablet, DeviceClass.desktop,
+        DeviceClass.largeDesktop],
+    DeviceClass.tablet: [DeviceClass.tablet, DeviceClass.largeTablet,
+        DeviceClass.smallTablet, DeviceClass.desktop, DeviceClass.phone,
+        DeviceClass.largeDesktop],
+    DeviceClass.largeTablet: [DeviceClass.largeTablet, DeviceClass.tablet,
+        DeviceClass.desktop, DeviceClass.smallTablet, DeviceClass.largeDesktop,
+        DeviceClass.phone],
+    DeviceClass.desktop: [DeviceClass.desktop, DeviceClass.largeDesktop,
+        DeviceClass.largeTablet, DeviceClass.tablet, DeviceClass.smallTablet,
+        DeviceClass.phone],
+    DeviceClass.largeDesktop: [DeviceClass.largeDesktop, DeviceClass.desktop,
+        DeviceClass.largeTablet, DeviceClass.tablet, DeviceClass.smallTablet,
+        DeviceClass.phone],
+  };
+
+  Widget Function(BuildContext)? _builderFor(DeviceClass dc) => switch (dc) {
+        DeviceClass.phone => phone,
+        DeviceClass.smallTablet => smallTablet,
+        DeviceClass.tablet => tablet,
+        DeviceClass.largeTablet => largeTablet,
+        DeviceClass.desktop => desktop,
+        DeviceClass.largeDesktop => largeDesktop,
+      };
+
   @override
   Widget build(BuildContext context) {
     final dc = context.deviceClass;
-    final widget = switch (dc) {
-      DeviceClass.phone => phone,
-      DeviceClass.smallTablet => smallTablet,
-      DeviceClass.tablet => tablet,
-      DeviceClass.largeTablet => largeTablet,
-      DeviceClass.desktop => desktop,
-      DeviceClass.largeDesktop => largeDesktop,
-    };
-    if (widget != null) return widget(context);
+    for (final candidate in _fallbacks[dc]!) {
+      final widget = _builderFor(candidate);
+      if (widget != null) return widget(context);
+    }
     if (builder != null) return builder!(context, dc);
     throw StateError('ResponsiveBuilder: no builder provided for $dc');
   }
@@ -422,11 +450,11 @@ class ResponsiveCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dc = context.deviceClass;
-    final padding = switch (dc) {
-      DeviceClass.phone => phonePadding,
-      DeviceClass.tablet => tabletPadding,
-      _ => desktopPadding,
-    };
+    final padding = dc == DeviceClass.phone
+        ? phonePadding
+        : dc.isTabletLike
+            ? tabletPadding
+            : desktopPadding;
 
     final card = Card(
       elevation: elevation,
@@ -495,7 +523,7 @@ class ResponsiveAppBar extends StatelessWidget implements PreferredSizeWidget {
   double _getToolbarHeight(BuildContext context) {
     final dc = context.deviceClass;
     if (dc == DeviceClass.phone) return phoneToolbarHeight;
-    if (dc == DeviceClass.tablet) return tabletToolbarHeight;
+    if (dc.isTabletLike) return tabletToolbarHeight;
     return desktopToolbarHeight;
   }
 
@@ -523,12 +551,6 @@ class ResponsiveAppBar extends StatelessWidget implements PreferredSizeWidget {
 
 /// Extension to get horizontal padding from EdgeInsetsGeometry.
 extension EdgeInsetsGeometryExtension on EdgeInsetsGeometry {
-  double get horizontal {
-    // This extension cannot resolve without a BuildContext,
-    // so we provide a helper method instead.
-    throw UnsupportedError('Use resolveHorizontal(context) instead');
-  }
-
   double resolveHorizontal(BuildContext context) {
     final resolved = resolve(Directionality.of(context));
     return resolved.left + resolved.right;

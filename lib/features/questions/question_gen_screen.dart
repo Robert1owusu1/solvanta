@@ -247,6 +247,7 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _reqSubject,
           decoration: const InputDecoration(labelText: 'Subject'),
           items: [
@@ -265,6 +266,7 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<QuestionType>(
+          isExpanded: true,
           initialValue: _reqType,
           decoration: const InputDecoration(labelText: 'Question type'),
           items: [
@@ -295,6 +297,7 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _reqPriority,
           decoration: const InputDecoration(labelText: 'Priority'),
           items: [

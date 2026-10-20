@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/models/assessment.dart';
-import '../../../core/models/subjects.dart';
-import '../../../core/responsive.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/ui/ui_kit.dart';
+import '../../core/models/assessment.dart';
+import '../../core/models/subjects.dart';
+import '../../core/responsive.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 import 'assessment_builder_screen.dart';
 import 'assessment_repository.dart';
 import 'capture_screen.dart';

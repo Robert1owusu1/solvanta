@@ -209,12 +209,15 @@ class StudentQrCard extends StatelessWidget {
                       color: AppColors.goldFg,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      'SOLVANTA · Scan at the gate to verify',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.muted,
+                    Flexible(
+                      child: Text(
+                        'SOLVANTA · Scan at the gate to verify',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.muted,
+                        ),
                       ),
                     ),
                   ],

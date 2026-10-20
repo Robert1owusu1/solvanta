@@ -1,9 +1,9 @@
-library solvanta_responsive_breakpoints;
-
 /// Responsive breakpoints for SOLVANTA web/desktop.
 ///
 /// Based on Material Design 3 breakpoints with adjustments for our module grids.
 /// These are used via [ResponsiveBuilder] and [LayoutBuilder] throughout the app.
+library;
+
 import 'package:flutter/material.dart';
 
 class Breakpoints {
@@ -19,8 +19,8 @@ class Breakpoints {
   /// Tablet landscape / small desktop: 1024dp - 1280dp
   static const double largeTablet = 1280;
 
-  /// Desktop: >= 1280dp
-  static const double desktop = 1280;
+  /// Desktop: 1280dp - 1600dp
+  static const double desktop = 1600;
 
   /// Large desktop: >= 1600dp
   static const double largeDesktop = 1600;
@@ -44,7 +44,14 @@ enum DeviceClass {
   desktop,
 
   /// Large desktop (>= 1600dp)
-  largeDesktop,
+  largeDesktop;
+
+  /// Small tablet, tablet or large tablet.
+  bool get isTabletLike =>
+      this == smallTablet || this == tablet || this == largeTablet;
+
+  /// Desktop or large desktop.
+  bool get isDesktopLike => this == desktop || this == largeDesktop;
 }
 
 /// Extension on [BuildContext] for easy breakpoint queries.
@@ -74,12 +81,12 @@ extension ResponsiveContext on BuildContext {
 
   /// Convenience getters for common breakpoints.
   bool get isPhone => deviceClass == DeviceClass.phone;
-  bool get isTablet => deviceClass == DeviceClass.tablet;
-  bool get isDesktop => deviceClass == DeviceClass.desktop;
+  bool get isTablet => deviceClass.isTabletLike;
+  bool get isDesktop => deviceClass.isDesktopLike;
   bool get isLargeDesktop => deviceClass == DeviceClass.largeDesktop;
   bool get isMobile => isPhone || isTablet;
   bool get isAtLeastTablet => isAtLeast(Breakpoints.tablet);
-  bool get isAtLeastDesktop => isAtLeast(Breakpoints.desktop);
+  bool get isAtLeastDesktop => isAtLeast(Breakpoints.largeTablet);
   bool get isAtLeastSmallTablet => isAtLeast(Breakpoints.smallTablet);
 }
 
@@ -125,7 +132,7 @@ EdgeInsets responsivePadding(BuildContext context, {
   final dc = context.deviceClass;
   if (dc == DeviceClass.phone) {
     return EdgeInsets.symmetric(horizontal: phoneHorizontal, vertical: phoneVertical);
-  } else if (dc == DeviceClass.tablet) {
+  } else if (dc.isTabletLike) {
     return EdgeInsets.symmetric(horizontal: tabletHorizontal, vertical: tabletVertical);
   } else {
     return EdgeInsets.symmetric(horizontal: desktopHorizontal, vertical: desktopVertical);
@@ -140,7 +147,7 @@ double responsiveHorizontalPadding(BuildContext context, {
 }) {
   final dc = context.deviceClass;
   if (dc == DeviceClass.phone) return phone;
-  if (dc == DeviceClass.tablet) return tablet;
+  if (dc.isTabletLike) return tablet;
   return desktop;
 }
 
@@ -153,7 +160,7 @@ double responsiveMaxWidth(BuildContext context, {
 }) {
   final dc = context.deviceClass;
   if (dc == DeviceClass.phone) return phone;
-  if (dc == DeviceClass.tablet) return tablet;
+  if (dc.isTabletLike) return tablet;
   if (dc == DeviceClass.desktop) return desktop;
   return largeDesktop;
 }

@@ -406,6 +406,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Transfer ${s.fullName}'),
         content: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: s.classId,
           decoration: const InputDecoration(labelText: 'Target class'),
           items: [

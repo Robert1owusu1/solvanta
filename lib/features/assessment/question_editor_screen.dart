@@ -130,6 +130,7 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           DropdownButtonFormField<QuestionType>(
+            isExpanded: true,
             initialValue: _type,
             decoration: const InputDecoration(labelText: 'Type'),
             items: [
@@ -145,6 +146,7 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
           ),
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _subjectId,
             decoration: const InputDecoration(labelText: 'Subject'),
             items: [
@@ -178,6 +180,7 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _cognitive,
                   decoration: const InputDecoration(labelText: 'Cognitive level'),
                   items: [

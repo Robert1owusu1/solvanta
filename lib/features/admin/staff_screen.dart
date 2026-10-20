@@ -89,6 +89,7 @@ class _StaffScreenState extends State<StaffScreen> {
                             : 'Leave blank to keep the current password')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<AppRole>(
+                  isExpanded: true,
                   initialValue: role,
                   decoration: const InputDecoration(labelText: 'Role'),
                   items: const [
@@ -106,6 +107,7 @@ class _StaffScreenState extends State<StaffScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: classId ?? '',
                   // As a bare Text above the field this hint collided with the
                   // floating 'Class' label; `helperText` sits below the input
@@ -177,6 +179,7 @@ class _StaffScreenState extends State<StaffScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Assign class to ${u.name}'),
         content: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: classId ?? '',
           items: [
             const DropdownMenuItem(value: '', child: Text('No class')),

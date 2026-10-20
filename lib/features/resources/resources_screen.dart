@@ -59,6 +59,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                     decoration: const InputDecoration(labelText: 'Title')),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: subjectId,
                   decoration: const InputDecoration(labelText: 'Subject'),
                   items: [
@@ -69,6 +70,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: classId,
                   decoration: const InputDecoration(labelText: 'Class'),
                   items: [
@@ -79,6 +81,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: kind,
                   decoration: const InputDecoration(labelText: 'Type'),
                   items: const [

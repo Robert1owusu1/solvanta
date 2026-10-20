@@ -1,5 +1,3 @@
-library solvanta_responsive_core;
-
 /// Responsive design system for SOLVANTA web/desktop.
 ///
 /// This library provides:
@@ -9,6 +7,7 @@ library solvanta_responsive_core;
 /// - [ResponsiveScaffold] for adaptive navigation
 /// - [ResponsiveCard], [ResponsiveAppBar] for adaptive components
 /// - Extension methods on [BuildContext] for easy breakpoint queries
+library;
 
 export 'responsive/breakpoints.dart';
 export 'responsive/layout.dart';

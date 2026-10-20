@@ -129,6 +129,7 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _gender,
                         decoration: const InputDecoration(labelText: 'Gender'),
                         items: const [
@@ -151,6 +152,7 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _classId,
                         decoration: const InputDecoration(labelText: 'Class'),
                         items: [

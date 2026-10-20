@@ -171,6 +171,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _subjectId,
                 decoration: const InputDecoration(labelText: 'Subject'),
                 items: [
@@ -181,6 +182,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<AssessmentType>(
+                isExpanded: true,
                 initialValue: _allowed.contains(_type) ? _type : null,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: [
@@ -204,6 +206,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
                 ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _classId,
                 decoration: const InputDecoration(labelText: 'Class'),
                 items: [

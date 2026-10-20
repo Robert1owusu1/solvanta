@@ -273,6 +273,7 @@ class _CreateAnnouncementDialogState extends State<_CreateAnnouncementDialog> {
             if (_scope == _Scope.classes) ...[
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: widget.classes.isNotEmpty
                     ? widget.classes.first.id
                     : null,

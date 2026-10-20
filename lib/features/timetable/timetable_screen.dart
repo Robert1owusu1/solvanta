@@ -80,6 +80,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
               children: [
                 if (_classId == null)
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: classId,
                     decoration: const InputDecoration(labelText: 'Class'),
                     items: [
@@ -91,6 +92,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                   ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: weekday,
                   decoration: const InputDecoration(labelText: 'Day'),
                   items: [
@@ -101,6 +103,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: subjectId,
                   decoration: const InputDecoration(labelText: 'Subject'),
                   items: [
@@ -202,6 +205,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _classId,
                     decoration: const InputDecoration(
                         labelText: 'Class', isDense: true),

@@ -840,6 +840,9 @@ class _ModuleGrid extends StatelessWidget {
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
       padding: const EdgeInsets.symmetric(horizontal: 12),
+      // Sits inside the dashboard's ListView, so it must size to its content.
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       children: [
         for (var i = 0; i < modules.length; i++)
           SvEntrance(

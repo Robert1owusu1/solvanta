@@ -330,9 +330,12 @@ class _StudentReportCard extends StatelessWidget {
                       child: Text(subjectName(s.subjectId),
                           style: const TextStyle(fontWeight: FontWeight.w600)),
                     ),
-                    Text('${s.attempts}/${s.of} marked',
-                        style: const TextStyle(fontSize: 12)),
-                    const Spacer(),
+                    Expanded(
+                      child: Text('${s.attempts}/${s.of} marked',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12)),
+                    ),
                     Text(
                       s.average == null
                           ? '–'

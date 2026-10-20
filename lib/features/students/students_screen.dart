@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/models/class_room.dart';
-import '../../../core/models/student.dart';
-import '../../../core/models/user.dart';
-import '../../../core/responsive.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/ui/ui_kit.dart';
+import '../../core/models/class_room.dart';
+import '../../core/models/student.dart';
+import '../../core/models/user.dart';
+import '../../core/responsive.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../audit/audit_repository.dart';
 import 'student_editor_screen.dart';
@@ -74,6 +74,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
       builder: (ctx) => AlertDialog(
         title: Text('Transfer ${s.fullName}'),
         content: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: s.classId,
           decoration: const InputDecoration(labelText: 'Target class'),
           items: [
@@ -230,8 +231,15 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             );
                           },
                         ),
-                        tablet: (context) => _StudentGrid(students: filtered, canManage: _canManage),
-                        desktop: (context) => _StudentGrid(students: filtered, canManage: _canManage, minItemWidth: 340),
+                        tablet: (context) => _StudentGrid(
+                            students: filtered,
+                            menuFor: _canManage ? _manageMenu : null,
+                            onOpen: _openProfile),
+                        desktop: (context) => _StudentGrid(
+                            students: filtered,
+                            menuFor: _canManage ? _manageMenu : null,
+                            onOpen: _openProfile,
+                            minItemWidth: 340),
                       ),
               ),
             ],
@@ -241,16 +249,17 @@ class _StudentsScreenState extends State<StudentsScreen> {
     );
   }
 
-  Widget _studentTile(Student s, bool canManage) {
-    final badge = switch (s.status) {
-      'Graduated' => svStatus('Graduated', Icons.workspace_premium,
-          AppColors.info),
-      'Transferred' =>
-        svStatus('Transferred', Icons.swap_horiz, AppColors.muted),
-      'Leaver' => svStatus('Leaver', Icons.person_off, AppColors.muted),
-      _ => svStatus('Active', Icons.check_circle, AppColors.success),
-    };
-    final menu = PopupMenuButton<String>(
+  void _openProfile(Student s) => Navigator.of(context)
+      .push(MaterialPageRoute(
+        builder: (_) => StudentProfileScreen(
+            studentId: s.id, showAdminActions: _canManage),
+      ))
+      .then((_) => _refresh());
+
+  /// Edit / transfer / promote / graduate actions, shared by the phone list
+  /// and the tablet/desktop grid.
+  Widget _manageMenu(Student s) {
+    return PopupMenuButton<String>(
       tooltip: 'Manage ${s.fullName}',
       onSelected: (v) => switch (v) {
         'edit' => Navigator.of(context)
@@ -281,6 +290,11 @@ class _StudentsScreenState extends State<StudentsScreen> {
             value: 'graduate', child: Text('Mark graduated')),
       ],
     );
+  }
+
+  Widget _studentTile(Student s, bool canManage) {
+    final badge = _statusBadge(s);
+    final menu = _manageMenu(s);
     return SvAvatarTile(
       title: s.fullName,
       meta: '${s.id} · ${s.admissionNo} · ${s.classId}',
@@ -289,21 +303,33 @@ class _StudentsScreenState extends State<StudentsScreen> {
       trailing: canManage
           ? Row(mainAxisSize: MainAxisSize.min, children: [badge, menu])
           : null,
-      onTap: () => Navigator.of(context)
-          .push(MaterialPageRoute(
-            builder: (_) => StudentProfileScreen(
-                studentId: s.id, showAdminActions: canManage),
-          ))
-          .then((_) => _refresh()),
+      onTap: () => _openProfile(s),
     );
   }
 }
 
+Widget _statusBadge(Student s) => switch (s.status) {
+      'Graduated' =>
+        svStatus('Graduated', Icons.workspace_premium, AppColors.info),
+      'Transferred' =>
+        svStatus('Transferred', Icons.swap_horiz, AppColors.muted),
+      'Leaver' => svStatus('Leaver', Icons.person_off, AppColors.muted),
+      _ => svStatus('Active', Icons.check_circle, AppColors.success),
+    };
+
 class _StudentGrid extends StatelessWidget {
-  const _StudentGrid({required this.students, required this.canManage, this.minItemWidth = 300});
+  const _StudentGrid({
+    required this.students,
+    required this.menuFor,
+    required this.onOpen,
+    this.minItemWidth = 300,
+  });
 
   final List<Student> students;
-  final bool canManage;
+
+  /// The manage menu for a student, or null when the viewer can't manage.
+  final Widget Function(Student)? menuFor;
+  final void Function(Student) onOpen;
   final double minItemWidth;
 
   @override
@@ -320,7 +346,11 @@ class _StudentGrid extends StatelessWidget {
         for (var i = 0; i < students.length; i++)
           SvEntrance(
             delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
-            child: _StudentGridCard(student: students[i], canManage: canManage),
+            child: _StudentGridCard(
+              student: students[i],
+              menu: menuFor?.call(students[i]),
+              onTap: () => onOpen(students[i]),
+            ),
           ),
       ],
     );
@@ -328,33 +358,26 @@ class _StudentGrid extends StatelessWidget {
 }
 
 class _StudentGridCard extends StatelessWidget {
-  const _StudentGridCard({required this.student, required this.canManage});
+  const _StudentGridCard({
+    required this.student,
+    required this.menu,
+    required this.onTap,
+  });
 
   final Student student;
-  final bool canManage;
+  final Widget? menu;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final badge = switch (student.status) {
-      'Graduated' => svStatus('Graduated', Icons.workspace_premium, AppColors.info),
-      'Transferred' => svStatus('Transferred', Icons.swap_horiz, AppColors.muted),
-      'Leaver' => svStatus('Leaver', Icons.person_off, AppColors.muted),
-      _ => svStatus('Active', Icons.check_circle, AppColors.success),
-    };
+    final badge = _statusBadge(student);
 
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => StudentProfileScreen(
-              studentId: student.id,
-              showAdminActions: canManage,
-            ),
-          ),
-        ),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -404,7 +427,9 @@ class _StudentGridCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          student.admissionNo,
+                          '${student.id} · ${student.admissionNo}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12,
                             color: AppColors.muted,
@@ -428,15 +453,9 @@ class _StudentGridCard extends StatelessWidget {
                       color: AppColors.muted,
                     ),
                   ),
-                  if (canManage) ...[
+                  if (menu != null) ...[
                     const Spacer(),
-                    IconButton(
-                      onPressed: () {
-                        // Show context menu
-                      },
-                      icon: Icon(Icons.more_vert, color: AppColors.muted, size: 20),
-                      tooltip: 'More options',
-                    ),
+                    menu!,
                   ],
                 ],
               ),
