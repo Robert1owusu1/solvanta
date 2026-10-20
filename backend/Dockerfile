@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/solvanta-api ./cmd/server
 
-FROM alpine:3.21
+FROM alpine:3.24
 RUN addgroup -S solvanta && adduser -S -G solvanta solvanta \
     && apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/solvanta-api /usr/local/bin/solvanta-api
