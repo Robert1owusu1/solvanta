@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../core/models/subjects.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/ui/ui_kit.dart';
+import '../../../core/models/assessment.dart';
+import '../../../core/models/subjects.dart';
+import '../../../core/responsive.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/ui_kit.dart';
 import '../assessment/assessment_repository.dart';
 import '../students/students_repository.dart';
 import 'analytics_service.dart';
@@ -75,60 +77,68 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _overview(ClassPerformance p) {
     final subjects = p.assessments.map((a) => a.subjectId).toSet().toList();
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _MetricCard(
-          icon: Icons.school,
-          label: 'Overall class average',
-          value: '${(100 * p.classAverage()).toStringAsFixed(1)}%',
-          color: AppTheme.brand,
-        ),
-        const SizedBox(height: 16),
-        Text('By subject', style: _head),
-        const SizedBox(height: 8),
-        for (final s in subjects)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.menu_book),
-              title: Text(subjectName(s)),
-              trailing: Text(
-                '${(100 * p.subjectAverage(s)).toStringAsFixed(1)}%',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.brand),
-              ),
-            ),
-          ),
-        const SizedBox(height: 16),
-        Text('By assessment', style: _head),
-        const SizedBox(height: 8),
-        for (final a in p.assessments)
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ListTile(
-                  title: Text(a.title,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(
-                      '${subjectName(a.subjectId)} · ${a.date}'),
-                  trailing: Text(
-                    '${(100 * p.averageFor(a)).toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.accent),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: _DistributionBar(dist: p.distributionFor(a)),
-                ),
-              ],
-            ),
-          ),
-      ],
+    return ResponsiveBuilder(
+      phone: (context) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: _buildOverviewChildren(p, subjects),
+      ),
+      tablet: (context) => _OverviewGrid(p: p, subjects: subjects),
+      desktop: (context) => _OverviewGrid(p: p, subjects: subjects, minItemWidth: 350),
     );
+  }
+
+  List<Widget> _buildOverviewChildren(ClassPerformance p, List<String> subjects) {
+    return [
+      _MetricCard(
+        icon: Icons.school,
+        label: 'Overall class average',
+        value: '${(100 * p.classAverage()).toStringAsFixed(1)}%',
+        color: AppTheme.brand,
+      ),
+      const SizedBox(height: 16),
+      Text('By subject', style: _head),
+      const SizedBox(height: 8),
+      for (final s in subjects)
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.menu_book),
+            title: Text(subjectName(s)),
+            trailing: Text(
+              '${(100 * p.subjectAverage(s)).toStringAsFixed(1)}%',
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.brand),
+            ),
+          ),
+        ),
+      const SizedBox(height: 16),
+      Text('By assessment', style: _head),
+      const SizedBox(height: 8),
+      for (final a in p.assessments)
+        Card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                title: Text(a.title,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                    '${subjectName(a.subjectId)} · ${a.date}'),
+                trailing: Text(
+                  '${(100 * p.averageFor(a)).toStringAsFixed(1)}%',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.accent),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: _DistributionBar(dist: p.distributionFor(a)),
+              ),
+            ],
+          ),
+        ),
+    ];
   }
 
   Widget _gaps(ClassPerformance p) {
@@ -340,6 +350,196 @@ class _Pill extends StatelessWidget {
       child: Text(label,
           style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+    );
+  }
+}
+
+class _OverviewGrid extends StatelessWidget {
+  const _OverviewGrid({
+    required this.p,
+    required this.subjects,
+    this.minItemWidth = 300,
+  });
+
+  final ClassPerformance p;
+  final List<String> subjects;
+  final double minItemWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveGridView(
+      minItemWidth: minItemWidth,
+      maxColumns: 4,
+      minColumns: 2,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      padding: const EdgeInsets.all(16),
+      baseAspectRatio: 1.2,
+      children: [
+        _MetricGridCard(
+          icon: Icons.school,
+          label: 'Overall class average',
+          value: '${(100 * p.classAverage()).toStringAsFixed(1)}%',
+          color: AppTheme.brand,
+        ),
+        for (final s in subjects)
+          _SubjectGridCard(
+            subjectName: subjectName(s),
+            average: '${(100 * p.subjectAverage(s)).toStringAsFixed(1)}%',
+          ),
+        for (final a in p.assessments)
+          _AssessmentGridCard(assessment: a, performance: p),
+      ],
+    );
+  }
+}
+
+class _MetricGridCard extends StatelessWidget {
+  const _MetricGridCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: color.withValues(alpha: .12),
+                  child: Icon(icon, color: color),
+                ),
+                const Spacer(),
+                Text(
+                  value,
+                  style: TextStyle(
+                      fontSize: 24, fontWeight: FontWeight.w800, color: color),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(label, style: _muted2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubjectGridCard extends StatelessWidget {
+  const _SubjectGridCard({
+    required this.subjectName,
+    required this.average,
+  });
+
+  final String subjectName;
+  final String average;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.menu_book, color: AppTheme.brand, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    subjectName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Average', style: _muted2),
+                Text(
+                  average,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.brand),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AssessmentGridCard extends StatelessWidget {
+  const _AssessmentGridCard({
+    required this.assessment,
+    required this.performance,
+  });
+
+  final Assessment assessment;
+  final ClassPerformance performance;
+
+  @override
+  Widget build(BuildContext context) {
+    final avg = (100 * performance.averageFor(assessment)).toStringAsFixed(1);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    assessment.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${subjectName(assessment.subjectId)} · ${assessment.date}',
+              style: _muted2,
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Average', style: _muted2),
+                Text(
+                  '$avg%',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.accent),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _DistributionBar(dist: performance.distributionFor(assessment)),
+          ],
+        ),
+      ),
     );
   }
 }

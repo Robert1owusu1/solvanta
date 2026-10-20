@@ -4,6 +4,7 @@ import '../../../core/models/assessment.dart';
 import '../../../core/models/attendance.dart';
 import '../../../core/models/student.dart';
 import '../../../core/models/user.dart';
+import '../../../core/responsive.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/ui_kit.dart';
 import '../../analytics/analytics_screen.dart';
@@ -419,11 +420,54 @@ class _HomeOverviewState extends State<HomeOverview> {
                 const SizedBox(height: 12),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      for (final s in data.stats)
-                        Expanded(child: _statTile(s)),
-                    ],
+                  child: ResponsiveBuilder(
+                    phone: (context) => SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final s in data.stats)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: SizedBox(
+                                width: 120,
+                                child: _statTile(s),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    tablet: (context) => LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cols = (constraints.maxWidth / 140).floor().clamp(2, 4);
+                        return GridView.count(
+                          crossAxisCount: cols,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 1.2,
+                          children: [
+                            for (final s in data.stats) _statTile(s),
+                          ],
+                        );
+                      },
+                    ),
+                    desktop: (context) => LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cols = (constraints.maxWidth / 160).floor().clamp(3, 5);
+                        return GridView.count(
+                          crossAxisCount: cols,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 1.3,
+                          children: [
+                            for (final s in data.stats) _statTile(s),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],

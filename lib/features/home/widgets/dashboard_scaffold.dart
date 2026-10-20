@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/user.dart';
+import '../../../core/responsive.dart';
 import '../../../core/sync/sync.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/ui_kit.dart';
@@ -832,19 +833,13 @@ class _ModuleGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Two columns on a phone, more as the width allows (tablet, landscape,
-    // desktop), and taller cards as text scales up so labels never clip.
-    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
-    final width = MediaQuery.sizeOf(context).width;
-    final columns = (width / 220).floor().clamp(2, 6);
-    return GridView.count(
-      crossAxisCount: columns,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+    return ResponsiveGridView(
+      minItemWidth: 200,
+      maxColumns: 6,
+      minColumns: 2,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: (1.32 / textScale.clamp(1.0, 2.2)).clamp(.6, 1.32),
       children: [
         for (var i = 0; i < modules.length; i++)
           SvEntrance(

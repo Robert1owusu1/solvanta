@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../core/models/class_room.dart';
-import '../../core/models/student.dart';
-import '../../core/models/user.dart';
-import '../../core/theme/app_theme.dart';
-import '../../core/ui/ui_kit.dart';
+import '../../../core/models/class_room.dart';
+import '../../../core/models/student.dart';
+import '../../../core/models/user.dart';
+import '../../../core/responsive.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../audit/audit_repository.dart';
 import 'student_editor_screen.dart';
@@ -216,17 +217,21 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             message:
                                 'Try a different search term, class, or status filter.',
                           ))
-                    : ListView.builder(
-                        itemCount: filtered.length,
-                        itemBuilder: (context, i) {
-                          final s = filtered[i];
-                          return SvEntrance(
-                            delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
-                            child: SvPressScale(
-                              child: _studentTile(s, _canManage),
-                            ),
-                          );
-                        },
+                    : ResponsiveBuilder(
+                        phone: (context) => ListView.builder(
+                          itemCount: filtered.length,
+                          itemBuilder: (context, i) {
+                            final s = filtered[i];
+                            return SvEntrance(
+                              delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
+                              child: SvPressScale(
+                                child: _studentTile(s, _canManage),
+                              ),
+                            );
+                          },
+                        ),
+                        tablet: (context) => _StudentGrid(students: filtered, canManage: _canManage),
+                        desktop: (context) => _StudentGrid(students: filtered, canManage: _canManage, minItemWidth: 340),
                       ),
               ),
             ],
@@ -290,6 +295,155 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 studentId: s.id, showAdminActions: canManage),
           ))
           .then((_) => _refresh()),
+    );
+  }
+}
+
+class _StudentGrid extends StatelessWidget {
+  const _StudentGrid({required this.students, required this.canManage, this.minItemWidth = 300});
+
+  final List<Student> students;
+  final bool canManage;
+  final double minItemWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveGridView(
+      minItemWidth: minItemWidth,
+      maxColumns: 4,
+      minColumns: 2,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      padding: const EdgeInsets.all(16),
+      baseAspectRatio: 1.4,
+      children: [
+        for (var i = 0; i < students.length; i++)
+          SvEntrance(
+            delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
+            child: _StudentGridCard(student: students[i], canManage: canManage),
+          ),
+      ],
+    );
+  }
+}
+
+class _StudentGridCard extends StatelessWidget {
+  const _StudentGridCard({required this.student, required this.canManage});
+
+  final Student student;
+  final bool canManage;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = switch (student.status) {
+      'Graduated' => svStatus('Graduated', Icons.workspace_premium, AppColors.info),
+      'Transferred' => svStatus('Transferred', Icons.swap_horiz, AppColors.muted),
+      'Leaver' => svStatus('Leaver', Icons.person_off, AppColors.muted),
+      _ => svStatus('Active', Icons.check_circle, AppColors.success),
+    };
+
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => StudentProfileScreen(
+              studentId: student.id,
+              showAdminActions: canManage,
+            ),
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [AppTheme.navy900, AppTheme.navy700],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Center(
+                      child: Text(
+                        student.initials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          student.fullName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        Text(
+                          student.admissionNo,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  badge,
+                ],
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Icon(Icons.class_outlined, size: 14, color: AppColors.muted),
+                  const SizedBox(width: 4),
+                  Text(
+                    student.classId,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  if (canManage) ...[
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () {
+                        // Show context menu
+                      },
+                      icon: Icon(Icons.more_vert, color: AppColors.muted, size: 20),
+                      tooltip: 'More options',
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
