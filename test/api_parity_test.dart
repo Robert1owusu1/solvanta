@@ -7,6 +7,7 @@ import 'package:solvanta/core/models/audit.dart';
 import 'package:solvanta/core/models/role.dart';
 import 'package:solvanta/core/models/school_term.dart';
 import 'package:solvanta/core/storage/local_store.dart';
+import 'package:solvanta/core/storage/phase6_store.dart';
 
 /// Live-backend parity suite.
 ///
@@ -229,6 +230,16 @@ void main() {
         expect(entry.id, isNotEmpty);
         expect(entry.action, isNotEmpty);
       }
+    });
+
+    test('timetable and resources are seeded identically', skip: skip,
+        () async {
+      final store = Phase6Store();
+      int byId(Map a, Map b) => (a['id'] as String).compareTo(b['id'] as String);
+      expect((await student.records('lessons'))..sort(byId),
+          List.of(await store.loadLessonsJson())..sort(byId));
+      expect((await student.records('resources'))..sort(byId),
+          List.of(await store.loadResourcesJson())..sort(byId));
     });
 
     test('notification visibility follows role ownership', skip: skip,

@@ -260,16 +260,20 @@ class LocalStore {
     );
   }
 
-  Future<Map<String, String>> loadTargets() async {
+  /// Study targets (subject id → grade). With [userId] they are that
+  /// user's own, falling back to the device-wide set older versions kept.
+  Future<Map<String, String>> loadTargets({String? userId}) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_targetsKey);
+    final raw = (userId == null ? null : prefs.getString('$_targetsKey.$userId')) ??
+        prefs.getString(_targetsKey);
     if (raw == null) return _seedTargets();
     return (jsonDecode(raw) as Map).map((k, v) => MapEntry(k as String, v as String));
   }
 
-  Future<void> saveTargets(Map<String, String> targets) async {
+  Future<void> saveTargets(Map<String, String> targets, {String? userId}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_targetsKey, jsonEncode(targets));
+    await prefs.setString(
+        userId == null ? _targetsKey : '$_targetsKey.$userId', jsonEncode(targets));
   }
 
   Future<School?> loadSchool() async {

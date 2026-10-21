@@ -9,6 +9,7 @@ import '../../core/ui/ui_kit.dart';
 import '../audit/audit_repository.dart';
 import '../auth/auth_repository.dart';
 import 'admin_repository.dart';
+import 'reset_password_dialog.dart';
 
 class StaffScreen extends StatefulWidget {
   const StaffScreen({super.key});
@@ -231,6 +232,10 @@ class _StaffScreenState extends State<StaffScreen> {
     );
   }
 
+  Future<void> _resetPassword(User u) async {
+    if (await showResetPasswordDialog(context, u)) _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -277,6 +282,7 @@ class _StaffScreenState extends State<StaffScreen> {
                     onSelected: (v) => switch (v) {
                       'edit' => _upsert(existing: u),
                       'class' => _reassignClass(u),
+                      'password' => _resetPassword(u),
                       _ => null,
                     },
                     itemBuilder: (_) => [
@@ -284,6 +290,8 @@ class _StaffScreenState extends State<StaffScreen> {
                       if (u.role == AppRole.teacher)
                         const PopupMenuItem(
                             value: 'class', child: Text('Assign class')),
+                      const PopupMenuItem(
+                          value: 'password', child: Text('Reset password')),
                     ],
                   ),
                 ),

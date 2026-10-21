@@ -41,6 +41,36 @@ class _CaptureScreenState extends State<CaptureScreen> {
     return (students, subs, scans);
   }
 
+  /// Shows the photo behind [scan], fetched from the server so a page
+  /// captured on another staff device can be checked here too.
+  Future<void> _viewScan(ScanPage scan) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Page ${scan.pageNumber} · ${scan.status.label}'),
+        content: FutureBuilder(
+          future: ScansRepository().image(scan),
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const SizedBox(
+                  height: 120, child: Center(child: CircularProgressIndicator()));
+            }
+            final bytes = snap.data;
+            if (bytes == null) {
+              return const Text('The photo is not available on this device '
+                  'and has not reached the server yet.');
+            }
+            return InteractiveViewer(child: Image.memory(bytes));
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final a = widget.assessment;
@@ -135,6 +165,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (scan.isNotEmpty)
+                              IconButton(
+                                tooltip: 'View scanned page',
+                                icon: const Icon(Icons.image_outlined),
+                                onPressed: () => _viewScan(scan.first),
+                              ),
                             IconButton(
                               tooltip: 'Scan answer sheet',
                               icon: const Icon(Icons.photo_camera_outlined),

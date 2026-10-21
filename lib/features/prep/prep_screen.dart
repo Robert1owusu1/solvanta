@@ -5,6 +5,7 @@ import '../../core/models/question.dart';
 import '../../core/models/submission.dart';
 import '../../core/models/subjects.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../analytics/analytics_service.dart';
@@ -80,7 +81,7 @@ class _PrepScreenState extends State<PrepScreen> {
     final bank = await repo.bank();
     final mocks =
         assessments.where((a) => a.type == AssessmentType.mock).toList();
-    final targets = await LocalStore().loadTargets();
+    final targets = await LocalStore().loadTargets(userId: me.id);
     return PrepData(
       studentId: studentId,
       schoolId: schoolId,
@@ -426,7 +427,13 @@ class _PrepScreenState extends State<PrepScreen> {
                         if (v == null) return;
                         final targets = Map<String, String>.from(d.targets)
                           ..[sub.id] = v;
-                        await LocalStore().saveTargets(targets);
+                        final me = await AuthRepository().currentUser();
+                        if (me == null) return;
+                        await LocalStore().saveTargets(targets, userId: me.id);
+                        await ServerSync.instance.send(
+                            'PUT', '/api/records/targets/${me.id}',
+                            body: {'id': me.id, 'targets': targets});
+                        if (!mounted) return;
                         setState(() => _data = _load());
                       },
                       items: [

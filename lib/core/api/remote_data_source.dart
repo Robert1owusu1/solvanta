@@ -294,6 +294,14 @@ class RemoteDataSource {
           .toList();
 
   /// Every notification visible to the signed-in user, read or not.
+  /// One collection the server stores for screens with no modelled table
+  /// (`lessons`, `resources`, `safety_completions`, `corrections`,
+  /// `targets`, `scans`), as the client's own JSON.
+  Future<List<JsonMap>> records(String kind) async =>
+      ((await client.get('/api/records/$kind')) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
   Future<List<AppNotification>> notifications() async =>
       ((await client.get('/api/notifications')) as List)
           .map((e) => AppNotification.fromJson(e as JsonMap))

@@ -1,5 +1,6 @@
 import '../../core/models/correction.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/server_sync.dart';
 
 class CorrectionsRepository {
   CorrectionsRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -31,6 +32,8 @@ class CorrectionsRepository {
       if (c.studentId == correction.studentId &&
           c.assessmentId == correction.assessmentId &&
           c.questionId == correction.questionId) {
+        // keep the first id so the server updates its row, not adds one
+        correction = Correction.fromJson({...correction.toJson(), 'id': c.id});
         list.add(correction);
         replaced = true;
       } else {
@@ -39,6 +42,9 @@ class CorrectionsRepository {
     }
     if (!replaced) list.add(correction);
     await _store.saveCorrections(list);
+    await ServerSync.instance.send(
+        'PUT', '/api/records/corrections/${correction.id}',
+        body: correction.toJson());
   }
 
   Future<int> completedCount(String studentId, String assessmentId) async =>

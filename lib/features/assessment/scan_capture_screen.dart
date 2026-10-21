@@ -90,7 +90,7 @@ class _ScanCaptureScreenState extends State<ScanCaptureScreen> {
       status: _warnings.isEmpty ? ScanStatus.queued : ScanStatus.needsReview,
       qualityWarnings: _warnings,
     );
-    await _repo.save(scan);
+    await _repo.save(scan, image: _imageBytes);
     if (!mounted) return;
     setState(() {
       _submittedPages++;

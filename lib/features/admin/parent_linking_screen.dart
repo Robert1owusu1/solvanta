@@ -7,6 +7,7 @@ import '../../core/ui/ui_kit.dart';
 import '../audit/audit_repository.dart';
 import '../students/students_repository.dart';
 import 'admin_repository.dart';
+import 'reset_password_dialog.dart';
 
 class ParentLinkingScreen extends StatefulWidget {
   const ParentLinkingScreen({super.key});
@@ -119,6 +120,14 @@ class ExpansionTileList extends StatelessWidget {
                     subtitle: Text('${s.id} · ${s.classId}'),
                     onChanged: (_) => onToggle(p, s),
                   ),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.lock_reset, size: 18),
+                    label: const Text('Reset password'),
+                    onPressed: () => showResetPasswordDialog(context, p),
+                  ),
+                ),
               ],
             ),
           ),

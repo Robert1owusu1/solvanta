@@ -82,17 +82,19 @@ class MessagesRepository {
     required String conversationId,
   }) async {
     final all = await _store.loadMessages();
-    var changed = false;
+    final changed = <String>[];
     final updated = all.map((m) {
       if (m.toId != meId ||
           m.conversationId != conversationId ||
           m.state == MessageState.read) {
         return m;
       }
-      changed = true;
+      changed.add(m.id);
       return m.copyWith(read: true, state: MessageState.read);
     }).toList();
-    if (changed) await _store.saveMessages(updated);
+    if (changed.isEmpty) return;
+    await _store.saveMessages(updated);
+    await _sendReceipts(changed, 'read');
   }
 
   /// Promotes messages [meId] received in [conversationId] from `sent` to
@@ -102,17 +104,29 @@ class MessagesRepository {
     required String conversationId,
   }) async {
     final all = await _store.loadMessages();
-    var changed = false;
+    final changed = <String>[];
     final updated = all.map((m) {
       if (m.toId != meId ||
           m.conversationId != conversationId ||
           m.state != MessageState.sent) {
         return m;
       }
-      changed = true;
+      changed.add(m.id);
       return m.copyWith(state: MessageState.delivered);
     }).toList();
-    if (changed) await _store.saveMessages(updated);
+    if (changed.isEmpty) return;
+    await _store.saveMessages(updated);
+    await _sendReceipts(changed, 'delivered');
+  }
+
+  /// Tells the sender's side (through the server) that these messages were
+  /// delivered or read. Silent on refusal: a message that never reached the
+  /// server has no receipt to record there.
+  Future<void> _sendReceipts(List<String> ids, String state) async {
+    for (final id in ids) {
+      await ServerSync.instance.send('POST', '/api/messages/$id/receipt',
+          body: {'state': state}, report: false);
+    }
   }
 
   /// Legacy entry point kept for existing call sites: marks the unread

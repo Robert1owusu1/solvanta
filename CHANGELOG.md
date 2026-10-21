@@ -8,6 +8,20 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The timetable, resources, safety-training completions, corrections, study
+  targets and scan pages now reach the server (`/api/records/:kind`, migration
+  `004_client_records.sql`) and follow each user to their other devices. Scan
+  photos upload to `PUT /api/scans/:id/image` (up to 8 MB) and can be viewed
+  from Capture on any staff device; a photo taken offline uploads later.
+- Message delivery receipts travel to the sender (`POST
+  /api/messages/:id/receipt`).
+- Administrators can reset a forgotten password from Staff & Teachers or
+  Parent linking (`POST /api/users/:id/reset-password`); the account is signed
+  out everywhere. Editing an account's password now reaches the server too.
+- A pupil un-ticking an assignment is synced (`DELETE
+  /api/assignments/:id/complete`).
+- Study targets are kept per user instead of per device.
+
 - PostgreSQL store chosen by `POSTGRES_DSN`, with schema in
   `backend/migrations` applied automatically at boot (all statements are
   `IF NOT EXISTS`).
@@ -112,6 +126,9 @@ per *collection*:
   guardians back across the pool. It now filters by student.
 
 ### Fixed
+
+- A student-scoped notification read by one parent no longer shows as read
+  for the child's other guardians.
 
 - **A failed write was reported to the client as success.** `Store` methods
   returned nothing, so every handler discarded the outcome: when the connection

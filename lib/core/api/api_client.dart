@@ -247,6 +247,41 @@ class ApiClient {
     }
   }
 
+  /// Uploads raw bytes (a scan photo). Never queued: the outbox only holds
+  /// JSON, so callers keep the bytes and retry themselves.
+  Future<void> putBytes(String path, Uint8List bytes, String contentType) async {
+    try {
+      final res = await _client.put(Uri.parse('$baseUrl$path'),
+          headers: {
+            'Content-Type': contentType,
+            if (token != null && token!.isNotEmpty)
+              'Authorization': 'Bearer $token',
+          },
+          body: bytes);
+      _decode(res);
+    } on SocketException {
+      throw ApiException(0, 'Cannot reach $baseUrl');
+    } on http.ClientException catch (e) {
+      throw ApiException(0, e.message);
+    }
+  }
+
+  /// Downloads raw bytes (a scan photo).
+  Future<Uint8List> getBytes(String path) async {
+    try {
+      final res = await _client.get(Uri.parse('$baseUrl$path'), headers: {
+        if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+      });
+      if (res.statusCode >= 200 && res.statusCode < 300) return res.bodyBytes;
+      _decode(res);
+      throw ApiException(res.statusCode, 'Request failed (${res.statusCode})');
+    } on SocketException {
+      throw ApiException(0, 'Cannot reach $baseUrl');
+    } on http.ClientException catch (e) {
+      throw ApiException(0, e.message);
+    }
+  }
+
   Object? _enc(Object? body) => body == null ? null : jsonEncode(body);
 
   dynamic _decode(http.Response res) {

@@ -77,10 +77,13 @@ class AdminRepository {
     final all = await _store.loadUsers();
     final list = <User>[];
     var existed = false;
+    var newPassword = false;
     for (final u in all) {
       if (u.id == user.id) {
         list.add(user);
         existed = true;
+        // the stored hash comes back unchanged unless a new one was typed
+        newPassword = user.password.isNotEmpty && user.password != u.password;
       } else {
         list.add(u);
       }
@@ -90,6 +93,11 @@ class AdminRepository {
 
     if (existed) {
       await _syncUser(user);
+      if (newPassword) {
+        await ServerSync.instance.send(
+            'POST', '/api/users/${user.id}/reset-password',
+            body: {'new': user.password});
+      }
       return;
     }
     final saved = await ServerSync.instance.sendFor('POST', '/api/users', {

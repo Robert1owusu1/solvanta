@@ -2,12 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../features/assessment/scans_repository.dart';
 import '../../features/fees/fees_repository.dart';
 import '../api/api_client.dart';
 import '../api/remote_data_source.dart';
+import '../models/correction.dart';
 import '../models/message.dart';
+import '../models/scan_page.dart';
 import '../models/user.dart';
 import '../storage/local_store.dart';
+import '../storage/phase6_store.dart';
 import 'connectivity_monitor.dart';
 import 'sync_queue.dart';
 
@@ -35,6 +39,7 @@ class ServerSync extends ChangeNotifier {
   static const stuckAfterAttempts = 5;
 
   final LocalStore _store = LocalStore();
+  final Phase6Store _phase6 = Phase6Store();
   Timer? _timer;
   StreamSubscription<bool>? _online;
   Future<bool>? _pulling;
@@ -146,7 +151,16 @@ class ServerSync extends ChangeNotifier {
       mirror('fees', () async => (await remote.invoices(), await remote.payments()),
           (r) => FeesRepository(store: _store)
               .mirrorFromServer(invoices: r.$1, payments: r.$2)),
+      mirror('timetable', () => remote.records('lessons'), _phase6.saveLessonsJson),
+      mirror('resources', () => remote.records('resources'), _phase6.saveResourcesJson),
+      mirror('safety training', () => remote.records('safety_completions'),
+          _mergeCompletions),
+      mirror('corrections', () => remote.records('corrections'),
+          (r) => _store.saveCorrections(r.map(Correction.fromJson).toList())),
+      mirror('targets', () => remote.records('targets'), _saveTargets),
+      mirror('scans', () => remote.records('scans'), _mergeScans),
     ]);
+    unawaited(ScansRepository(store: _store).retryUploads());
 
     if (!reached) return false;
     lastPulled = DateTime.now();
@@ -186,13 +200,50 @@ class ServerSync extends ChangeNotifier {
     await _store.saveUsers(merged);
   }
 
-  /// Receipts (delivered / read) are tracked on the device, not the server,
-  /// so keep the local state of messages we already have.
+  /// Staff take the training for themselves (no student) and those stay on
+  /// the device; pupils' completions come from the server.
+  Future<void> _mergeCompletions(List<Map<String, dynamic>> remote) async {
+    final own = (await _phase6.loadSafetyCompletionsJson())
+        .where((c) => (c['studentId'] ?? '') == '');
+    await _phase6.saveSafetyCompletionsJson([...remote, ...own]);
+  }
+
+  /// The server returns only the signed-in user's targets, keyed by their id.
+  Future<void> _saveTargets(List<Map<String, dynamic>> remote) async {
+    for (final r in remote) {
+      final targets = r['targets'];
+      if (r['id'] is String && targets is Map) {
+        await _store.saveTargets(
+            targets.map((k, v) => MapEntry(k as String, v as String)),
+            userId: r['id'] as String);
+      }
+    }
+  }
+
+  /// A scan's imagePath points into the capturing device's storage, so a
+  /// page this device captured keeps its own path.
+  Future<void> _mergeScans(List<Map<String, dynamic>> remote) async {
+    final local = {for (final s in await _store.loadScans()) s.id: s};
+    await _store.saveScans([
+      for (final r in remote)
+        if (local[r['id']] case final mine?)
+          ScanPage.fromJson({...r, 'imagePath': mine.imagePath})
+        else
+          ScanPage.fromJson({...r, 'imagePath': ''}),
+    ]);
+  }
+
+  /// The server carries receipts the other side reported; the device may
+  /// be ahead of it (a receipt still on its way up), so each message keeps
+  /// whichever state is further along.
   Future<void> _mergeMessages(List<Message> remote) async {
     final local = {for (final m in await _store.loadMessages()) m.id: m};
     await _store.saveMessages([
       for (final m in remote)
-        if (local[m.id] case final mine?) mine else m,
+        if (local[m.id] case final mine? when mine.state.index > m.state.index)
+          mine
+        else
+          m,
     ]);
   }
 

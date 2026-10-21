@@ -70,12 +70,11 @@ class AssignmentsRepository {
         current.copyWith(completedBy: !completed ? undone : done);
     await _store.saveAssignments([updated, ...without]);
 
-    // The API records completion for the signed-in pupil only and has no
-    // "undo"; an un-tick stays on this device until the next pull.
-    if (completed) {
-      await ServerSync.instance.send('POST', '/api/assignments/$id/complete',
-          report: false);
-    }
+    // The API records completion (and its undo) for the signed-in pupil
+    // only, so a parent's or teacher's tick stays on this device.
+    await ServerSync.instance.send(
+        completed ? 'POST' : 'DELETE', '/api/assignments/$id/complete',
+        report: false);
 
     if (completed && !ServerSync.instance.enabled) {
       await NotificationsRepository(store: _store).push(
