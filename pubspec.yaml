@@ -49,14 +49,14 @@ dependencies:
   # QR student ID cards (generate + render).
   qr_flutter: ^4.1.0
   # Local notifications: due-date reminders, attendance alerts, sync results.
-  flutter_local_notifications: ^20.1.0
+  flutter_local_notifications: ^22.3.2
   # Biometric unlock for the app lock (fingerprint / face), PIN fallback.
   local_auth: ^3.0.2
   # Reachability signal driving the offline sync queue + offline-lite mode.
   connectivity_plus: ^7.3.1
   # Zoned scheduling for reminder notifications (direct so the
   # `depend_on_referenced_packages` ignore in NotificationService can go).
-  timezone: ^0.10.1
+  timezone: ^0.11.2
   mobile_scanner: ^7.4.2
   # Hashing for on-device secrets (app-lock PIN, offline password copies) that
   # previously sat in SharedPreferences in plain text.
