@@ -2,6 +2,7 @@ package store
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"solvanta/backend/internal/domain"
@@ -62,10 +63,10 @@ func TestPostgresSeedRoundTrip(t *testing.T) {
 	if len(pg.Classes()) != 6 {
 		t.Fatalf("classes: got %d, want 6", len(pg.Classes()))
 	}
-	if len(pg.Users()) != 13 {
-		// 6 founding accounts + 7 linked parent accounts (USR-PRN-002..008),
-		// matching the in-memory seed asserted in seed_test.go.
-		t.Fatalf("users: got %d, want 13", len(pg.Users()))
+	if len(pg.Users()) != 14 {
+		// 6 founding accounts + 7 linked parent accounts (USR-PRN-002..008)
+		// + 1 support-staff account, matching seed_test.go.
+		t.Fatalf("users: got %d, want 14", len(pg.Users()))
 	}
 
 	kojo, ok := pg.StudentByID("STU-001")
@@ -141,21 +142,26 @@ func TestPostgresSeedRoundTrip(t *testing.T) {
 		t.Fatalf("assignments: got %d, want 2", len(pg.Assignments()))
 	}
 
-	ann := pg.Announcements()
-	if len(ann) != 0 {
-		t.Fatalf("announcements: got %d, want 0 (seed has none)", len(ann))
-	} else {
-		// exercise the write path
-		pg.AddAnnouncement(domain.Announcement{
-			ID: "ANN-X", Title: "Assembly", Body: "Mon 7:30", Audience: domain.AudSchool,
-			AuthorID: "USR-ADM-001", Timestamp: "2026-09-21T07:00",
-		})
-		if got := len(pg.Announcements()); got != 1 {
-			t.Fatalf("announcement add: got %d, want 1", got)
+	if got := len(pg.Announcements()); got != len(seedAnnouncements) {
+		t.Fatalf("announcements: got %d, want %d", got, len(seedAnnouncements))
+	}
+	// exercise the write path
+	pg.AddAnnouncement(domain.Announcement{
+		ID: "ANN-X", Title: "Assembly", Body: "Mon 7:30", Audience: domain.AudSchool,
+		AuthorID: "USR-ADM-001", Timestamp: "2026-09-21T07:00",
+	})
+	var added *domain.Announcement
+	for _, a := range pg.Announcements() {
+		if a.ID == "ANN-X" {
+			a := a
+			added = &a
 		}
-		if pg.Announcements()[0].AuthorName != "Mrs. Adjoa Amankwah" {
-			t.Fatalf("announcement author name not joined: %+v", pg.Announcements()[0])
-		}
+	}
+	if added == nil {
+		t.Fatal("announcement add: ANN-X not stored")
+	}
+	if added.AuthorName != "Mrs. Adjoa Amankwah" {
+		t.Fatalf("announcement author name not joined: %+v", *added)
 	}
 }
 
@@ -362,5 +368,73 @@ func TestPostgresWritePaths(t *testing.T) {
 	pg.SaveTerm(pg.Term())
 	if pg.School().Name == "" || pg.Term().Name == "" {
 		t.Fatal("school/term lost after upsert")
+	}
+}
+
+func TestPostgresRecordsReadsAndReceipts(t *testing.T) {
+	pg := postgresTest(t)
+	Seed(pg)
+
+	if got := len(pg.Records(domain.RecordLessons)); got != 25 {
+		t.Errorf("seeded lessons = %d, want 25", got)
+	}
+	// re-seeding must not overwrite an edited row
+	edited := domain.Record{Kind: domain.RecordLessons, ID: "SLOT-0-0", ClassID: "JHS2A",
+		UpdatedAt: "2026-10-21 09:00", Data: []byte(`{"id":"SLOT-0-0","edited":true}`)}
+	if err := pg.SaveRecord(edited); err != nil {
+		t.Fatal(err)
+	}
+	Seed(pg)
+	if r, ok := pg.RecordByID(domain.RecordLessons, "SLOT-0-0"); !ok || !strings.Contains(string(r.Data), "edited") {
+		t.Errorf("seed overwrote an edited slot: %s", r.Data)
+	}
+
+	scan := domain.Record{Kind: domain.RecordScans, ID: "SCAN-PG", StudentID: "STU-001",
+		UpdatedAt: "2026-10-21 09:00", Data: []byte(`{"id":"SCAN-PG","studentId":"STU-001"}`)}
+	if err := pg.SaveRecord(scan); err != nil {
+		t.Fatal(err)
+	}
+	img := []byte{0xFF, 0xD8, 0x00, 0x01}
+	if err := pg.SaveScanImage("SCAN-PG", "image/jpeg", img); err != nil {
+		t.Fatal(err)
+	}
+	if ct, data, ok := pg.ScanImage("SCAN-PG"); !ok || ct != "image/jpeg" || string(data) != string(img) {
+		t.Errorf("scan image round trip: %v %q %v", ok, ct, data)
+	}
+	if err := pg.DeleteRecord(domain.RecordScans, "SCAN-PG"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := pg.ScanImage("SCAN-PG"); ok {
+		t.Error("deleting a scan left its image behind")
+	}
+
+	if err := pg.MarkNotificationReadBy("NOTIF-001", "USR-PRN-001"); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.MarkNotificationReadBy("NOTIF-001", "USR-PRN-001"); err != nil {
+		t.Fatalf("marking twice: %v", err)
+	}
+	if !pg.NotificationReadsBy("USR-PRN-001")["NOTIF-001"] || pg.NotificationReadsBy("USR-OTHER")["NOTIF-001"] {
+		t.Error("per-reader read state is wrong")
+	}
+
+	msgs := pg.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("no seeded messages")
+	}
+	id := msgs[0].ID
+	if err := pg.SetMessageReceipt(id, "2026-10-21 09:00", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.SetMessageReceipt(id, "2026-10-21 10:00", "2026-10-21 10:00"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range pg.Messages() {
+		if m.ID == id && (m.DeliveredAt != "2026-10-21 09:00" || m.ReadAt != "2026-10-21 10:00" || !m.Read) {
+			t.Errorf("receipt stamps: %+v", m)
+		}
+	}
+	if n, last, _ := pg.StoreErrors(); n > 0 {
+		t.Errorf("%d storage errors, last: %v", n, last)
 	}
 }
