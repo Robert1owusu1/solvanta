@@ -40,14 +40,7 @@ func (s *Server) visibleStudents(u domain.User) map[string]bool {
 // listNotifications returns every notification visible to the user, read or
 // not (unreadNotifications only serves the unread ones).
 func (s *Server) listNotifications(c *gin.Context) {
-	u := currentUser(c)
-	out := []domain.Notification{}
-	for _, n := range s.store.Notifications() {
-		if notificationAllowed(u, n) {
-			out = append(out, n)
-		}
-	}
-	sendJSON(c, out)
+	sendJSON(c, s.notificationsFor(currentUser(c)))
 }
 
 // listAttendance returns the attendance records of every student the user

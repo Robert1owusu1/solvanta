@@ -96,6 +96,11 @@ type Store interface {
 	Notifications() []domain.Notification
 	AddNotification(n domain.Notification) // best-effort side effect, see above
 	SetNotificationRead(id string) error
+	// Per-reader read state for notifications addressed to no single user
+	// (student-scoped ones reach every parent of that student).
+	MarkNotificationReadBy(id, userID string) error
+	NotificationReadsBy(userID string) map[string]bool
+	SetMessageReceipt(id, deliveredAt, readAt string) error
 
 	// Assignments (doc §41)
 	Assignments() []domain.Assignment
@@ -112,6 +117,15 @@ type Store interface {
 	SaveInvoice(inv domain.Invoice) error
 	Payments() []domain.Payment
 	SavePayment(p domain.Payment) error // idempotent: the client owns the id
+
+	// Records the client keeps for screens with no modelled table (see
+	// domain.Record), and the image behind a scan page.
+	Records(kind string) []domain.Record
+	RecordByID(kind, id string) (domain.Record, bool)
+	SaveRecord(r domain.Record) error
+	DeleteRecord(kind, id string) error
+	SaveScanImage(id, contentType string, data []byte) error
+	ScanImage(id string) (contentType string, data []byte, ok bool)
 
 	// Audit (doc §49)
 	AuditLogs() []domain.AuditEntry
@@ -148,6 +162,14 @@ type Memory struct {
 	payments      []domain.Payment
 	audit         []domain.AuditEntry
 	refreshTokens map[string]refreshRecord
+	notifReads    map[string]map[string]bool // userID → notification ids
+	records       map[string][]domain.Record // kind → records
+	scanImages    map[string]scanImage
+}
+
+type scanImage struct {
+	contentType string
+	data        []byte
 }
 
 type refreshRecord struct {
@@ -610,6 +632,129 @@ func (m *Memory) SetNotificationRead(id string) error {
 	}
 
 	return nil
+}
+
+func (m *Memory) MarkNotificationReadBy(id, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.notifReads == nil {
+		m.notifReads = map[string]map[string]bool{}
+	}
+	if m.notifReads[userID] == nil {
+		m.notifReads[userID] = map[string]bool{}
+	}
+	m.notifReads[userID][id] = true
+
+	return nil
+}
+
+func (m *Memory) NotificationReadsBy(userID string) map[string]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := map[string]bool{}
+	for id := range m.notifReads[userID] {
+		out[id] = true
+	}
+	return out
+}
+
+func (m *Memory) SetMessageReceipt(id, deliveredAt, readAt string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.Message, len(m.messages))
+	copy(out, m.messages)
+	for i := range out {
+		if out[i].ID != id {
+			continue
+		}
+		if deliveredAt != "" && out[i].DeliveredAt == "" {
+			out[i].DeliveredAt = deliveredAt
+		}
+		if readAt != "" && out[i].ReadAt == "" {
+			out[i].ReadAt = readAt
+			out[i].Read = true
+		}
+	}
+	m.messages = out
+
+	return nil
+}
+
+func (m *Memory) Records(kind string) []domain.Record {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]domain.Record(nil), m.records[kind]...)
+}
+
+func (m *Memory) RecordByID(kind, id string) (domain.Record, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, r := range m.records[kind] {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return domain.Record{}, false
+}
+
+func (m *Memory) SaveRecord(r domain.Record) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.records == nil {
+		m.records = map[string][]domain.Record{}
+	}
+	list := m.records[r.Kind]
+	out := make([]domain.Record, 0, len(list)+1)
+	added := false
+	for _, e := range list {
+		if e.ID == r.ID {
+			out = append(out, r)
+			added = true
+		} else {
+			out = append(out, e)
+		}
+	}
+	if !added {
+		out = append(out, r)
+	}
+	m.records[r.Kind] = out
+
+	return nil
+}
+
+func (m *Memory) DeleteRecord(kind, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []domain.Record
+	for _, e := range m.records[kind] {
+		if e.ID != id {
+			out = append(out, e)
+		}
+	}
+	m.records[kind] = out
+	if kind == domain.RecordScans {
+		delete(m.scanImages, id)
+	}
+
+	return nil
+}
+
+func (m *Memory) SaveScanImage(id, contentType string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.scanImages == nil {
+		m.scanImages = map[string]scanImage{}
+	}
+	m.scanImages[id] = scanImage{contentType, append([]byte(nil), data...)}
+
+	return nil
+}
+
+func (m *Memory) ScanImage(id string) (string, []byte, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	img, ok := m.scanImages[id]
+	return img.contentType, img.data, ok
 }
 
 func (m *Memory) AddNotification(n domain.Notification) {

@@ -167,7 +167,11 @@ func (s *Server) cors() gin.HandlerFunc {
 // limitRequestBody caps the request body and makes oversized bodies yield 413.
 func limitRequestBody() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, defaultBodyLimit)
+		limit := int64(defaultBodyLimit)
+		if c.Request.Method == http.MethodPut && strings.HasSuffix(c.Request.URL.Path, "/image") {
+			limit = maxScanImage
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }

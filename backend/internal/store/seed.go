@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -259,6 +260,7 @@ func Seed(st Store) {
 	for _, a := range seedAnnouncements {
 		st.AddAnnouncement(a)
 	}
+	seedRecords(st)
 
 	notifTS := seedYesterday().Format("2006-01-02")
 	for _, n := range []domain.Notification{
@@ -407,4 +409,65 @@ func lastWeekdayDates(count int) []string {
 		out[i], out[j] = out[j], out[i]
 	}
 	return out
+}
+
+// seedRecords mirrors Phase6Store's timetable and resource seed in the app,
+// byte-for-byte in field order so a parity check can compare the JSON.
+func seedRecords(st Store) {
+	days := []string{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"}
+	subjects := []string{"MATH", "ENG", "SCI", "SOC", "ICT"}
+	starts := []string{"08:00", "09:10", "10:20", "11:30", "13:30"}
+	ends := []string{"08:50", "10:00", "11:10", "12:20", "14:20"}
+	for d, day := range days {
+		for i := range starts {
+			id := fmt.Sprintf("SLOT-%d-%d", d, i)
+			if _, ok := st.RecordByID(domain.RecordLessons, id); ok {
+				continue
+			}
+			st.SaveRecord(seedRecord(domain.RecordLessons, id, "JHS2A", map[string]any{
+				"id": id, "classId": "JHS2A", "weekday": day,
+				"start": starts[i], "end": ends[i],
+				"subjectId": subjects[i%len(subjects)], "teacherId": "USR-TCH-001",
+			}))
+		}
+	}
+	for _, r := range seedResources {
+		if _, ok := st.RecordByID(domain.RecordResources, r["id"].(string)); ok {
+			continue
+		}
+		st.SaveRecord(seedRecord(domain.RecordResources, r["id"].(string), "JHS2A", r))
+	}
+}
+
+// seedRecord builds one demo row. Callers skip ids already stored, so a
+// reboot never overwrites a timetable or resource the school has edited.
+func seedRecord(kind, id, classID string, data map[string]any) domain.Record {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		panic(err)
+	}
+	return domain.Record{Kind: kind, ID: id, ClassID: classID, UpdatedAt: seedRefDate + " 00:00", Data: raw}
+}
+
+var seedResources = []map[string]any{
+	{"id": "RES-001", "subjectId": "MATH", "classId": "JHS2A", "kind": "notes",
+		"title": "Fractions — Class Notes", "topic": "Fractions",
+		"body":    "A fraction has a numerator and a denominator. To add or subtract fractions, find a common denominator first.",
+		"addedBy": "Ms. Efua Mensah", "addedOn": "2026-09-01"},
+	{"id": "RES-002", "subjectId": "MATH", "classId": "JHS2A", "kind": "worksheet",
+		"title": "Equivalent Fractions Worksheet", "topic": "Fractions",
+		"body":    "Simplify to lowest terms: 4/8, 6/12, 9/15, 12/20, 8/10. Show your working in the box.",
+		"addedBy": "Ms. Efua Mensah", "addedOn": "2026-09-02"},
+	{"id": "RES-003", "subjectId": "ENG", "classId": "JHS2A", "kind": "notes",
+		"title": "Parts of Speech — Quick Reference", "topic": "Grammar",
+		"body":    "Nouns name things, verbs show action, adjectives describe nouns, and adverbs modify verbs or other adjectives.",
+		"addedBy": "Mr. Kwame Boateng", "addedOn": "2026-09-03"},
+	{"id": "RES-004", "subjectId": "SCI", "classId": "JHS2A", "kind": "video",
+		"title": "The Water Cycle — Watch & Learn", "topic": "Ecology",
+		"body":    "Evaporation, condensation, precipitation and collection. Watch with your class, then answer three questions.",
+		"addedBy": "Ms. Efua Mensah", "addedOn": "2026-09-04"},
+	{"id": "RES-005", "subjectId": "SOC", "classId": "JHS2A", "kind": "lessonPlan",
+		"title": "Map Skills — Lesson Plan", "topic": "Map Reading",
+		"body":    "Objective: read a simple map key. Starter: show a street map. Main: locate landmarks. Plenary: draw a classroom map.",
+		"addedBy": "Mr. Kwame Boateng", "addedOn": "2026-09-05"},
 }

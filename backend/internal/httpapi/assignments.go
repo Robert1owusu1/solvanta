@@ -81,3 +81,29 @@ func (s *Server) completeAssignment(c *gin.Context) {
 	}
 	sendJSON(c, a)
 }
+
+// uncompleteAssignment takes back a pupil's own completion, for a box ticked
+// by mistake.
+func (s *Server) uncompleteAssignment(c *gin.Context) {
+	a, ok := s.store.AssignmentByID(c.Param("id"))
+	if !ok {
+		fail(c, http.StatusNotFound, "Assignment not found")
+		return
+	}
+	studentID := stringToStudentID(currentUser(c).ID)
+	kept := []string{}
+	for _, done := range a.CompletedBy {
+		if done != studentID {
+			kept = append(kept, done)
+		}
+	}
+	if len(kept) == len(a.CompletedBy) {
+		sendJSON(c, a)
+		return
+	}
+	a.CompletedBy = kept
+	if writeFailed(c, s.store.SaveAssignment(a)) {
+		return
+	}
+	sendJSON(c, a)
+}

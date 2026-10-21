@@ -4,6 +4,8 @@
 // toJson(), enum values stored as their Dart enum .name strings).
 package domain
 
+import "encoding/json"
+
 const (
 	defaultSchoolID = "SCH-001"
 )
@@ -323,6 +325,12 @@ type Message struct {
 	Body             string `json:"body"`
 	Timestamp        string `json:"timestamp"`
 	Read             bool   `json:"read"`
+	// Delivery receipts the recipient's device reports back: delivered when
+	// their inbox loaded the message, read when they opened the thread.
+	DeliveredAt string `json:"deliveredAt,omitempty"`
+	ReadAt      string `json:"readAt,omitempty"`
+	// State is derived for the client (sent → delivered → read), never stored.
+	State string `json:"state,omitempty"`
 }
 
 // Announcement mirrors the client Announcement model (doc §40).
@@ -539,3 +547,28 @@ func (r GenRequest) Key() string   { return r.ID }
 func (a Assessment) Key() string   { return a.ID }
 func (i Intervention) Key() string { return i.ID }
 func (a Assignment) Key() string   { return a.ID }
+
+// Record kinds the server stores (see Record).
+const (
+	RecordLessons           = "lessons"
+	RecordResources         = "resources"
+	RecordSafetyCompletions = "safety_completions"
+	RecordCorrections       = "corrections"
+	RecordTargets           = "targets"
+	RecordScans             = "scans"
+)
+
+// Record is one entry of a collection the server stores on the client's
+// behalf without modelling it (timetable slots, resources, training
+// completions, corrections, targets, scan pages). Data is the client's own
+// JSON; StudentID, ClassID and OwnerID are lifted out of it so reads can be
+// scoped like the modelled collections.
+type Record struct {
+	Kind      string          `json:"-"`
+	ID        string          `json:"-"`
+	StudentID string          `json:"-"`
+	ClassID   string          `json:"-"`
+	OwnerID   string          `json:"-"`
+	UpdatedAt string          `json:"-"`
+	Data      json.RawMessage `json:"-"`
+}

@@ -316,6 +316,7 @@ func (s *Server) Router() *gin.Engine {
 		users.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.listUsers)
 		users.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.createUser)
 		users.PATCH("/:id/password", s.changePassword)
+		users.POST("/:id/reset-password", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.resetPassword)
 		users.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.updateUser)
 	}
 
@@ -402,6 +403,7 @@ func (s *Server) Router() *gin.Engine {
 		comm.DELETE("/announcements/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.deleteAnnouncement)
 		comm.GET("/messages", s.listMessages)
 		comm.POST("/messages", s.sendMessage)
+		comm.POST("/messages/:id/receipt", s.messageReceipt)
 		comm.GET("/notifications", s.listNotifications)
 		comm.GET("/notifications/unread", s.unreadNotifications)
 		comm.POST("/notifications/:id/read", s.markNotificationRead)
@@ -414,7 +416,18 @@ func (s *Server) Router() *gin.Engine {
 		assignments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createAssignment)
 		assignments.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.deleteAssignment)
 		assignments.POST("/:id/complete", requireRole(domain.RoleStudent), s.completeAssignment)
+		assignments.DELETE("/:id/complete", requireRole(domain.RoleStudent), s.uncompleteAssignment)
 	}
+
+	// Collections stored for the client without a modelled table (records.go).
+	records := api.Group("/records", s.schoolScope())
+	{
+		records.GET("/:kind", s.listRecords)
+		records.PUT("/:kind/:id", s.saveRecord)
+		records.DELETE("/:kind/:id", s.deleteRecord)
+	}
+	api.PUT("/scans/:id/image", s.schoolScope(), s.putScanImage)
+	api.GET("/scans/:id/image", s.schoolScope(), s.getScanImage)
 
 	// Fees (client: lib/features/fees). The device pushes payments from its
 	// sync outbox; the reads are scoped per student inside the handlers (see

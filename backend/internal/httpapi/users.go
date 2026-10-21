@@ -144,3 +144,40 @@ func (s *Server) changePassword(c *gin.Context) {
 	}
 	sendJSON(c, gin.H{"status": "password_changed"})
 }
+
+type passwordResetRequest struct {
+	New string `json:"new"`
+}
+
+// resetPassword lets an administrator set a new password for an account in
+// their school, for a user who has forgotten theirs. Every session the
+// account holds is signed out.
+func (s *Server) resetPassword(c *gin.Context) {
+	u := currentUser(c)
+	target, ok := s.store.UserByID(c.Param("id"))
+	if !ok {
+		fail(c, http.StatusNotFound, "User not found")
+		return
+	}
+	if !u.IsSuperAdmin() && (target.Role == domain.RoleSuperAdmin || target.SchoolID != u.SchoolID) {
+		fail(c, http.StatusForbidden, "You may only reset passwords in your school")
+		return
+	}
+	var body passwordResetRequest
+	if !bind(c, &body) {
+		return
+	}
+	if msg := checkPasswordPolicy(body.New); msg != "" {
+		fail(c, http.StatusBadRequest, "weak password: "+msg)
+		return
+	}
+	target.Password = hashPassword(body.New)
+	if writeFailed(c, s.store.SaveUser(target)) {
+		return
+	}
+	if writeFailed(c, s.store.DeleteRefreshTokensForUser(target.ID)) {
+		return
+	}
+	s.audit(c, "user.password_reset", target.ID, "Reset the password of "+target.Name, "")
+	sendJSON(c, gin.H{"status": "password_reset"})
+}

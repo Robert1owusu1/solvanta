@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -1295,7 +1296,8 @@ func (p *Postgres) SaveIntervention(i domain.Intervention) error {
 func (p *Postgres) Messages() []domain.Message {
 	rows, err := p.db.QueryContext(contextTODO(), `
 		SELECT id, from_id, to_id, COALESCE(related_student_id,''), COALESCE(subject,''),
-		       body, timestamp, COALESCE(read, FALSE)
+		       body, timestamp, COALESCE(read, FALSE),
+		       COALESCE(delivered_at,''), COALESCE(read_at,'')
 		FROM messages ORDER BY id`)
 	if err != nil {
 		p.errLog("Messages", err)
@@ -1306,7 +1308,7 @@ func (p *Postgres) Messages() []domain.Message {
 	for rows.Next() {
 		var m domain.Message
 		if err := rows.Scan(&m.ID, &m.FromID, &m.ToID, &m.RelatedStudentID, &m.Subject,
-			&m.Body, &m.Timestamp, &m.Read); err != nil {
+			&m.Body, &m.Timestamp, &m.Read, &m.DeliveredAt, &m.ReadAt); err != nil {
 			p.errLog("Messages scan", err)
 			continue
 		}
@@ -1406,6 +1408,55 @@ func (p *Postgres) SetNotificationRead(id string) error {
 	_, err := p.db.ExecContext(contextTODO(), `UPDATE notifications SET read = TRUE WHERE id = $1`, id)
 	if err != nil {
 		p.errLog("SetNotificationRead", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) MarkNotificationReadBy(id, userID string) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO notification_reads (notification_id, user_id) VALUES ($1,$2)
+		ON CONFLICT DO NOTHING`, id, userID)
+	if err != nil {
+		p.errLog("MarkNotificationReadBy", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) NotificationReadsBy(userID string) map[string]bool {
+	out := map[string]bool{}
+	rows, err := p.db.QueryContext(contextTODO(),
+		`SELECT notification_id FROM notification_reads WHERE user_id = $1`, userID)
+	if err != nil {
+		p.errLog("NotificationReadsBy", err)
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			p.errLog("NotificationReadsBy scan", err)
+			continue
+		}
+		out[id] = true
+	}
+	return out
+}
+
+// SetMessageReceipt stamps the first delivery/read time; later reports never
+// move a stamp.
+func (p *Postgres) SetMessageReceipt(id, deliveredAt, readAt string) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		UPDATE messages SET
+			delivered_at = COALESCE(delivered_at, NULLIF($2,'')),
+			read_at      = COALESCE(read_at, NULLIF($3,'')),
+			read         = read OR $3 <> ''
+		WHERE id = $1`, id, deliveredAt, readAt)
+	if err != nil {
+		p.errLog("SetMessageReceipt", err)
 		return err
 	}
 
@@ -1742,4 +1793,118 @@ func (p *Postgres) DeleteRefreshTokensForUser(userID string) error {
 	}
 
 	return nil
+}
+
+// --- Client records (see domain.Record) ---
+
+func (p *Postgres) Records(kind string) []domain.Record {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, COALESCE(student_id,''), COALESCE(class_id,''), COALESCE(owner_id,''),
+		       updated_at, data::text
+		FROM client_records WHERE kind = $1 ORDER BY id`, kind)
+	if err != nil {
+		p.errLog("Records", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.Record
+	for rows.Next() {
+		r := domain.Record{Kind: kind}
+		var data string
+		if err := rows.Scan(&r.ID, &r.StudentID, &r.ClassID, &r.OwnerID, &r.UpdatedAt, &data); err != nil {
+			p.errLog("Records scan", err)
+			continue
+		}
+		r.Data = json.RawMessage(data)
+		out = append(out, r)
+	}
+	return out
+}
+
+func (p *Postgres) RecordByID(kind, id string) (domain.Record, bool) {
+	r := domain.Record{Kind: kind, ID: id}
+	var data string
+	err := p.db.QueryRowContext(contextTODO(), `
+		SELECT COALESCE(student_id,''), COALESCE(class_id,''), COALESCE(owner_id,''),
+		       updated_at, data::text
+		FROM client_records WHERE kind = $1 AND id = $2`, kind, id).
+		Scan(&r.StudentID, &r.ClassID, &r.OwnerID, &r.UpdatedAt, &data)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("RecordByID", err)
+		}
+		return domain.Record{}, false
+	}
+	r.Data = json.RawMessage(data)
+	return r, true
+}
+
+func (p *Postgres) SaveRecord(r domain.Record) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO client_records (kind, id, student_id, class_id, owner_id, updated_at, data)
+		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+		ON CONFLICT (kind, id) DO UPDATE SET
+			student_id = EXCLUDED.student_id, class_id = EXCLUDED.class_id,
+			owner_id = EXCLUDED.owner_id, updated_at = EXCLUDED.updated_at, data = EXCLUDED.data`,
+		r.Kind, r.ID, nullStr(r.StudentID), nullStr(r.ClassID), nullStr(r.OwnerID),
+		r.UpdatedAt, string(r.Data))
+	if err != nil {
+		p.errLog("SaveRecord", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) DeleteRecord(kind, id string) error {
+	tx, err := p.db.BeginTx(contextTODO(), nil)
+	if err != nil {
+		p.errLog("DeleteRecord begin", err)
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(contextTODO(),
+		`DELETE FROM client_records WHERE kind = $1 AND id = $2`, kind, id); err != nil {
+		p.errLog("DeleteRecord", err)
+		return err
+	}
+	if kind == domain.RecordScans {
+		if _, err := tx.ExecContext(contextTODO(), `DELETE FROM scan_images WHERE id = $1`, id); err != nil {
+			p.errLog("DeleteRecord image", err)
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("DeleteRecord commit", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) SaveScanImage(id, contentType string, data []byte) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO scan_images (id, content_type, data) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO UPDATE SET content_type = EXCLUDED.content_type, data = EXCLUDED.data`,
+		id, contentType, data)
+	if err != nil {
+		p.errLog("SaveScanImage", err)
+		return err
+	}
+
+	return nil
+}
+
+func (p *Postgres) ScanImage(id string) (string, []byte, bool) {
+	var ct string
+	var data []byte
+	err := p.db.QueryRowContext(contextTODO(),
+		`SELECT content_type, data FROM scan_images WHERE id = $1`, id).Scan(&ct, &data)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("ScanImage", err)
+		}
+		return "", nil, false
+	}
+	return ct, data, true
 }

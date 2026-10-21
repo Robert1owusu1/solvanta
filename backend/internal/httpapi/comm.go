@@ -87,7 +87,67 @@ func (s *Server) listMessages(c *gin.Context) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[j].Timestamp < out[i].Timestamp })
+	for i := range out {
+		out[i].State = messageState(out[i])
+	}
 	sendJSON(c, out)
+}
+
+// messageState is the receipt the client renders: sent until the
+// recipient's device reports delivery, then read once they open it.
+func messageState(m domain.Message) string {
+	switch {
+	case m.Read || m.ReadAt != "":
+		return "read"
+	case m.DeliveredAt != "":
+		return "delivered"
+	}
+	return "sent"
+}
+
+type receiptRequest struct {
+	State string `json:"state"`
+}
+
+// messageReceipt records that the recipient's device delivered or opened a
+// message. Only the recipient may report it; stamps never move once set.
+func (s *Server) messageReceipt(c *gin.Context) {
+	u := currentUser(c)
+	var body receiptRequest
+	if !bind(c, &body) {
+		return
+	}
+	var found *domain.Message
+	for _, m := range s.store.Messages() {
+		if m.ID == c.Param("id") {
+			m := m
+			found = &m
+			break
+		}
+	}
+	if found == nil {
+		fail(c, http.StatusNotFound, "Message not found")
+		return
+	}
+	if found.ToID != u.ID {
+		fail(c, http.StatusForbidden, "Only the recipient can acknowledge a message")
+		return
+	}
+	at := now()
+	switch body.State {
+	case "delivered":
+		if writeFailed(c, s.store.SetMessageReceipt(found.ID, at, "")) {
+			return
+		}
+	case "read":
+		if writeFailed(c, s.store.SetMessageReceipt(found.ID, at, at)) {
+			return
+		}
+	default:
+		fail(c, http.StatusBadRequest, "state must be delivered or read")
+		return
+	}
+	sendJSON(c, gin.H{"id": found.ID, "state": body.State})
 }
 
 type messageRequest struct {
@@ -159,16 +219,40 @@ func notificationAllowed(u domain.User, n domain.Notification) bool {
 	return true
 }
 
+// notificationsFor returns the notifications u may see, with Read reporting
+// u's own read state: an addressed notification has one reader, so its row
+// flag is theirs; a student-scoped one is read per reader.
+func (s *Server) notificationsFor(u domain.User) []domain.Notification {
+	reads := s.store.NotificationReadsBy(u.ID)
+	out := []domain.Notification{}
+	for _, n := range s.store.Notifications() {
+		if !notificationAllowed(u, n) {
+			continue
+		}
+		if n.UserID == "" {
+			n.Read = reads[n.ID]
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// markRead records that u read n (see notificationsFor).
+func (s *Server) markRead(u domain.User, n domain.Notification) error {
+	if n.UserID != "" {
+		return s.store.SetNotificationRead(n.ID)
+	}
+	return s.store.MarkNotificationReadBy(n.ID, u.ID)
+}
+
 // unreadNotifications returns notifications visible to the user that haven't
 // been read yet.
 func (s *Server) unreadNotifications(c *gin.Context) {
-	u := currentUser(c)
-	var out []domain.Notification
-	for _, n := range s.store.Notifications() {
-		if !notificationAllowed(u, n) || n.Read {
-			continue
+	out := []domain.Notification{}
+	for _, n := range s.notificationsFor(currentUser(c)) {
+		if !n.Read {
+			out = append(out, n)
 		}
-		out = append(out, n)
 	}
 	sendJSON(c, out)
 }
@@ -176,22 +260,23 @@ func (s *Server) unreadNotifications(c *gin.Context) {
 func (s *Server) markNotificationRead(c *gin.Context) {
 	u := currentUser(c)
 	id := c.Param("id")
-	found := false
+	var found *domain.Notification
 	for _, n := range s.store.Notifications() {
 		if n.ID == id {
-			found = true
 			if !notificationAllowed(u, n) {
 				fail(c, http.StatusForbidden, "Not your notification")
 				return
 			}
+			n := n
+			found = &n
 			break
 		}
 	}
-	if !found {
+	if found == nil {
 		fail(c, http.StatusNotFound, "Notification not found")
 		return
 	}
-	if writeFailed(c, s.store.SetNotificationRead(id)) {
+	if writeFailed(c, s.markRead(u, *found)) {
 		return
 	}
 	sendJSON(c, gin.H{"read": id})
@@ -200,11 +285,11 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 func (s *Server) markAllNotificationsRead(c *gin.Context) {
 	u := currentUser(c)
 	count := 0
-	for _, n := range s.store.Notifications() {
-		if !notificationAllowed(u, n) || n.Read {
+	for _, n := range s.notificationsFor(u) {
+		if n.Read {
 			continue
 		}
-		if writeFailed(c, s.store.SetNotificationRead(n.ID)) {
+		if writeFailed(c, s.markRead(u, n)) {
 			return
 		}
 		count++
