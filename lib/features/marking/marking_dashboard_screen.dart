@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../assessment/assessment_repository.dart';
 import '../students/students_repository.dart';
+import 'draft_review_screen.dart';
 import 'marking_screen.dart';
 
 class MarkingDashboardScreen extends StatefulWidget {
@@ -41,7 +42,18 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: SvScreenHeader(title: 'Marking Dashboard'),
+      appBar: SvScreenHeader(
+        title: 'Marking Dashboard',
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.fact_check_outlined),
+            tooltip: 'AI Marking Review',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DraftReviewQueueScreen()),
+            ),
+          ),
+        ],
+      ),
       body: FutureBuilder(
         future: _data,
         builder: (context, snap) {

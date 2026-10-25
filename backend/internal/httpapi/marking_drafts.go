@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/marking"
 	"solvanta/backend/internal/matching"
 )
 
@@ -30,7 +31,11 @@ type draftAnswerInput struct {
 }
 
 type createDraftRequest struct {
-	SchemeID     string `json:"schemeId"`
+	SchemeID string `json:"schemeId"`
+	// SubmissionID names the paper. Required for an assignment; optional for
+	// an assessment, whose one paper per student is found from the scheme's
+	// assessment and the student — the app's local id for a captured paper
+	// is not the server's.
 	SubmissionID string `json:"submissionId"`
 	StudentID    string `json:"studentId"`
 	// Exactly one source: confirmed OCR readings (read from the teacher's
@@ -40,14 +45,25 @@ type createDraftRequest struct {
 	Answers   []draftAnswerInput `json:"answers"`
 }
 
-// draftResponse adds the flag every client must respect.
+// draftResponse adds what every client must respect: whether these are
+// recorded marks (only once a teacher has finalized), and their total.
 type draftResponse struct {
 	domain.MarkingDraft
-	Final bool `json:"final"`
+	Final      bool    `json:"final"`
+	FinalTotal float64 `json:"finalTotal"`
+}
+
+func toDraftResponse(d domain.MarkingDraft) draftResponse {
+	final := d.Status == domain.DraftStatusFinalized
+	r := draftResponse{MarkingDraft: d, Final: final}
+	if final {
+		r.FinalTotal = d.FinalTotal()
+	}
+	return r
 }
 
 func respondDraft(c *gin.Context, status int, d domain.MarkingDraft) {
-	c.JSON(status, draftResponse{MarkingDraft: d, Final: false})
+	c.JSON(status, toDraftResponse(d))
 }
 
 func (s *Server) createMarkingDraft(c *gin.Context) {
@@ -56,8 +72,8 @@ func (s *Server) createMarkingDraft(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	if body.SchemeID == "" || body.SubmissionID == "" || body.StudentID == "" {
-		fail(c, http.StatusBadRequest, "schemeId, submissionId and studentId are required")
+	if body.SchemeID == "" || body.StudentID == "" {
+		fail(c, http.StatusBadRequest, "schemeId and studentId are required")
 		return
 	}
 	if (len(body.OcrJobIDs) > 0) == (len(body.Answers) > 0) {
@@ -90,11 +106,12 @@ func (s *Server) createMarkingDraft(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "That student is not in the class this scheme is for")
 		return
 	}
-	kind, msg := s.checkDraftSubmission(scheme, body.SubmissionID, st.ID)
+	kind, submissionID, msg := s.checkDraftSubmission(scheme, body.SubmissionID, st.ID)
 	if msg != "" {
 		fail(c, http.StatusNotFound, msg)
 		return
 	}
+	body.SubmissionID = submissionID
 
 	questions := s.store.SchemeQuestions(scheme.ID)
 	if len(questions) == 0 {
@@ -172,27 +189,30 @@ func (s *Server) createMarkingDraft(c *gin.Context) {
 
 // checkDraftSubmission confirms the paper exists, belongs to this student and
 // is for the scheme's assessment or assignment. It returns the draft's target
-// kind, or a message saying what is wrong.
-func (s *Server) checkDraftSubmission(scheme domain.MarkingScheme, submissionID, studentID string) (string, string) {
+// kind and the paper's server id, or a message saying what is wrong.
+func (s *Server) checkDraftSubmission(scheme domain.MarkingScheme, submissionID, studentID string) (string, string, string) {
 	if scheme.AssessmentID != "" {
 		sub, ok := s.store.SubmissionFor(scheme.AssessmentID, studentID)
-		if !ok || sub.ID != submissionID {
-			return "", "No such submission from this student for the scheme's assessment"
+		if !ok || (submissionID != "" && sub.ID != submissionID) {
+			return "", "", "No such submission from this student for the scheme's assessment"
 		}
-		return domain.DraftTargetAssessment, ""
+		return domain.DraftTargetAssessment, sub.ID, ""
+	}
+	if submissionID == "" {
+		return "", "", "submissionId is required for an assignment"
 	}
 	rec, ok := s.store.RecordByID(domain.RecordAssignmentSubmissions, submissionID)
 	if !ok {
-		return "", "No such submission from this student for the scheme's assignment"
+		return "", "", "No such submission from this student for the scheme's assignment"
 	}
 	var data struct {
 		AssignmentID string `json:"assignmentId"`
 		StudentID    string `json:"studentId"`
 	}
 	if json.Unmarshal(rec.Data, &data) != nil || data.AssignmentID != scheme.AssignmentID || data.StudentID != studentID {
-		return "", "No such submission from this student for the scheme's assignment"
+		return "", "", "No such submission from this student for the scheme's assignment"
 	}
-	return domain.DraftTargetAssignment, ""
+	return domain.DraftTargetAssignment, submissionID, ""
 }
 
 // confirmedReading joins the teacher-confirmed text of the caller's own OCR
@@ -264,21 +284,186 @@ func draftAnswers(r matching.Result) []domain.MarkingDraftAnswer {
 	return out
 }
 
-// listMarkingDrafts returns a paper's drafts, newest last.
+// listMarkingDrafts returns a paper's drafts (?submissionId=, with answers,
+// newest last) or the review queue (?status=draft, headers only) for the
+// classes the caller marks.
 func (s *Server) listMarkingDrafts(c *gin.Context) {
 	u := currentUser(c)
-	submissionID := c.Query("submissionId")
-	if submissionID == "" {
-		fail(c, http.StatusBadRequest, "submissionId is required")
+	submissionID, status := c.Query("submissionId"), c.Query("status")
+	var drafts []domain.MarkingDraft
+	switch {
+	case submissionID != "":
+		drafts = s.store.MarkingDraftsForSubmission(submissionID)
+	case status == domain.DraftStatusDraft || status == domain.DraftStatusFinalized:
+		drafts = s.store.MarkingDraftsWithStatus(status)
+	default:
+		fail(c, http.StatusBadRequest, "Give submissionId, or status=draft|finalized")
 		return
 	}
 	out := []draftResponse{}
-	for _, d := range s.store.MarkingDraftsForSubmission(submissionID) {
+	for _, d := range drafts {
 		if teacherCoversClass(u, d.ClassID) {
-			out = append(out, draftResponse{MarkingDraft: d})
+			out = append(out, toDraftResponse(d))
 		}
 	}
 	sendJSON(c, out)
+}
+
+// finalizeRequest carries the teacher's decision for every question.
+type finalizeRequest struct {
+	Marks []struct {
+		SchemeQuestionID string  `json:"schemeQuestionId"`
+		Marks            float64 `json:"marks"`
+		Note             string  `json:"note"`
+	} `json:"marks"`
+}
+
+// finalizeMarkingDraft records a reviewed draft as the paper's marks. It is
+// the only way a draft becomes marks, and it needs an explicit mark for
+// every question: there is no "accept the draft" shortcut on the server, so
+// a client cannot finalize what the teacher has not seen.
+func (s *Server) finalizeMarkingDraft(c *gin.Context) {
+	u := currentUser(c)
+	d, ok := s.store.MarkingDraftByID(c.Param("id"))
+	if !ok || !teacherCoversClass(u, d.ClassID) {
+		fail(c, http.StatusNotFound, "Draft not found")
+		return
+	}
+	if d.Status != domain.DraftStatusDraft {
+		fail(c, http.StatusConflict, "Only a current draft can be finalized (this one is "+d.Status+")")
+		return
+	}
+	var body finalizeRequest
+	if !bind(c, &body) {
+		return
+	}
+	decided := map[string]int{}
+	for i, m := range body.Marks {
+		if _, dup := decided[m.SchemeQuestionID]; dup {
+			fail(c, http.StatusBadRequest, "Each question may be given only one mark")
+			return
+		}
+		decided[m.SchemeQuestionID] = i
+	}
+	if len(decided) != len(d.Answers) {
+		fail(c, http.StatusBadRequest, "Give a final mark for every question before finalizing")
+		return
+	}
+	for i := range d.Answers {
+		a := &d.Answers[i]
+		j, ok := decided[a.SchemeQuestionID]
+		if !ok {
+			fail(c, http.StatusBadRequest, fmt.Sprintf("Question %d has no final mark", a.QuestionNumber))
+			return
+		}
+		m := body.Marks[j]
+		if _, cents := cents(m.Marks); !cents || m.Marks < 0 || m.Marks > a.TotalMarks {
+			fail(c, http.StatusBadRequest, fmt.Sprintf(
+				"Question %d: the mark must be between 0 and %s, with at most two decimal places",
+				a.QuestionNumber, formatMarks(a.TotalMarks)))
+			return
+		}
+		v := m.Marks
+		a.FinalMarks = &v
+		a.TeacherNote = strings.TrimSpace(m.Note)
+	}
+
+	scheme, ok := s.store.MarkingSchemeByID(d.SchemeID)
+	if !ok {
+		fail(c, http.StatusConflict, "The scheme this draft used no longer exists")
+		return
+	}
+	d.Status = domain.DraftStatusFinalized
+	d.FinalizedBy = u.ID
+	d.FinalizedAt = now()
+
+	// An assessment paper's recorded score is updated to exactly what the
+	// teacher finalized. An assignment has no other mark store: the
+	// finalized draft is its record.
+	var previous *domain.Submission
+	if d.TargetKind == domain.DraftTargetAssessment {
+		sub, msg := s.finalizedSubmission(scheme, d)
+		if msg != "" {
+			fail(c, http.StatusConflict, msg)
+			return
+		}
+		if old, found := s.store.SubmissionFor(sub.AssessmentID, sub.StudentID); found {
+			previous = &old
+		}
+		if writeFailed(c, s.store.SaveSubmission(sub)) {
+			return
+		}
+	}
+	if err := s.store.SaveMarkingDraft(d); err != nil {
+		if previous != nil {
+			_ = s.store.SaveSubmission(*previous) // keep the recorded marks as they were
+		}
+		writeFailed(c, err)
+		return
+	}
+
+	st, _ := s.store.StudentByID(d.StudentID)
+	total := d.FinalTotal()
+	if st.ParentUserID != "" {
+		var pct float64
+		if d.MaxTotal > 0 {
+			pct = 100 * total / d.MaxTotal
+		}
+		s.notify(st.ParentUserID, domain.NotifMarking, "Work marked",
+			st.FullName()+" scored "+formatMarks(total)+"/"+formatMarks(d.MaxTotal)+" ("+marking.GradeLetter(pct)+").",
+			st.ID)
+	}
+	overridden := 0
+	for _, a := range d.Answers {
+		if *a.FinalMarks != a.DraftMarks {
+			overridden++
+		}
+	}
+	s.audit(c, "marking.finalize", d.ID, fmt.Sprintf("Finalized %s/%s for %s (%d of %d marks changed from the draft)",
+		formatMarks(total), formatMarks(d.MaxTotal), st.FullName(), overridden, len(d.Answers)), "")
+	respondDraft(c, http.StatusOK, d)
+}
+
+// finalizedSubmission applies a finalized draft to the paper's submission.
+// Scheme question n is the assessment's question n, so the scheme must have
+// the same number of questions with the same marks — otherwise the recorded
+// score could not equal what the teacher finalized, and nothing is written.
+func (s *Server) finalizedSubmission(scheme domain.MarkingScheme, d domain.MarkingDraft) (domain.Submission, string) {
+	a, ok := s.store.AssessmentByID(scheme.AssessmentID)
+	if !ok {
+		return domain.Submission{}, "The assessment this draft marks no longer exists"
+	}
+	sub, ok := s.store.SubmissionFor(a.ID, d.StudentID)
+	if !ok || sub.ID != d.SubmissionID {
+		return domain.Submission{}, "The paper this draft marks has been replaced; draft it again"
+	}
+	if len(d.Answers) != len(a.Questions) {
+		return domain.Submission{}, fmt.Sprintf(
+			"The scheme has %d questions but the assessment has %d, so the marks cannot be recorded against it",
+			len(d.Answers), len(a.Questions))
+	}
+	marks := map[string]float64{}
+	for k, v := range sub.TeacherMarks {
+		marks[k] = v
+	}
+	for _, ans := range d.Answers {
+		n := ans.QuestionNumber
+		if n < 1 || n > len(a.Questions) {
+			return domain.Submission{}, fmt.Sprintf("Scheme question %d has no matching assessment question", n)
+		}
+		q := a.Questions[n-1]
+		if q.Marks != ans.TotalMarks {
+			return domain.Submission{}, fmt.Sprintf(
+				"Question %d is worth %s in the scheme but %s in the assessment, so the mark cannot be recorded",
+				n, formatMarks(ans.TotalMarks), formatMarks(q.Marks))
+		}
+		marks[q.ID] = *ans.FinalMarks
+	}
+	sub.TeacherMarks = marks
+	sub.MarkingSchemeID = scheme.ID
+	sub.MarkingSchemeVersion = scheme.Version
+	sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
+	return sub, ""
 }
 
 func (s *Server) getMarkingDraft(c *gin.Context) {

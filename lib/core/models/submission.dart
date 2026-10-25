@@ -75,6 +75,14 @@ double computeEarned(
 ) {
   var total = 0.0;
   for (final q in questions) {
+    // A teacher's mark on an objective question wins over the auto-mark: it
+    // is how a finalized review records the teacher's decision. Mirrors
+    // ComputeEarned in backend/internal/marking.
+    final override = teacherMarks[q.id];
+    if (q.isObjective && override != null) {
+      total += override;
+      continue;
+    }
     if (q.isObjective) {
       final a = answers[q.id]?.trim().toLowerCase() ?? '';
       if (a.isNotEmpty && a == q.correctAnswer.trim().toLowerCase()) {

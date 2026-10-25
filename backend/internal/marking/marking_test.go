@@ -25,6 +25,9 @@ func TestComputeEarned(t *testing.T) {
 		{"wrong answers earn zero", map[string]string{"q1": "2/3", "q2": "False"}, nil, 0.0},
 		{"math uses teacher mark", map[string]string{"q1": "2/4", "q2": "True"}, map[string]float64{"q3": 3}, 6},
 		{"subjective without mark", map[string]string{}, map[string]float64{}, 0},
+		// A finalized review records the teacher's decision on every question.
+		{"teacher mark overrides a wrong MCQ", map[string]string{"q1": "2/3", "q2": "True"}, map[string]float64{"q1": 1}, 2},
+		{"teacher mark overrides a right MCQ", map[string]string{"q1": "2/4", "q2": "True"}, map[string]float64{"q1": 0}, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -402,7 +402,19 @@ Draft marks (Phase 5, `internal/matching`): `POST /api/marking-drafts` with
 `{"schemeId","submissionId","studentId"}` plus either `"ocrJobIds"` (the
 caller's own OCR readings, which must be teacher-confirmed) or `"answers"`
 (`[{"questionNumber":1,"text":"1/2","working":[]}]`, typed by the teacher) ·
-`GET /api/marking-drafts?submissionId=` · `GET /api/marking-drafts/:id`.
+`GET /api/marking-drafts?submissionId=` (one paper) or `?status=draft|finalized`
+(the review queue) · `GET /api/marking-drafts/:id`. `submissionId` may be
+omitted for an assessment (the server finds the student's paper).
+
+Finalizing (Phase 6): `POST /api/marking-drafts/:id/finalize` with
+`{"marks":[{"schemeQuestionId","marks","note"}]}` — an explicit mark for
+every question, or nothing happens. The draft keeps the proposal
+(`draftMarks`) beside the decision (`finalMarks`, `teacherNote`, migration
+`007_draft_finalization.sql`). For an assessment the paper's teacher marks and
+score are set to exactly what was finalized (scheme question n must be the
+assessment's question n, with the same marks, or it is refused); a teacher
+mark on a multiple-choice question now wins over the auto-mark. The parent is
+notified.
 Teachers for their own class, leaders for any; students, parents and staff
 get 403. A draft is never a mark (`"final": false`); the recorded marks
 change only when a teacher finalizes one (Phase 6). Matching runs exact →

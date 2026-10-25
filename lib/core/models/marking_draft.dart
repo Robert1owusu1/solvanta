@@ -1,9 +1,10 @@
 /// Draft marks from the matching engine (Phase 5), mirroring the API's
 /// `MarkingDraft` JSON.
 ///
-/// A draft is never a mark. [isFinal] is always false from the server, and the
-/// recorded marks change only when a teacher finalizes a draft in the review
-/// screen (Phase 6).
+/// A draft is not a mark until a teacher finalizes it in the review screen
+/// (Phase 6); only then is [MarkingDraft.isFinal] true. The engine's proposal
+/// ([MarkingDraftAnswer.draftMarks]) is never overwritten — the teacher's
+/// decision sits beside it in [MarkingDraftAnswer.finalMarks].
 library;
 
 List<String> _strings(Object? v) =>
@@ -65,6 +66,8 @@ class MarkingDraftAnswer {
     required this.needsReview,
     required this.reasons,
     required this.steps,
+    this.finalMarks,
+    this.teacherNote = '',
   });
 
   final String schemeQuestionId;
@@ -83,6 +86,15 @@ class MarkingDraftAnswer {
   final List<String> reasons;
   final List<DraftStep> steps;
 
+  /// The teacher's decision; null until the draft is finalized.
+  final double? finalMarks;
+
+  /// Why the teacher changed the proposed mark.
+  final String teacherNote;
+
+  /// Whether the teacher's mark differs from the proposal.
+  bool get overridden => finalMarks != null && finalMarks != draftMarks;
+
   factory MarkingDraftAnswer.fromJson(Map<String, dynamic> json) =>
       MarkingDraftAnswer(
         schemeQuestionId: (json['schemeQuestionId'] ?? '') as String,
@@ -99,6 +111,8 @@ class MarkingDraftAnswer {
         steps: ((json['steps'] ?? const []) as List)
             .map((e) => DraftStep.fromJson(e as Map<String, dynamic>))
             .toList(),
+        finalMarks: json['finalMarks'] == null ? null : _num(json['finalMarks']),
+        teacherNote: (json['teacherNote'] ?? '') as String,
       );
 
   Map<String, dynamic> toJson() => {
@@ -114,6 +128,8 @@ class MarkingDraftAnswer {
         'needsReview': needsReview,
         'reasons': reasons,
         'steps': steps.map((s) => s.toJson()).toList(),
+        'finalMarks': finalMarks,
+        'teacherNote': teacherNote,
       };
 }
 
@@ -136,6 +152,7 @@ class MarkingDraft {
     required this.needsReview,
     required this.createdAt,
     required this.answers,
+    this.finalizedAt = '',
   });
 
   final String id;
@@ -163,10 +180,15 @@ class MarkingDraft {
   /// How many questions are flagged for the teacher.
   final int needsReview;
   final String createdAt;
+  final String finalizedAt;
   final List<MarkingDraftAnswer> answers;
 
-  /// Always false: a draft becomes marks only through a teacher.
-  bool get isFinal => false;
+  /// True only once a teacher has finalized it: then its marks are recorded.
+  bool get isFinal => status == 'finalized';
+
+  /// The recorded total once finalized.
+  double get finalTotal =>
+      answers.fold(0.0, (sum, a) => sum + (a.finalMarks ?? 0));
 
   factory MarkingDraft.fromJson(Map<String, dynamic> json) => MarkingDraft(
         id: json['id'] as String,
@@ -184,6 +206,7 @@ class MarkingDraft {
         maxTotal: _num(json['maxTotal']),
         needsReview: (json['needsReview'] ?? 0) as int,
         createdAt: (json['createdAt'] ?? '') as String,
+        finalizedAt: (json['finalizedAt'] ?? '') as String,
         answers: ((json['answers'] ?? const []) as List)
             .map((e) => MarkingDraftAnswer.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -205,8 +228,9 @@ class MarkingDraft {
         'maxTotal': maxTotal,
         'needsReview': needsReview,
         'createdAt': createdAt,
+        'finalizedAt': finalizedAt,
         'answers': answers.map((a) => a.toJson()).toList(),
-        'final': false,
+        'final': isFinal,
       };
 }
 
@@ -255,7 +279,8 @@ class MarkingDraftRequest {
 
   Map<String, dynamic> body() => {
         'schemeId': schemeId,
-        'submissionId': submissionId,
+        // Optional for an assessment: the server finds the student's paper.
+        if (submissionId.isNotEmpty) 'submissionId': submissionId,
         'studentId': studentId,
         if (ocrJobIds.isNotEmpty) 'ocrJobIds': ocrJobIds,
         if (answers.isNotEmpty) 'answers': answers,
@@ -286,3 +311,67 @@ class MarkingDraftRequest {
         'error': error,
       };
 }
+
+/// A teacher's decision on one question in the review screen.
+class DraftDecision {
+  const DraftDecision({this.marks, this.note = '', this.checked = false});
+
+  /// The mark the teacher will finalize; null until one is set.
+  final double? marks;
+
+  /// Why the mark differs from the proposal.
+  final String note;
+
+  /// The teacher has looked at a flagged question.
+  final bool checked;
+
+  DraftDecision copyWith({double? marks, bool clearMarks = false, String? note, bool? checked}) =>
+      DraftDecision(
+        marks: clearMarks ? null : (marks ?? this.marks),
+        note: note ?? this.note,
+        checked: checked ?? this.checked,
+      );
+
+  factory DraftDecision.fromJson(Map<String, dynamic> json) => DraftDecision(
+        marks: json['marks'] == null ? null : _num(json['marks']),
+        note: (json['note'] ?? '') as String,
+        checked: (json['checked'] ?? false) as bool,
+      );
+
+  Map<String, dynamic> toJson() => {'marks': marks, 'note': note, 'checked': checked};
+}
+
+/// Whether a review is ready to finalize, and if not, why. Every question
+/// needs a mark within its total, and every flagged question must have been
+/// ticked as checked or had its mark changed — nothing uncertain is accepted
+/// unseen.
+String? reviewBlocker(MarkingDraft draft, Map<String, DraftDecision> decisions) {
+  for (final a in draft.answers) {
+    final d = decisions[a.schemeQuestionId];
+    final m = d?.marks;
+    if (m == null) return 'Question ${a.questionNumber} has no mark yet.';
+    if (m < 0 || m > a.totalMarks) {
+      return 'Question ${a.questionNumber}: the mark must be between 0 and ${_fmt(a.totalMarks)}.';
+    }
+    if (a.needsReview && !(d!.checked || m != a.draftMarks)) {
+      return 'Question ${a.questionNumber} was flagged — check it before finalizing.';
+    }
+  }
+  return null;
+}
+
+/// "Accept all": fills in the proposed mark for every confidently matched
+/// question that has no decision yet. Flagged questions are left alone.
+Map<String, DraftDecision> acceptConfident(
+    MarkingDraft draft, Map<String, DraftDecision> decisions) {
+  final out = Map<String, DraftDecision>.from(decisions);
+  for (final a in draft.answers) {
+    if (a.needsReview) continue;
+    final d = out[a.schemeQuestionId] ?? const DraftDecision();
+    if (d.marks == null) out[a.schemeQuestionId] = d.copyWith(marks: a.draftMarks);
+  }
+  return out;
+}
+
+String _fmt(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2).replaceAll(RegExp(r'0$'), '');

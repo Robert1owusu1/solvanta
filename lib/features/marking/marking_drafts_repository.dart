@@ -41,9 +41,12 @@ class MarkingDraftsRepository {
   /// Asks for a draft from teacher-confirmed OCR readings ([ocrJobIds]) or
   /// from answers the teacher typed ([answers]: questionNumber, text,
   /// working) — exactly one of the two.
+  ///
+  /// [submissionId] names the paper; it may be left empty for an assessment,
+  /// whose one paper per student the server finds itself.
   Future<MarkingDraftRequest> request({
     required String schemeId,
-    required String submissionId,
+    String submissionId = '',
     required String studentId,
     List<String> ocrJobIds = const [],
     List<Map<String, dynamic>> answers = const [],
@@ -99,6 +102,113 @@ class MarkingDraftsRepository {
     }
   }
 
+  /// Drafts waiting for a teacher's review in the classes this user marks.
+  /// Online, from the server; offline, the drafts this device already holds.
+  Future<List<MarkingDraft>> reviewQueue() async {
+    if (ApiClient.isConfigured && ServerSync.instance.enabled) {
+      try {
+        final res = await ApiClient().request(
+          'GET',
+          '/api/marking-drafts?status=draft',
+          offlineQueue: false,
+        );
+        if (res is List) {
+          return res
+              .map((e) => MarkingDraft.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+      } catch (_) {
+        // Fall through to what this device holds.
+      }
+    }
+    return (await _store.loadMarkingDrafts())
+        .where((d) => d.status == 'draft')
+        .toList();
+  }
+
+  /// One draft with all its questions: the server's copy when reachable
+  /// (kept on the device), otherwise this device's.
+  Future<MarkingDraft?> load(String id) async {
+    if (ApiClient.isConfigured && ServerSync.instance.enabled) {
+      try {
+        final res = await ApiClient().request(
+          'GET',
+          '/api/marking-drafts/$id',
+          offlineQueue: false,
+        );
+        if (res is Map<String, dynamic>) {
+          final draft = MarkingDraft.fromJson(res);
+          await _keepDraft(draft);
+          return draft;
+        }
+      } catch (_) {
+        // Fall through to what this device holds.
+      }
+    }
+    for (final d in await _store.loadMarkingDrafts()) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+
+  /// The teacher's in-progress decisions for a draft, kept on this device.
+  Future<Map<String, DraftDecision>> decisionsFor(String draftId) async {
+    final all = await _store.loadDraftReviews();
+    final raw = all[draftId];
+    if (raw is! Map) return {};
+    return raw.map((k, v) =>
+        MapEntry(k as String, DraftDecision.fromJson(Map<String, dynamic>.from(v as Map))));
+  }
+
+  /// Saves the decisions locally, on every change: local first.
+  Future<void> saveDecisions(String draftId, Map<String, DraftDecision> decisions) async {
+    final all = await _store.loadDraftReviews();
+    all[draftId] = decisions.map((k, v) => MapEntry(k, v.toJson()));
+    await _store.saveDraftReviews(all);
+  }
+
+  /// Records the teacher's marks. Only an explicit call from the review
+  /// screen's confirmed Finalize reaches here, and it needs the server: the
+  /// marks are recorded there. Throws [FinalizeException] with a message to
+  /// show; the decisions stay on the device either way.
+  Future<MarkingDraft> finalize(MarkingDraft draft, Map<String, DraftDecision> decisions) async {
+    final blocker = reviewBlocker(draft, decisions);
+    if (blocker != null) throw FinalizeException(blocker);
+    if (!ApiClient.isConfigured || !ServerSync.instance.enabled) {
+      throw const FinalizeException(
+          'No connection to the server. Your marks are saved on this device; finalize again when you are online.');
+    }
+    try {
+      final res = await ApiClient().request(
+        'POST',
+        '/api/marking-drafts/${draft.id}/finalize',
+        body: {
+          'marks': [
+            for (final a in draft.answers)
+              {
+                'schemeQuestionId': a.schemeQuestionId,
+                'marks': decisions[a.schemeQuestionId]!.marks,
+                'note': decisions[a.schemeQuestionId]!.note,
+              },
+          ],
+        },
+        offlineQueue: false,
+      );
+      final done = MarkingDraft.fromJson(res as Map<String, dynamic>);
+      await _keepDraft(done);
+      final all = await _store.loadDraftReviews();
+      all.remove(draft.id);
+      await _store.saveDraftReviews(all);
+      return done;
+    } on ApiException catch (e) {
+      if (e.isNetwork) {
+        throw const FinalizeException(
+            'Could not reach the server. Your marks are saved on this device; finalize again when you are online.');
+      }
+      throw FinalizeException(e.message);
+    }
+  }
+
   /// Dismisses a refused request once the teacher has seen why.
   Future<void> dismiss(String requestId) => _removeRequest(requestId);
 
@@ -134,4 +244,13 @@ class MarkingDraftsRepository {
     all.removeWhere((r) => r.id == id);
     await _store.saveDraftRequests(all);
   }
+}
+
+/// Why a finalize did not happen, worded for the teacher.
+class FinalizeException implements Exception {
+  const FinalizeException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }

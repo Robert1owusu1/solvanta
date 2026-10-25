@@ -14,6 +14,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   engine that drafts marks with a reason for each and flags anything
   uncertain. Drafts are stored apart from real marks (migration
   `006_marking_drafts.sql`) and are never final.
+- AI marking Phase 6: a teacher review screen (Marking Dashboard → AI Marking
+  Review) showing what was read, the proposed mark and why, per question.
+  "Accept confident" fills in the confident marks; flagged questions must be
+  ticked as checked or changed; finalizing is an explicit, confirmed action
+  that records the marks and tells the parent. A "Draft marks" screen asks
+  for a draft from confirmed readings or typed answers.
 - OCR readings are kept on the server for the teacher who asked for them,
   so a reading lost on a bad connection is fetched again rather than re-read.
 - `docs/DEPLOYMENT.md`, `deploy/production.env.example`, `scripts/check.sh`

@@ -15,10 +15,16 @@ import (
 
 // ComputeEarned mirrors computeEarned() in submission.dart: objective answers
 // are auto-marked by exact (trimmed, lower-cased) match; everything else is
-// taken from teacher marks.
+// taken from teacher marks. A teacher's mark on an objective question wins
+// over the auto-mark: it is how a finalized review (Phase 6) records the
+// teacher's decision, so the recorded score equals what they finalized.
 func ComputeEarned(questions []domain.Question, answers map[string]string, teacherMarks map[string]float64) float64 {
 	var total float64
 	for _, q := range questions {
+		if m, ok := teacherMarks[q.ID]; ok && q.IsObjective() {
+			total += m
+			continue
+		}
 		if q.IsObjective() {
 			a := strings.ToLower(strings.TrimSpace(answers[q.ID]))
 			correct := strings.ToLower(strings.TrimSpace(q.CorrectAnswer))

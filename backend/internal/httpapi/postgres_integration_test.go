@@ -242,3 +242,66 @@ func TestMarkingDraftsOnPostgres(t *testing.T) {
 		t.Errorf("%d storage error(s), last: %v", n-errsBefore, last)
 	}
 }
+
+// TestFinalizeOnPostgres: the teacher's decision lands in final_marks beside
+// the untouched proposal, and the submission records exactly that score.
+func TestFinalizeOnPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set; skipping PostgreSQL integration test")
+	}
+	pg, err := store.NewPostgres(dsn, false)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+	t.Cleanup(func() { pg.Close() })
+	store.Seed(pg)
+	errsBefore, _, _ := pg.StoreErrors()
+	gin.SetMode(gin.TestMode)
+	s, err := NewServer(pg, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := s.Router()
+	teacher := login(t, r, "efua.mensah@school.gh", "teacher123")
+	head := login(t, r, "head@school.gh", "head123")
+
+	pupil := "STU-PGF-" + newID("X")
+	addPupil(t, pg, pupil, "JHS2A")
+	if rec := do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/submit",
+		`{"studentId":"`+pupil+`","answers":{"Q-MATH-001":"2/4","Q-MATH-002":"1/2 m"}}`, bearer(teacher)); rec.Code != http.StatusCreated {
+		t.Fatalf("submit: %d %s", rec.Code, rec.Body.String())
+	}
+	sub, _ := pg.SubmissionFor("ASSMT-MAT-HALF", pupil)
+	rec := do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/marking-scheme",
+		`{"assessmentId":"ASSMT-MAT-HALF","questions":`+matchingSchemeFixture+`}`, bearer(head))
+	var scheme domain.MarkingScheme
+	_ = json.Unmarshal(rec.Body.Bytes(), &scheme)
+	rec = do(r, "POST", "/api/marking-drafts", fmt.Sprintf(
+		`{"schemeId":%q,"submissionId":%q,"studentId":%q,"answers":[{"questionNumber":1,"text":"2/4"},{"questionNumber":2,"text":"1/2 m"},{"questionNumber":3,"text":"11/12"}]}`,
+		scheme.ID, sub.ID, pupil), bearer(teacher))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("draft: %d %s", rec.Code, rec.Body.String())
+	}
+	var d draftReply
+	_ = json.Unmarshal(rec.Body.Bytes(), &d)
+
+	rec = do(r, "POST", "/api/marking-drafts/"+d.ID+"/finalize",
+		finalizeBody(d, map[int]float64{1: 2, 2: 1.5, 3: 4}, map[int]string{2: "Method marks"}), bearer(teacher))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("finalize: %d %s", rec.Code, rec.Body.String())
+	}
+	got, _ := pg.MarkingDraftByID(d.ID)
+	q2 := got.Answers[1]
+	if got.Status != domain.DraftStatusFinalized || got.FinalizedBy == "" || got.FinalizedAt == "" ||
+		q2.DraftMarks != 0 || q2.FinalMarks == nil || *q2.FinalMarks != 1.5 || q2.TeacherNote != "Method marks" {
+		t.Fatalf("finalized draft on Postgres: %+v / %+v", got, q2)
+	}
+	after, _ := pg.SubmissionFor("ASSMT-MAT-HALF", pupil)
+	if after.Earned != 7.5 || after.TeacherMarks["Q-MATH-002"] != 1.5 || after.MarkingSchemeID != scheme.ID {
+		t.Errorf("recorded submission: %+v", after)
+	}
+	if n, last, _ := pg.StoreErrors(); n != errsBefore {
+		t.Errorf("%d storage error(s), last: %v", n-errsBefore, last)
+	}
+}

@@ -109,6 +109,18 @@ type MarkingDraft struct {
 	Answers       []MarkingDraftAnswer `json:"answers"`
 }
 
+// FinalTotal is the sum of the teacher's final marks — what was recorded —
+// or 0 while the draft is not finalized.
+func (d MarkingDraft) FinalTotal() float64 {
+	var total float64
+	for _, a := range d.Answers {
+		if a.FinalMarks != nil {
+			total += *a.FinalMarks
+		}
+	}
+	return total
+}
+
 // MarkingDraftAnswer is one question of a draft: what was read, the proposed
 // mark, and why. SchemeQuestionID is the per-question link to the scheme.
 type MarkingDraftAnswer struct {
@@ -126,6 +138,11 @@ type MarkingDraftAnswer struct {
 	NeedsReview      bool        `json:"needsReview"`
 	Reasons          []string    `json:"reasons"`
 	Steps            []DraftStep `json:"steps"`
+	// FinalMarks is the teacher's decision (Phase 6), nil until the draft is
+	// finalized. DraftMarks, the proposal, is never overwritten.
+	FinalMarks *float64 `json:"finalMarks"`
+	// TeacherNote says why the teacher changed the proposed mark.
+	TeacherNote string `json:"teacherNote,omitempty"`
 }
 
 // DraftStep is one mark-breakdown step of a drafted question.

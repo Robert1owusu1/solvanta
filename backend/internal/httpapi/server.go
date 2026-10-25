@@ -432,6 +432,7 @@ func (s *Server) Router() *gin.Engine {
 		drafts.POST("", s.createMarkingDraft)
 		drafts.GET("", s.listMarkingDrafts)
 		drafts.GET("/:id", s.getMarkingDraft)
+		drafts.POST("/:id/finalize", s.finalizeMarkingDraft)
 	}
 
 	api.GET("/submissions", s.schoolScope(), s.listSubmissions)

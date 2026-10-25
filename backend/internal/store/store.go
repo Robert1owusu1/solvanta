@@ -117,6 +117,9 @@ type Store interface {
 	// asked whether a scheme has been marked against, not for the marks.
 	MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft
 	SetMarkingDraftStatus(id, status string) error
+	// MarkingDraftsWithStatus returns draft headers (Answers nil) in one
+	// status — the review queue asks for those still waiting.
+	MarkingDraftsWithStatus(status string) []domain.MarkingDraft
 
 	// Scan Pages
 	ScanPages(submissionID string) []domain.ScanPage
@@ -1280,6 +1283,10 @@ func copyDraft(d domain.MarkingDraft) domain.MarkingDraft {
 		a.Working = append([]string{}, a.Working...)
 		a.Reasons = append([]string{}, a.Reasons...)
 		a.Steps = append([]domain.DraftStep{}, a.Steps...)
+		if a.FinalMarks != nil {
+			v := *a.FinalMarks
+			a.FinalMarks = &v
+		}
 		answers[i] = a
 	}
 	d.Answers = answers
@@ -1329,6 +1336,20 @@ func (m *Memory) MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft {
 	var out []domain.MarkingDraft
 	for _, d := range m.markingDrafts {
 		if d.SchemeID == schemeID {
+			d = copyDraft(d)
+			d.Answers = nil
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (m *Memory) MarkingDraftsWithStatus(status string) []domain.MarkingDraft {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.MarkingDraft
+	for _, d := range m.markingDrafts {
+		if d.Status == status {
 			d = copyDraft(d)
 			d.Answers = nil
 			out = append(out, d)

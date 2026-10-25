@@ -54,6 +54,7 @@ class LocalStore {
   static const _ocrJobsKey = 'solvanta.ocr_jobs_v1';
   static const _markingDraftsKey = 'solvanta.marking_drafts_v1';
   static const _draftRequestsKey = 'solvanta.marking_draft_requests_v1';
+  static const _draftReviewsKey = 'solvanta.marking_draft_reviews_v1';
 
   Future<List<User>> loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -538,6 +539,20 @@ class LocalStore {
       _markingDraftsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
+  }
+
+  /// A teacher's in-progress review decisions, by draft id, so marks typed
+  /// into the review screen survive closing the app or losing the signal.
+  Future<Map<String, dynamic>> loadDraftReviews() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_draftReviewsKey);
+    if (raw == null) return {};
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<void> saveDraftReviews(Map<String, dynamic> reviews) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_draftReviewsKey, jsonEncode(reviews));
   }
 
   /// Draft requests waiting for the server.

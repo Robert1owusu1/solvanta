@@ -2450,14 +2450,16 @@ func (p *Postgres) SaveMarkingDraft(d domain.MarkingDraft) error {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO marking_draft_answers (draft_id, scheme_question_id, question_number,
 				student_answer, working, draft_marks, total_marks, method, matched_text,
-				matched_answer_id, misconception_id, likely_cause, needs_review, reasons, steps)
+				matched_answer_id, misconception_id, likely_cause, needs_review, reasons, steps,
+				final_marks, teacher_note)
 			SELECT $1, a->>'schemeQuestionId', (a->>'questionNumber')::int,
 				a->>'studentAnswer', COALESCE(a->'working','[]'::jsonb),
 				(a->>'draftMarks')::numeric, (a->>'totalMarks')::numeric, a->>'method',
 				COALESCE(a->>'matchedText',''),
 				NULLIF((a->>'matchedAnswerId')::bigint, 0), NULLIF((a->>'misconceptionId')::bigint, 0),
 				COALESCE(a->>'likelyCause',''), (a->>'needsReview')::boolean,
-				COALESCE(a->'reasons','[]'::jsonb), COALESCE(a->'steps','[]'::jsonb)
+				COALESCE(a->'reasons','[]'::jsonb), COALESCE(a->'steps','[]'::jsonb),
+				(a->>'finalMarks')::numeric, COALESCE(a->>'teacherNote','')
 			FROM jsonb_array_elements($2::jsonb) AS a`, d.ID, string(answers)); err != nil {
 			p.errLog("SaveMarkingDraft answers", err)
 			return err
@@ -2482,7 +2484,7 @@ func (p *Postgres) draftAnswers(draftID string) []domain.MarkingDraftAnswer {
 		SELECT scheme_question_id, question_number, student_answer, working::text,
 		       draft_marks::float8, total_marks::float8, method, matched_text,
 		       COALESCE(matched_answer_id,0), COALESCE(misconception_id,0), likely_cause,
-		       needs_review, reasons::text, steps::text
+		       needs_review, reasons::text, steps::text, final_marks::float8, teacher_note
 		FROM marking_draft_answers WHERE draft_id = $1 ORDER BY question_number`, draftID)
 	if err != nil {
 		p.errLog("draftAnswers", err)
@@ -2493,15 +2495,21 @@ func (p *Postgres) draftAnswers(draftID string) []domain.MarkingDraftAnswer {
 	for rows.Next() {
 		var a domain.MarkingDraftAnswer
 		var working, reasons, steps string
+		var final sql.NullFloat64
 		if err := rows.Scan(&a.SchemeQuestionID, &a.QuestionNumber, &a.StudentAnswer, &working,
 			&a.DraftMarks, &a.TotalMarks, &a.Method, &a.MatchedText, &a.MatchedAnswerID,
-			&a.MisconceptionID, &a.LikelyCause, &a.NeedsReview, &reasons, &steps); err != nil {
+			&a.MisconceptionID, &a.LikelyCause, &a.NeedsReview, &reasons, &steps,
+			&final, &a.TeacherNote); err != nil {
 			p.errLog("draftAnswers scan", err)
 			continue
 		}
 		_ = json.Unmarshal([]byte(working), &a.Working)
 		_ = json.Unmarshal([]byte(reasons), &a.Reasons)
 		_ = json.Unmarshal([]byte(steps), &a.Steps)
+		if final.Valid {
+			v := final.Float64
+			a.FinalMarks = &v
+		}
 		out = append(out, a)
 	}
 	return out
@@ -2553,6 +2561,10 @@ func (p *Postgres) MarkingDraftsForSubmission(submissionID string) []domain.Mark
 
 func (p *Postgres) MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft {
 	return p.draftsWhere("scheme_id = $1", schemeID, false)
+}
+
+func (p *Postgres) MarkingDraftsWithStatus(status string) []domain.MarkingDraft {
+	return p.draftsWhere("status = $1", status, false)
 }
 
 func (p *Postgres) SetMarkingDraftStatus(id, status string) error {

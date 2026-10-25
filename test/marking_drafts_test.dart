@@ -19,6 +19,9 @@ import 'package:solvanta/features/ocr/ocr_repository.dart';
 // offline one. The live group runs only with SOLVANTA_API_URL set:
 //
 //   SOLVANTA_API_URL=http://127.0.0.1:8080 flutter test test/marking_drafts_test.dart
+//
+// The live tests finalize STU-002's diagnostic, so run them against a freshly
+// started in-memory server.
 // =============================================================================
 
 Map<String, dynamic> draftJson({
@@ -212,6 +215,60 @@ void main() {
       expect(draft.draftTotal, 3);
       expect(draft.answers.single.studentAnswer, '1/2');
       expect(draft.unassigned, ['Name: Akosua']);
+    });
+
+    test('a teacher reviews and finalizes a draft, and the score is recorded', skip: skip, () async {
+      // A scheme that mirrors ASSMT-MAT-HALF question for question, so the
+      // finalized marks can be recorded against the paper.
+      await signInFresh('head@school.gh', 'head123');
+      Map<String, dynamic> q(int n, double total, String answer) => {
+            'questionNumber': n,
+            'totalMarks': total,
+            'markBreakdown': [
+              {'type': 'final_answer', 'criteria': 'Answer', 'marks': total},
+            ],
+            'acceptedAnswers': [
+              {'answerText': answer, 'normalizedForm': answer, 'marksAwarded': total, 'isPrimary': true},
+            ],
+            'misconceptions': [],
+          };
+      final scheme = await ApiClient().post('/api/assessments/ASSMT-MAT-HALF/marking-scheme', {
+        'assessmentId': 'ASSMT-MAT-HALF',
+        'questions': [q(1, 2, '2/4'), q(2, 3, '3/8 m'), q(3, 4, '11/12')],
+      }) as Map<String, dynamic>;
+
+      await signInFresh('efua.mensah@school.gh', 'teacher123');
+      final repo = MarkingDraftsRepository();
+      await repo.request(
+        schemeId: scheme['id'] as String,
+        studentId: 'STU-002', // the server finds the paper
+        answers: [
+          {'questionNumber': 1, 'text': '2/4'},
+          {'questionNumber': 2, 'text': '1/2 m'},
+          {'questionNumber': 3, 'text': '11/12'},
+        ],
+      );
+      final queued = (await repo.reviewQueue())
+          .where((d) => d.schemeId == scheme['id'] && d.studentId == 'STU-002')
+          .toList();
+      expect(queued, hasLength(1));
+      final draft = (await repo.load(queued.single.id))!;
+      expect(draft.isFinal, isFalse);
+      expect(draft.draftTotal, 6);
+
+      final decisions = {
+        ...acceptConfident(draft, {}),
+        draft.answers[1].schemeQuestionId: const DraftDecision(marks: 1, note: 'Method shown'),
+      };
+      final done = await repo.finalize(draft, decisions);
+      expect(done.isFinal, isTrue);
+      expect(done.finalTotal, 7);
+
+      final results = await ApiClient().get('/api/assessments/ASSMT-MAT-HALF/results') as Map<String, dynamic>;
+      final row = (results['rows'] as List)
+          .cast<Map<String, dynamic>>()
+          .firstWhere((r) => (r['student'] as Map)['id'] == 'STU-002');
+      expect(row['earned'], 7);
     });
 
     test('a pupil cannot see drafts', skip: skip, () async {
