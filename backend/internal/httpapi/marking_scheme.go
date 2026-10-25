@@ -125,6 +125,13 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 		return
 	}
 
+	// The URL names the target too; a body naming a different one must not
+	// write a scheme somewhere the route didn't say.
+	if pathID := c.Param("id"); pathID != "" && pathID != body.AssessmentID+body.AssignmentID {
+		fail(c, http.StatusBadRequest, "Target in the body does not match the URL")
+		return
+	}
+
 	// Validate target exists and user has permission
 	var assessment *domain.Assessment
 	var assignment *domain.Assignment
@@ -140,7 +147,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 				"Only school admins and headteachers can create marking schemes for "+a.Type+" assessments")
 			return
 		}
-		if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
+		if !canWriteSchemeFor(u, a.ClassID) {
 			fail(c, http.StatusForbidden, "You may only create schemes for your own class")
 			return
 		}
@@ -151,11 +158,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 			return
 		}
 		assignment = &a
-		if !u.IsSchoolStaff() {
-			fail(c, http.StatusForbidden, "Only teachers and school leaders can create assignment marking schemes")
-			return
-		}
-		if !s.viewsClass(u, a.ClassID) {
+		if !canWriteSchemeFor(u, a.ClassID) {
 			fail(c, http.StatusForbidden, "You may only create schemes for your own class")
 			return
 		}
@@ -275,23 +278,10 @@ func (s *Server) getMarkingScheme(c *gin.Context) {
 	}
 	u := currentUser(c)
 
-	// Check access
-	if !u.IsSchoolStaff() {
-		// Students/parents can only see schemes for their class
-		var classID string
-		if scheme.AssessmentID != "" {
-			if a, ok := s.store.AssessmentByID(scheme.AssessmentID); ok {
-				classID = a.ClassID
-			}
-		} else if scheme.AssignmentID != "" {
-			if a, ok := s.store.AssignmentByID(scheme.AssignmentID); ok {
-				classID = a.ClassID
-			}
-		}
-		if !s.viewsClass(u, classID) {
-			fail(c, http.StatusForbidden, "You may only view schemes for your own class")
-			return
-		}
+	// A scheme is the answer key: only the people who may write it read it.
+	if classID, _ := s.schemeTarget(scheme); !canWriteSchemeFor(u, classID) {
+		fail(c, http.StatusForbidden, "You may only view schemes for your own class")
+		return
 	}
 
 	// Load questions with nested data
@@ -314,26 +304,8 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	}
 
 	// Check permission (same as create)
-	if existing.AssessmentID != "" {
-		a, _ := s.store.AssessmentByID(existing.AssessmentID)
-		if !canCreateAssessmentType(u.Role, a.Type) {
-			fail(c, http.StatusForbidden, "Only school admins and headteachers can edit this scheme")
-			return
-		}
-		if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
-			fail(c, http.StatusForbidden, "You may only edit schemes for your own class")
-			return
-		}
-	} else if existing.AssignmentID != "" {
-		a, _ := s.store.AssignmentByID(existing.AssignmentID)
-		if !u.IsSchoolStaff() {
-			fail(c, http.StatusForbidden, "Only teachers and school leaders can edit assignment schemes")
-			return
-		}
-		if !s.viewsClass(u, a.ClassID) {
-			fail(c, http.StatusForbidden, "You may only edit schemes for your own class")
-			return
-		}
+	if !s.canWriteScheme(c, u, existing, "edit") {
+		return
 	}
 
 	var body updateMarkingSchemeRequest
@@ -502,39 +474,13 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 // listMarkingSchemes returns all marking schemes (scoped by role).
 func (s *Server) listMarkingSchemes(c *gin.Context) {
 	u := currentUser(c)
-	var schemes []domain.MarkingScheme
+	schemes := []domain.MarkingScheme{}
 
-	if u.IsSchoolStaff() {
-		schemes = s.store.MarkingSchemes()
-	} else {
-		// Students/parents only see schemes for their class
-		var classID string
-		if u.Role == domain.RoleStudent {
-			if st, ok := s.store.StudentByID(stringToStudentID(u.ID)); ok {
-				classID = st.ClassID
-			}
-		} else if u.Role == domain.RoleParent {
-			for _, sid := range u.StudentIDs {
-				if st, ok := s.store.StudentByID(sid); ok {
-					classID = st.ClassID
-					break
-				}
-			}
-		}
-		for _, ms := range s.store.MarkingSchemes() {
-			var msClassID string
-			if ms.AssessmentID != "" {
-				if a, ok := s.store.AssessmentByID(ms.AssessmentID); ok {
-					msClassID = a.ClassID
-				}
-			} else if ms.AssignmentID != "" {
-				if a, ok := s.store.AssignmentByID(ms.AssignmentID); ok {
-					msClassID = a.ClassID
-				}
-			}
-			if msClassID == classID {
-				schemes = append(schemes, ms)
-			}
+	// Same rule as getMarkingScheme, per scheme: students and parents get an
+	// empty list, a teacher only their own class's schemes.
+	for _, ms := range s.store.MarkingSchemes() {
+		if classID, _ := s.schemeTarget(ms); canWriteSchemeFor(u, classID) {
+			schemes = append(schemes, ms)
 		}
 	}
 
@@ -555,19 +501,9 @@ func (s *Server) deleteMarkingScheme(c *gin.Context) {
 		return
 	}
 
-	// Check permission
-	if existing.AssessmentID != "" {
-		a, _ := s.store.AssessmentByID(existing.AssessmentID)
-		if !canCreateAssessmentType(u.Role, a.Type) {
-			fail(c, http.StatusForbidden, "Only school admins and headteachers can delete this scheme")
-			return
-		}
-	} else if existing.AssignmentID != "" {
-		_, _ = s.store.AssignmentByID(existing.AssignmentID)
-		if !u.IsSchoolStaff() {
-			fail(c, http.StatusForbidden, "Only teachers and school leaders can delete assignment schemes")
-			return
-		}
+	// Check permission (same as create)
+	if !s.canWriteScheme(c, u, existing, "delete") {
+		return
 	}
 
 	// Prevent deletion if submissions exist
@@ -599,6 +535,52 @@ func (s *Server) deleteMarkingScheme(c *gin.Context) {
 
 // --- helpers ---
 
+// canWriteSchemeFor is the class half of the scheme rule. School leaders (and
+// the super admin) work on any class in the school; a teacher only on the class
+// they teach. Everyone else — staff, parents, students — never: a scheme is the
+// answer key, so this gates reads as well as writes. The exam-type half is
+// canCreateAssessmentType, checked separately where an assessment is the target.
+func canWriteSchemeFor(u domain.User, classID string) bool {
+	switch u.Role {
+	case domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher:
+		return true
+	case domain.RoleTeacher:
+		return classID != "" && classID == u.ClassID
+	}
+	return false
+}
+
+// schemeTarget resolves the class a scheme is for, and the assessment type when
+// it belongs to an assessment ("" for an assignment). A missing target gives
+// an empty class, which only leaders pass.
+func (s *Server) schemeTarget(ms domain.MarkingScheme) (classID, assessmentType string) {
+	if ms.AssessmentID != "" {
+		if a, ok := s.store.AssessmentByID(ms.AssessmentID); ok {
+			return a.ClassID, a.Type
+		}
+	} else if ms.AssignmentID != "" {
+		if a, ok := s.store.AssignmentByID(ms.AssignmentID); ok {
+			return a.ClassID, ""
+		}
+	}
+	return "", ""
+}
+
+// canWriteScheme applies the create rule to an existing scheme for an edit or
+// delete, writing the 403 itself when it refuses.
+func (s *Server) canWriteScheme(c *gin.Context, u domain.User, ms domain.MarkingScheme, verb string) bool {
+	classID, typ := s.schemeTarget(ms)
+	if typ != "" && !canCreateAssessmentType(u.Role, typ) {
+		fail(c, http.StatusForbidden, "Only school admins and headteachers can "+verb+" this scheme")
+		return false
+	}
+	if !canWriteSchemeFor(u, classID) {
+		fail(c, http.StatusForbidden, "You may only "+verb+" schemes for your own class")
+		return false
+	}
+	return true
+}
+
 func targetLabel(a *domain.Assessment, asg *domain.Assignment) string {
 	if a != nil {
 		return "assessment " + a.Title
@@ -617,7 +599,7 @@ func (s *Server) listMarkingSchemesForAssessment(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
 	}
-	if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
+	if !canWriteSchemeFor(u, a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view schemes for your own class")
 		return
 	}
@@ -646,7 +628,7 @@ func (s *Server) listMarkingSchemesForAssignment(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Assignment not found")
 		return
 	}
-	if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
+	if !canWriteSchemeFor(u, a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view schemes for your own class")
 		return
 	}
