@@ -1133,12 +1133,14 @@ func (p *Postgres) SaveAssessment(a domain.Assessment) error {
 // --- Submissions (doc §26) ---
 
 const submissionColumns = `id, assessment_id, student_id, class_id, date::text,
-	COALESCE(answers::text,'{}'), COALESCE(teacher_marks::text,'{}'), earned::float8`
+	COALESCE(answers::text,'{}'), COALESCE(teacher_marks::text,'{}'), earned::float8,
+	COALESCE(marking_scheme_id,''), COALESCE(marking_scheme_version,0)`
 
 func scanSubmission(row interface{ Scan(...any) error }) (domain.Submission, error) {
 	var s domain.Submission
 	var answers, marks string
-	err := row.Scan(&s.ID, &s.AssessmentID, &s.StudentID, &s.ClassID, &s.Date, &answers, &marks, &s.Earned)
+	err := row.Scan(&s.ID, &s.AssessmentID, &s.StudentID, &s.ClassID, &s.Date, &answers, &marks, &s.Earned,
+		&s.MarkingSchemeID, &s.MarkingSchemeVersion)
 	if err == nil {
 		_ = json.Unmarshal([]byte(answers), &s.Answers)
 		_ = json.Unmarshal([]byte(marks), &s.TeacherMarks)
@@ -1192,14 +1194,22 @@ func (p *Postgres) SubmissionFor(assessmentID, studentID string) (domain.Submiss
 // the row silently dropped. Coalesce so "empty" stores '{}' instead.
 func (p *Postgres) SaveSubmission(s domain.Submission) error {
 	_, err := p.db.ExecContext(contextTODO(), `
-		INSERT INTO submissions (id, assessment_id, student_id, class_id, date, answers, teacher_marks, earned, status)
-		VALUES ($1,$2,$3,$4,$5,COALESCE($6::jsonb,'{}'::jsonb),COALESCE($7::jsonb,'{}'::jsonb),$8,'auto_marked')
+		INSERT INTO submissions (id, assessment_id, student_id, class_id, date, answers, teacher_marks, earned, status,
+			marking_scheme_id, marking_scheme_version)
+		VALUES ($1,$2,$3,$4,$5,COALESCE($6::jsonb,'{}'::jsonb),COALESCE($7::jsonb,'{}'::jsonb),$8,'auto_marked',
+			NULLIF($9,''), NULLIF($10,0))
 		ON CONFLICT (assessment_id, student_id) DO UPDATE SET
 			id = EXCLUDED.id, class_id = EXCLUDED.class_id, date = EXCLUDED.date,
 			answers = EXCLUDED.answers, teacher_marks = EXCLUDED.teacher_marks,
-			earned = EXCLUDED.earned, status = EXCLUDED.status`,
+			earned = EXCLUDED.earned, status = EXCLUDED.status,
+			-- A save that names no scheme (every pre-marking path) keeps the
+			-- link it had: dropping it would hide marked work from the
+			-- versioning rule and let a scheme edit re-grade it in place.
+			marking_scheme_id = COALESCE(EXCLUDED.marking_scheme_id, submissions.marking_scheme_id),
+			marking_scheme_version = COALESCE(EXCLUDED.marking_scheme_version, submissions.marking_scheme_version)`,
 		s.ID, s.AssessmentID, s.StudentID, s.ClassID, s.Date,
-		toJSON(s.Answers), toJSON(s.TeacherMarks), s.Earned)
+		toJSON(s.Answers), toJSON(s.TeacherMarks), s.Earned,
+		s.MarkingSchemeID, s.MarkingSchemeVersion)
 	if err != nil {
 		p.errLog("SaveSubmission", err)
 		return err
@@ -2050,11 +2060,8 @@ func (p *Postgres) LatestSchemeVersion(assessmentID, assignmentID string) int {
 }
 
 func (p *Postgres) SubmissionsByScheme(schemeID string) []domain.Submission {
-	rows, err := p.db.QueryContext(contextTODO(), `
-		SELECT id, assessment_id, student_id, class_id, date,
-		       answers::text, teacher_marks::text, earned,
-		       COALESCE(marking_scheme_id,''), COALESCE(marking_scheme_version,0)
-		FROM submissions WHERE marking_scheme_id = $1`, schemeID)
+	rows, err := p.db.QueryContext(contextTODO(),
+		`SELECT `+submissionColumns+` FROM submissions WHERE marking_scheme_id = $1 ORDER BY id`, schemeID)
 	if err != nil {
 		p.errLog("SubmissionsByScheme", err)
 		return nil
@@ -2062,15 +2069,11 @@ func (p *Postgres) SubmissionsByScheme(schemeID string) []domain.Submission {
 	defer rows.Close()
 	var out []domain.Submission
 	for rows.Next() {
-		var sub domain.Submission
-		var answers, marks string
-		if err := rows.Scan(&sub.ID, &sub.AssessmentID, &sub.StudentID, &sub.ClassID, &sub.Date,
-			&answers, &marks, &sub.Earned, &sub.MarkingSchemeID, &sub.MarkingSchemeVersion); err != nil {
+		sub, err := scanSubmission(rows)
+		if err != nil {
 			p.errLog("SubmissionsByScheme scan", err)
 			continue
 		}
-		_ = json.Unmarshal([]byte(answers), &sub.Answers)
-		_ = json.Unmarshal([]byte(marks), &sub.TeacherMarks)
 		out = append(out, sub)
 	}
 	return out
@@ -2103,10 +2106,16 @@ func (p *Postgres) SchemeQuestions(schemeID string) []domain.SchemeQuestion {
 		if mb != "" {
 			_ = json.Unmarshal([]byte(mb), &sq.MarkBreakdown)
 		}
-		// Load accepted answers and misconceptions for this question
-		sq.AcceptedAnswers = p.AcceptedAnswers(sq.ID)
-		sq.Misconceptions = p.Misconceptions(sq.ID)
 		out = append(out, sq)
+	}
+	// Release this connection before the child queries take their own:
+	// querying inside the loop held one connection per question load while
+	// asking for a second, so enough concurrent loads exhausted the pool and
+	// waited on each other forever.
+	_ = rows.Close()
+	for i := range out {
+		out[i].AcceptedAnswers = p.AcceptedAnswers(out[i].ID)
+		out[i].Misconceptions = p.Misconceptions(out[i].ID)
 	}
 	return out
 }

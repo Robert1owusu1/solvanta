@@ -17,6 +17,12 @@ import (
 // defaultBodyLimit caps JSON request bodies at 1 MiB.
 const defaultBodyLimit = 1 << 20
 
+// maxOCRBody caps the AI generate call, which carries one photo as base64 in
+// JSON: a full-size scan photo plus the third base64 adds, with room for the
+// other fields. The app's OCR captures land around 1.75–3.3 MB encoded, which
+// the default cap would refuse outright.
+const maxOCRBody = maxScanImage*4/3 + 64<<10
+
 // Config holds server security settings (env-driven).
 type Config struct {
 	// Secret signs bearer tokens. When empty (dev) a random per-process key is
@@ -170,6 +176,10 @@ func limitRequestBody() gin.HandlerFunc {
 		limit := int64(defaultBodyLimit)
 		if c.Request.Method == http.MethodPut && strings.HasSuffix(c.Request.URL.Path, "/image") {
 			limit = maxScanImage
+		}
+		if c.Request.Method == http.MethodPost && strings.HasPrefix(c.Request.URL.Path, "/api/questions/ai/requests/") &&
+			strings.HasSuffix(c.Request.URL.Path, "/generate") {
+			limit = maxOCRBody
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"net/http"
 	"sort"
 
@@ -164,36 +165,9 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 		}
 	}
 
-	// Validate questions: question numbers must be sequential starting at 1
-	for i, q := range body.Questions {
-		if q.QuestionNumber != i+1 {
-			fail(c, http.StatusBadRequest, "Question numbers must be sequential starting at 1")
-			return
-		}
-		if q.TotalMarks <= 0 {
-			fail(c, http.StatusBadRequest, "Total marks must be positive")
-			return
-		}
-		// Validate mark breakdown sum equals total_marks
-		var breakdownSum float64
-		for _, step := range q.MarkBreakdown {
-			breakdownSum += step.Marks
-		}
-		if abs(breakdownSum-q.TotalMarks) > 0.01 {
-			fail(c, http.StatusBadRequest, "Mark breakdown sum must equal total_marks")
-			return
-		}
-		// Ensure exactly one primary accepted answer per question
-		primaryCount := 0
-		for _, aa := range q.AcceptedAnswers {
-			if aa.IsPrimary {
-				primaryCount++
-			}
-		}
-		if primaryCount != 1 {
-			fail(c, http.StatusBadRequest, "Exactly one accepted answer must be marked primary per question")
-			return
-		}
+	if msg := validateSchemeQuestions(body.Questions); msg != "" {
+		fail(c, http.StatusBadRequest, msg)
+		return
 	}
 
 	// Get next version number
@@ -246,21 +220,12 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 		return
 	}
 
-	// Save questions
-	for _, q := range scheme.Questions {
-		if writeFailed(c, s.store.SaveSchemeQuestion(q)) {
-			return
-		}
-		for _, aa := range q.AcceptedAnswers {
-			if writeFailed(c, s.store.SaveAcceptedAnswer(aa)) {
-				return
-			}
-		}
-		for _, msc := range q.Misconceptions {
-			if writeFailed(c, s.store.SaveMisconception(msc)) {
-				return
-			}
-		}
+	// Save questions. A failure removes the scheme row too, so a half-written
+	// scheme can never become the latest version and be marked against.
+	if err := s.saveSchemeRows(scheme.Questions); err != nil {
+		_ = s.store.DeleteMarkingScheme(scheme.ID)
+		writeFailed(c, err)
+		return
 	}
 
 	s.audit(c, "marking_scheme.create", scheme.ID,
@@ -319,33 +284,9 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	}
 
 	// Validate questions (same as create)
-	for i, q := range body.Questions {
-		if q.QuestionNumber != i+1 {
-			fail(c, http.StatusBadRequest, "Question numbers must be sequential starting at 1")
-			return
-		}
-		if q.TotalMarks <= 0 {
-			fail(c, http.StatusBadRequest, "Total marks must be positive")
-			return
-		}
-		var breakdownSum float64
-		for _, step := range q.MarkBreakdown {
-			breakdownSum += step.Marks
-		}
-		if abs(breakdownSum-q.TotalMarks) > 0.01 {
-			fail(c, http.StatusBadRequest, "Mark breakdown sum must equal total_marks")
-			return
-		}
-		primaryCount := 0
-		for _, aa := range q.AcceptedAnswers {
-			if aa.IsPrimary {
-				primaryCount++
-			}
-		}
-		if primaryCount != 1 {
-			fail(c, http.StatusBadRequest, "Exactly one accepted answer must be marked primary per question")
-			return
-		}
+	if msg := validateSchemeQuestions(body.Questions); msg != "" {
+		fail(c, http.StatusBadRequest, msg)
+		return
 	}
 
 	// Decide what kind of edit this is. Three distinct outcomes:
@@ -438,34 +379,23 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 		return
 	}
 
-	// Save questions (delete old if in-place update, or insert new for new version)
-	if schemeToSave.ID == existing.ID {
-		// In-place update: replace all questions
-		for _, q := range existingQuestions {
-			s.store.DeleteSchemeQuestion(q.ID)
-			for _, aa := range q.AcceptedAnswers {
-				s.store.DeleteAcceptedAnswer(aa.ID)
-			}
-			for _, msc := range q.Misconceptions {
-				s.store.DeleteMisconception(msc.ID)
-			}
-		}
+	// In-place update: the old rows must go first, because (scheme_id,
+	// question_number) is unique and the replacements reuse the numbers.
+	inPlace := schemeToSave.ID == existing.ID
+	if inPlace {
+		s.deleteSchemeRows(existingQuestions)
 	}
-
-	for _, q := range schemeToSave.Questions {
-		if writeFailed(c, s.store.SaveSchemeQuestion(q)) {
-			return
+	if err := s.saveSchemeRows(schemeToSave.Questions); err != nil {
+		// saveSchemeRows has removed its partial writes; put the previous
+		// questions back so a failed edit leaves the scheme as it was rather
+		// than empty, or drop the new version that never got its rows.
+		if inPlace {
+			_ = s.saveSchemeRows(existingQuestions)
+		} else {
+			_ = s.store.DeleteMarkingScheme(schemeToSave.ID)
 		}
-		for _, aa := range q.AcceptedAnswers {
-			if writeFailed(c, s.store.SaveAcceptedAnswer(aa)) {
-				return
-			}
-		}
-		for _, msc := range q.Misconceptions {
-			if writeFailed(c, s.store.SaveMisconception(msc)) {
-				return
-			}
-		}
+		writeFailed(c, err)
+		return
 	}
 
 	sendJSON(c, schemeToSave)
@@ -646,9 +576,106 @@ func (s *Server) listMarkingSchemesForAssignment(c *gin.Context) {
 	sendJSON(c, schemes)
 }
 
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
+// maxSchemeMarks is the largest value NUMERIC(6,2) holds.
+const maxSchemeMarks = 9999.99
+
+// cents converts a mark to whole hundredths, reporting false when it has more
+// than two decimal places. The columns are NUMERIC(6,2) and the database checks
+// the breakdown sum exactly, so a mark the column would round (3.333) has to be
+// refused here as a 400 rather than surfacing as a failed write.
+func cents(x float64) (int64, bool) {
+	c := math.Round(x * 100)
+	return int64(c), math.Abs(x*100-c) < 1e-6
+}
+
+// validateSchemeQuestions returns why a question list cannot be saved, or ""
+// when it can. Shared by create and update so the two can never drift.
+func validateSchemeQuestions(qs []domain.SchemeQuestion) string {
+	inRange := func(x, max float64) bool {
+		_, ok := cents(x)
+		return ok && x >= 0 && x <= max
 	}
-	return x
+	for i, q := range qs {
+		if q.QuestionNumber != i+1 {
+			return "Question numbers must be sequential starting at 1"
+		}
+		total, ok := cents(q.TotalMarks)
+		if !ok || q.TotalMarks <= 0 || q.TotalMarks > maxSchemeMarks {
+			return "Total marks must be positive, with at most two decimal places"
+		}
+		var sum int64
+		for _, step := range q.MarkBreakdown {
+			if !inRange(step.Marks, q.TotalMarks) {
+				return "Each breakdown step must be between 0 and the question's total, with at most two decimal places"
+			}
+			c, _ := cents(step.Marks)
+			sum += c
+		}
+		if sum != total {
+			return "Mark breakdown sum must equal total_marks"
+		}
+		primaryCount := 0
+		for _, aa := range q.AcceptedAnswers {
+			if aa.IsPrimary {
+				primaryCount++
+			}
+			if !inRange(aa.MarksAwarded, q.TotalMarks) {
+				return "An accepted answer's marks must be between 0 and the question's total"
+			}
+		}
+		if primaryCount != 1 {
+			return "Exactly one accepted answer must be marked primary per question"
+		}
+		for _, msc := range q.Misconceptions {
+			if !inRange(msc.MarksAwarded, q.TotalMarks) {
+				return "A misconception's marks must be between 0 and the question's total"
+			}
+		}
+	}
+	return ""
+}
+
+// saveSchemeRows writes every question with its answers and misconceptions.
+// When a write fails it removes what this call already wrote, so the store is
+// never left holding part of a scheme, and returns the error.
+func (s *Server) saveSchemeRows(qs []domain.SchemeQuestion) error {
+	for i, q := range qs {
+		if err := s.saveSchemeQuestion(q); err != nil {
+			s.deleteSchemeRows(qs[:i+1])
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) saveSchemeQuestion(q domain.SchemeQuestion) error {
+	if err := s.store.SaveSchemeQuestion(q); err != nil {
+		return err
+	}
+	for _, aa := range q.AcceptedAnswers {
+		if err := s.store.SaveAcceptedAnswer(aa); err != nil {
+			return err
+		}
+	}
+	for _, msc := range q.Misconceptions {
+		if err := s.store.SaveMisconception(msc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteSchemeRows removes questions with their answers and misconceptions.
+// Best effort: it runs on paths that are already reporting a failure, or after
+// the replacement rows are safely in.
+func (s *Server) deleteSchemeRows(qs []domain.SchemeQuestion) {
+	for _, q := range qs {
+		for _, aa := range q.AcceptedAnswers {
+			_ = s.store.DeleteAcceptedAnswer(aa.ID)
+		}
+		for _, msc := range q.Misconceptions {
+			_ = s.store.DeleteMisconception(msc.ID)
+		}
+		_ = s.store.DeleteSchemeQuestion(q.ID)
+	}
 }

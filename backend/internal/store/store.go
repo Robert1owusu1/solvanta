@@ -552,6 +552,15 @@ func (m *Memory) SubmissionFor(assessmentID, studentID string) (domain.Submissio
 func (m *Memory) SaveSubmission(s domain.Submission) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Same rule as Postgres: a save naming no scheme keeps the link it had,
+	// so resubmitting cannot hide marked work from scheme versioning.
+	if s.MarkingSchemeID == "" {
+		for _, prev := range m.submissions {
+			if prev.AssessmentID == s.AssessmentID && prev.StudentID == s.StudentID {
+				s.MarkingSchemeID, s.MarkingSchemeVersion = prev.MarkingSchemeID, prev.MarkingSchemeVersion
+			}
+		}
+	}
 	m.submissions = removeMatch(m.submissions, s.AssessmentID, s.StudentID)
 	m.submissions = append(m.submissions, s)
 

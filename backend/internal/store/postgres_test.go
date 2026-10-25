@@ -438,3 +438,68 @@ func TestPostgresRecordsReadsAndReceipts(t *testing.T) {
 		t.Errorf("%d storage errors, last: %v", n, last)
 	}
 }
+
+// TestPostgresMarkingSchemeRoundTrip covers the marking-scheme tables, which
+// had no PostgreSQL coverage: a scheme with its question, answer and
+// misconception reloads intact, versions count up, the breakdown check holds,
+// and deleting the scheme takes its rows with it.
+func TestPostgresMarkingSchemeRoundTrip(t *testing.T) {
+	pg := postgresTest(t)
+	Seed(pg)
+
+	const at = "2026-10-25 10:00"
+	ms := domain.MarkingScheme{ID: "MS-PG", AssessmentID: "ASSMT-MAT-HALF", Version: 1,
+		CreatedBy: "USR-HRT-001", CreatedAt: at}
+	if err := pg.SaveMarkingScheme(ms); err != nil {
+		t.Fatal(err)
+	}
+	sq := domain.SchemeQuestion{ID: "SQ-PG", SchemeID: "MS-PG", QuestionNumber: 1, TotalMarks: 10,
+		CreatedAt: at, MarkBreakdown: []domain.MarkBreakdownStep{
+			{ID: "step-1", Type: "method", Marks: 3.33},
+			{ID: "step-2", Type: "method", Marks: 3.33},
+			{ID: "step-3", Type: "final_answer", Marks: 3.34}}}
+	if err := pg.SaveSchemeQuestion(sq); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.SaveAcceptedAnswer(domain.AcceptedAnswer{ID: 910001, SchemeQuestionID: "SQ-PG",
+		AnswerText: "1/2", NormalizedForm: "12", MarksAwarded: 10, IsPrimary: true, CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pg.SaveMisconception(domain.Misconception{ID: 910002, SchemeQuestionID: "SQ-PG",
+		WrongAnswerPattern: "34", LikelyCause: "Inverted the fraction", MarksAwarded: 1, CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := pg.MarkingSchemeByID("MS-PG"); !ok {
+		t.Fatal("scheme did not reload")
+	}
+	qs := pg.SchemeQuestions("MS-PG")
+	if len(qs) != 1 || len(qs[0].MarkBreakdown) != 3 || len(qs[0].AcceptedAnswers) != 1 ||
+		len(qs[0].Misconceptions) != 1 || qs[0].TotalMarks != 10 {
+		t.Fatalf("question reload: %+v", qs)
+	}
+	if v := pg.LatestSchemeVersion("ASSMT-MAT-HALF", ""); v != 1 {
+		t.Errorf("latest version = %d, want 1", v)
+	}
+
+	// The database refuses a breakdown that does not add up to the total —
+	// the handler validates first so a client never sees this as a 500.
+	before, _, _ := pg.StoreErrors()
+	bad := sq
+	bad.ID, bad.QuestionNumber = "SQ-PG-BAD", 2
+	bad.MarkBreakdown = []domain.MarkBreakdownStep{{ID: "step-1", Marks: 3.333}}
+	if err := pg.SaveSchemeQuestion(bad); err == nil {
+		t.Error("a breakdown that does not sum to the total was stored")
+	}
+	// That refusal is expected; keep it off the suite's storage-error latch.
+	pg.errMu.Lock()
+	pg.errCount = before
+	pg.errMu.Unlock()
+
+	if err := pg.DeleteMarkingScheme("MS-PG"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pg.SchemeQuestions("MS-PG")) != 0 || len(pg.AcceptedAnswers("SQ-PG")) != 0 {
+		t.Error("deleting a scheme left its rows behind")
+	}
+}

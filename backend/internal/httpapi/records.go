@@ -167,6 +167,13 @@ func (s *Server) saveRecord(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
+	// '#' is the page separator in submissionPageKey. A record whose own id
+	// contained one ("ASUB-1#2") would share a photo key with page 2 of
+	// another submission, letting its /image route read or replace that page.
+	if strings.Contains(id, "#") {
+		fail(c, http.StatusBadRequest, "id may not contain '#'")
+		return
+	}
 	if f.ID != "" && f.ID != id {
 		fail(c, http.StatusBadRequest, "id in the body does not match the URL")
 		return
