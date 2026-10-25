@@ -107,6 +107,17 @@ type Store interface {
 	SaveMisconception(m domain.Misconception) error
 	DeleteMisconception(id int64) error
 
+	// Marking drafts (Phase 5): the matching engine's proposals, kept apart
+	// from real marks. SaveMarkingDraft writes the draft and replaces its
+	// answers as one unit.
+	SaveMarkingDraft(d domain.MarkingDraft) error
+	MarkingDraftByID(id string) (domain.MarkingDraft, bool)
+	MarkingDraftsForSubmission(submissionID string) []domain.MarkingDraft
+	// MarkingDraftsByScheme returns draft headers only (Answers nil): it is
+	// asked whether a scheme has been marked against, not for the marks.
+	MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft
+	SetMarkingDraftStatus(id, status string) error
+
 	// Scan Pages
 	ScanPages(submissionID string) []domain.ScanPage
 	ScanPageByID(id string) (domain.ScanPage, bool)
@@ -174,34 +185,35 @@ type Store interface {
 type Memory struct {
 	mu sync.RWMutex
 
-	school        domain.School
-	term          domain.SchoolTerm
-	users         []domain.User
-	classes       []domain.ClassRoom
-	students      []domain.Student
-	attendance    []domain.AttendanceRecord
-	gate          []domain.GateEvent
-	questions     []domain.Question
-	aiRequests    []domain.GenRequest
-	assessments   []domain.Assessment
-	submissions       []domain.Submission
-	interventions     []domain.Intervention
-	messages          []domain.Message
-	announcements     []domain.Announcement
-	notifications     []domain.Notification
-	assignments       []domain.Assignment
-	invoices          []domain.Invoice
-	payments          []domain.Payment
-	audit             []domain.AuditEntry
-	refreshTokens     map[string]refreshRecord
-	notifReads        map[string]map[string]bool // userID → notification ids
-	records           map[string][]domain.Record // kind → records
-	scanImages        map[string]scanImage
-	markingSchemes    []domain.MarkingScheme
-	schemeQuestions   []domain.SchemeQuestion
-	acceptedAnswers   []domain.AcceptedAnswer
-	misconceptions    []domain.Misconception
-	scanPages         []domain.ScanPage
+	school          domain.School
+	term            domain.SchoolTerm
+	users           []domain.User
+	classes         []domain.ClassRoom
+	students        []domain.Student
+	attendance      []domain.AttendanceRecord
+	gate            []domain.GateEvent
+	questions       []domain.Question
+	aiRequests      []domain.GenRequest
+	assessments     []domain.Assessment
+	submissions     []domain.Submission
+	interventions   []domain.Intervention
+	messages        []domain.Message
+	announcements   []domain.Announcement
+	notifications   []domain.Notification
+	assignments     []domain.Assignment
+	invoices        []domain.Invoice
+	payments        []domain.Payment
+	audit           []domain.AuditEntry
+	refreshTokens   map[string]refreshRecord
+	notifReads      map[string]map[string]bool // userID → notification ids
+	records         map[string][]domain.Record // kind → records
+	scanImages      map[string]scanImage
+	markingSchemes  []domain.MarkingScheme
+	schemeQuestions []domain.SchemeQuestion
+	acceptedAnswers []domain.AcceptedAnswer
+	misconceptions  []domain.Misconception
+	scanPages       []domain.ScanPage
+	markingDrafts   []domain.MarkingDraft
 }
 
 type scanImage struct {
@@ -1253,6 +1265,87 @@ func (m *Memory) DeleteScanPage(id string) error {
 		}
 	}
 	m.scanPages = out
+	return nil
+}
+
+// --- Marking drafts (Phase 5) ---
+
+// copyDraft returns a draft that shares no slices with the stored one, so a
+// caller editing its copy cannot change the store behind its back.
+func copyDraft(d domain.MarkingDraft) domain.MarkingDraft {
+	d.OcrJobIDs = append([]string{}, d.OcrJobIDs...)
+	d.Unassigned = append([]string{}, d.Unassigned...)
+	answers := make([]domain.MarkingDraftAnswer, len(d.Answers))
+	for i, a := range d.Answers {
+		a.Working = append([]string{}, a.Working...)
+		a.Reasons = append([]string{}, a.Reasons...)
+		a.Steps = append([]domain.DraftStep{}, a.Steps...)
+		answers[i] = a
+	}
+	d.Answers = answers
+	return d
+}
+
+func (m *Memory) SaveMarkingDraft(d domain.MarkingDraft) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d = copyDraft(d)
+	for i := range m.markingDrafts {
+		if m.markingDrafts[i].ID == d.ID {
+			m.markingDrafts[i] = d
+			return nil
+		}
+	}
+	m.markingDrafts = append(m.markingDrafts, d)
+	return nil
+}
+
+func (m *Memory) MarkingDraftByID(id string) (domain.MarkingDraft, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, d := range m.markingDrafts {
+		if d.ID == id {
+			return copyDraft(d), true
+		}
+	}
+	return domain.MarkingDraft{}, false
+}
+
+func (m *Memory) MarkingDraftsForSubmission(submissionID string) []domain.MarkingDraft {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.MarkingDraft
+	for _, d := range m.markingDrafts {
+		if d.SubmissionID == submissionID {
+			out = append(out, copyDraft(d))
+		}
+	}
+	return out
+}
+
+func (m *Memory) MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.MarkingDraft
+	for _, d := range m.markingDrafts {
+		if d.SchemeID == schemeID {
+			d = copyDraft(d)
+			d.Answers = nil
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SetMarkingDraftStatus(id, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.markingDrafts {
+		if m.markingDrafts[i].ID == id {
+			m.markingDrafts[i].Status = status
+			return nil
+		}
+	}
 	return nil
 }
 

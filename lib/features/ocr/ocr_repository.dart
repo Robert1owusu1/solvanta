@@ -105,32 +105,13 @@ class OcrRepository {
         await _fail(current, 'The server returned no reading for this page.');
         return;
       }
-
-      final read = current.copyWith(
-        status: OcrJobStatus.read,
-        text: (ocr['text'] ?? '') as String,
-        math: (ocr['math'] ?? '') as String,
-        provider: (ocr['provider'] ?? '') as String,
-        costTier: (ocr['costTier'] ?? '') as String,
-        lines: (ocr['lines'] ?? 0) as int,
-        confidence: ((ocr['confidence'] ?? 0) as num).toDouble(),
-        warnings: ((ocr['warnings'] ?? const []) as List)
-            .map((e) => e as String)
-            .toList(),
-        clearError: true,
-      );
-      // Stored before it is mirrored, so a connection lost while sending
-      // cannot cost this device the reading it just received.
-      await save(read);
-      await _mirror(read);
+      await _keepReading(current, ocr);
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
         // The earlier attempt DID reach the server, but its response never
-        // arrived here — and the server keeps no copy of what it read (see
-        // the Phase 4 report). There is nothing to recover, so say so rather
-        // than presenting an empty reading as a real one.
-        await _fail(current,
-            'This page was already read on the server but the result did not reach this device. Submit it again for a fresh reading.');
+        // arrived here. The server keeps the reading, so fetch it rather than
+        // reading (and paying for) the page twice.
+        await _recover(current);
         return;
       }
       if (_isRetryable(e)) {
@@ -142,6 +123,55 @@ class OcrRepository {
       await _park(current, null);
     }
   }
+
+  /// Keeps a reading the server returned. Stored before it is mirrored, so a
+  /// connection lost while sending cannot cost this device the reading.
+  Future<void> _keepReading(OcrJob job, Map<String, dynamic> ocr) async {
+    final read = job.copyWith(
+      status: OcrJobStatus.read,
+      text: (ocr['text'] ?? '') as String,
+      math: (ocr['math'] ?? '') as String,
+      provider: (ocr['provider'] ?? '') as String,
+      costTier: (ocr['costTier'] ?? '') as String,
+      lines: (ocr['lines'] ?? 0) as int,
+      confidence: ((ocr['confidence'] ?? 0) as num).toDouble(),
+      warnings: ((ocr['warnings'] ?? const []) as List)
+          .map((e) => e as String)
+          .toList(),
+      clearError: true,
+    );
+    await save(read);
+    await _mirror(read);
+  }
+
+  /// Fetches the reading the server saved for an earlier generate whose
+  /// response was lost. A request from before readings were saved has none;
+  /// that is said plainly rather than shown as an empty reading.
+  Future<void> _recover(OcrJob job) async {
+    try {
+      final res = await ApiClient().request(
+        'GET',
+        '/api/questions/ai/requests/${job.requestId}/ocr',
+        offlineQueue: false,
+      );
+      if (res is Map<String, dynamic>) {
+        await _keepReading(job, res);
+        return;
+      }
+      await _fail(job, _lostReading);
+    } on ApiException catch (e) {
+      if (_isRetryable(e)) {
+        await _park(job, e);
+      } else {
+        await _fail(job, _lostReading);
+      }
+    } catch (_) {
+      await _park(job, null);
+    }
+  }
+
+  static const _lostReading =
+      'This page was already read on the server but the result did not reach this device. Submit it again for a fresh reading.';
 
   /// Records a teacher's confirmation of a reading.
   ///
@@ -250,6 +280,30 @@ class OcrRepository {
   /// A 401 means the session ended, not that the page is wrong; 5xx and
   /// network failures are transient. Other 4xx cannot be fixed by trying
   /// again with the same body.
+  /// Makes sure the server holds these confirmed readings before a draft is
+  /// asked for: the server marks only readings it can see were confirmed,
+  /// and [_mirror] is best effort. False when any could not be sent or is
+  /// not confirmed on this device.
+  Future<bool> sendConfirmed(List<String> ids) async {
+    if (!ServerSync.instance.enabled) return false;
+    final jobs = {for (final j in await _store.loadOcrJobs()) j.id: j};
+    for (final id in ids) {
+      final job = jobs[id];
+      if (job == null || job.status != OcrJobStatus.confirmed) return false;
+      try {
+        await ApiClient().request(
+          'PUT',
+          '$_recordsPath/${job.id}',
+          body: job.copyWith(clearImage: true).toJson(),
+          offlineQueue: false,
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   static bool _isRetryable(ApiException e) =>
       e.isNetwork || e.statusCode == 401 || e.statusCode >= 500;
 }

@@ -398,6 +398,10 @@ type GenRequest struct {
 	PublishedAt   string     `json:"publishedAt,omitempty"`
 	Status        string     `json:"status"`
 	Drafts        []Question `json:"drafts"`
+	// OCRResult is what the recogniser read for this request, kept so a
+	// reading whose response was lost can be fetched again. Raw JSON so the
+	// domain does not depend on the ocr package; never marked confirmed.
+	OCRResult json.RawMessage `json:"ocrResult,omitempty"`
 }
 
 // ScanJob is the paper-scan → background-job record (doc §20, §54).

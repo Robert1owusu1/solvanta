@@ -381,12 +381,33 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
 `GET/POST /api/questions` · `PATCH/DELETE /api/questions/:id`
 `GET /api/questions/ai/requests` · `POST /api/questions/ai/requests`
 `POST /api/questions/ai/requests/:id/generate|publish|reject`
-(`generate` takes an optional body: `{"imageBase64":"…","contentType":"image/png","ocrProvider":"mathpix"}`)
+(`generate` takes an optional body: `{"imageBase64":"…","contentType":"image/png","ocrProvider":"mathpix"}`;
+only the teacher who made the request may run it, and only once)
+`GET /api/questions/ai/requests/:id/ocr` — the reading `generate` saved, for
+its requester only, so a reading whose response was lost can be recovered
 
 ### Assessments & marking (doc §16, §18, §26, §54)
 `GET/POST /api/assessments` · `GET /api/assessments/:id`
 `POST /api/assessments/:id/blueprint` · `POST /api/assessments/:id/submit`
 `POST /api/assessments/:id/verdicts` · `GET /api/assessments/:id/results`
+
+Marking schemes: `POST/GET /api/assessments/:id/marking-scheme` ·
+`POST/GET /api/assignments/:id/marking-scheme` · `GET /api/marking-schemes` ·
+`GET/PUT/DELETE /api/marking-schemes/:id`. A scheme is the answer key: only
+school leaders (any class) and a class's teacher can read or write it, and
+exam types are leaders-only. Editing the marks of a scheme that papers have
+been submitted or drafted against creates a new version.
+
+Draft marks (Phase 5, `internal/matching`): `POST /api/marking-drafts` with
+`{"schemeId","submissionId","studentId"}` plus either `"ocrJobIds"` (the
+caller's own OCR readings, which must be teacher-confirmed) or `"answers"`
+(`[{"questionNumber":1,"text":"1/2","working":[]}]`, typed by the teacher) ·
+`GET /api/marking-drafts?submissionId=` · `GET /api/marking-drafts/:id`.
+Teachers for their own class, leaders for any; students, parents and staff
+get 403. A draft is never a mark (`"final": false`); the recorded marks
+change only when a teacher finalizes one (Phase 6). Matching runs exact →
+normalized → same number → flagged (other form, unit, rounding) →
+misconception → not in the scheme, and every question carries its reasons.
 
 ### Analytics & interventions (doc §27–32)
 `GET /api/analytics/students/:studentId/results|weak-topics`

@@ -8,6 +8,31 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- AI marking, Phases 1–5: structured marking schemes with versioning,
+  multi-page assignment capture with blur and lighting checks, an OCR pipeline
+  (Mathpix / Cloud Vision / mock) with teacher confirmation, and a matching
+  engine that drafts marks with a reason for each and flags anything
+  uncertain. Drafts are stored apart from real marks (migration
+  `006_marking_drafts.sql`) and are never final.
+- OCR readings are kept on the server for the teacher who asked for them,
+  so a reading lost on a bad connection is fetched again rather than re-read.
+- `docs/DEPLOYMENT.md`, `deploy/production.env.example`, `scripts/check.sh`
+  and `scripts/build-web.sh` for deploying the web version first.
+- `TRUSTED_PROXIES` for running the API behind a host's proxy.
+
+### Fixed
+
+- Students and parents could read marking schemes (the answer key).
+- On PostgreSQL a submission lost its marking-scheme link, so editing a
+  scheme after marking rewrote it in place instead of versioning it.
+- A pupil resubmitting a paper wiped the teacher's marks.
+- Teachers could capture and mark work for classes other than their own.
+- A classroom sharing one IP was locked out after ten sign-ins a minute,
+  even correct ones.
+- The OCR endpoint refused real-sized photos (over 1 MB).
+- The scheme editor saved misconception patterns with their symbols
+  stripped ("4/10" as "410"); new and re-saved schemes keep them as typed.
+
 - The timetable, resources, safety-training completions, corrections, study
   targets and scan pages now reach the server (`/api/records/:kind`, migration
   `004_client_records.sql`) and follow each user to their other devices. Scan

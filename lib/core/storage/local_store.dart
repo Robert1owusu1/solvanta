@@ -13,6 +13,7 @@ import '../models/class_room.dart';
 import '../models/correction.dart';
 import '../models/gate_event.dart';
 import '../models/intervention.dart';
+import '../models/marking_draft.dart';
 import '../models/message.dart';
 import '../models/ocr_job.dart';
 import '../models/question.dart';
@@ -51,6 +52,8 @@ class LocalStore {
   static const _termKey = 'solvanta.term_v1';
   static const _qgenKey = 'solvanta.qgen_v1';
   static const _ocrJobsKey = 'solvanta.ocr_jobs_v1';
+  static const _markingDraftsKey = 'solvanta.marking_drafts_v1';
+  static const _draftRequestsKey = 'solvanta.marking_draft_requests_v1';
 
   Future<List<User>> loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -514,6 +517,43 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _ocrJobsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  /// Draft marks received from the server (Phase 5). Drafts, not marks: the
+  /// recorded marks stay in the submissions.
+  Future<List<MarkingDraft>> loadMarkingDrafts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_markingDraftsKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => MarkingDraft.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveMarkingDrafts(List<MarkingDraft> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _markingDraftsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  /// Draft requests waiting for the server.
+  Future<List<MarkingDraftRequest>> loadDraftRequests() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_draftRequestsKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => MarkingDraftRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveDraftRequests(List<MarkingDraftRequest> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _draftRequestsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
   }

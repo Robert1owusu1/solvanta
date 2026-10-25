@@ -923,7 +923,8 @@ func (p *Postgres) AIRequests() []domain.GenRequest {
 	rows, err := p.db.QueryContext(contextTODO(), `
 		SELECT r.id, r.requester_id, COALESCE(u.name,''), r.subject_id, r.topic, r.type, r.count,
 		       COALESCE(r.priority,''), COALESCE(r.class_id,''), COALESCE(r.created_at,''),
-		       COALESCE(r.published_at,''), r.status, COALESCE(r.drafts::text,'[]')
+		       COALESCE(r.published_at,''), r.status, COALESCE(r.drafts::text,'[]'),
+		       COALESCE(r.ocr_result::text,'')
 		FROM question_gen_requests r LEFT JOIN users u ON u.id = r.requester_id
 		ORDER BY r.id`)
 	if err != nil {
@@ -945,10 +946,13 @@ func (p *Postgres) AIRequests() []domain.GenRequest {
 
 func scanGenRequest(row interface{ Scan(...any) error }) (domain.GenRequest, error) {
 	var g domain.GenRequest
-	var drafts string
+	var drafts, ocrResult string
 	err := row.Scan(&g.ID, &g.RequesterID, &g.RequesterName, &g.SubjectID, &g.Topic, &g.Type,
-		&g.Count, &g.Priority, &g.ClassID, &g.CreatedAt, &g.PublishedAt, &g.Status, &drafts)
+		&g.Count, &g.Priority, &g.ClassID, &g.CreatedAt, &g.PublishedAt, &g.Status, &drafts, &ocrResult)
 	if err == nil {
+		if ocrResult != "" {
+			g.OCRResult = json.RawMessage(ocrResult)
+		}
 		_ = json.Unmarshal([]byte(drafts), &g.Drafts)
 		if g.Drafts == nil {
 			g.Drafts = []domain.Question{}
@@ -961,7 +965,8 @@ func (p *Postgres) AIRequestByID(id string) (domain.GenRequest, bool) {
 	row := p.db.QueryRowContext(contextTODO(), `
 		SELECT r.id, r.requester_id, COALESCE(u.name,''), r.subject_id, r.topic, r.type, r.count,
 		       COALESCE(r.priority,''), COALESCE(r.class_id,''), COALESCE(r.created_at,''),
-		       COALESCE(r.published_at,''), r.status, COALESCE(r.drafts::text,'[]')
+		       COALESCE(r.published_at,''), r.status, COALESCE(r.drafts::text,'[]'),
+		       COALESCE(r.ocr_result::text,'')
 		FROM question_gen_requests r LEFT JOIN users u ON u.id = r.requester_id
 		WHERE r.id = $1`, id)
 	g, err := scanGenRequest(row)
@@ -977,17 +982,18 @@ func (p *Postgres) AIRequestByID(id string) (domain.GenRequest, bool) {
 func (p *Postgres) SaveAIRequest(r domain.GenRequest) error {
 	_, err := p.db.ExecContext(contextTODO(), `
 		INSERT INTO question_gen_requests (id, requester_id, subject_id, topic, type, count,
-			priority, class_id, created_at, published_at, status, drafts)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+			priority, class_id, created_at, published_at, status, drafts, ocr_result)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb)
 		ON CONFLICT (id) DO UPDATE SET
 			requester_id = EXCLUDED.requester_id, subject_id = EXCLUDED.subject_id,
 			topic = EXCLUDED.topic, type = EXCLUDED.type, count = EXCLUDED.count,
 			priority = EXCLUDED.priority, class_id = EXCLUDED.class_id,
 			created_at = EXCLUDED.created_at, published_at = EXCLUDED.published_at,
-			status = EXCLUDED.status, drafts = EXCLUDED.drafts`,
+			status = EXCLUDED.status, drafts = EXCLUDED.drafts,
+			ocr_result = COALESCE(EXCLUDED.ocr_result, question_gen_requests.ocr_result)`,
 		r.ID, r.RequesterID, r.SubjectID, r.Topic, r.Type, r.Count,
 		nullStr(r.Priority), nullStr(r.ClassID), nullStr(r.CreatedAt), nullStr(r.PublishedAt),
-		r.Status, toJSON(r.Drafts))
+		r.Status, toJSON(r.Drafts), nullStr(string(r.OCRResult)))
 	if err != nil {
 		p.errLog("SaveAIRequest", err)
 		return err
@@ -2365,6 +2371,194 @@ func (p *Postgres) DeleteScanPage(id string) error {
 	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM scan_pages WHERE id = $1`, id)
 	if err != nil {
 		p.errLog("DeleteScanPage", err)
+		return err
+	}
+	return nil
+}
+
+// =============================================================================
+// Marking drafts (Phase 5)
+// =============================================================================
+
+const draftColumns = `id, scheme_id, scheme_version, target_kind, submission_id, student_id,
+	class_id, source_text, ocr_job_ids::text, unassigned::text, status,
+	draft_total::float8, max_total::float8, needs_review, created_by,
+	to_char(created_at, 'YYYY-MM-DD HH24:MI'), COALESCE(finalized_by,''),
+	COALESCE(to_char(finalized_at, 'YYYY-MM-DD HH24:MI'),'')`
+
+func scanDraft(row interface{ Scan(...any) error }) (domain.MarkingDraft, error) {
+	var d domain.MarkingDraft
+	var jobs, unassigned string
+	err := row.Scan(&d.ID, &d.SchemeID, &d.SchemeVersion, &d.TargetKind, &d.SubmissionID,
+		&d.StudentID, &d.ClassID, &d.SourceText, &jobs, &unassigned, &d.Status,
+		&d.DraftTotal, &d.MaxTotal, &d.NeedsReview, &d.CreatedBy, &d.CreatedAt,
+		&d.FinalizedBy, &d.FinalizedAt)
+	if err == nil {
+		_ = json.Unmarshal([]byte(jobs), &d.OcrJobIDs)
+		_ = json.Unmarshal([]byte(unassigned), &d.Unassigned)
+	}
+	if d.OcrJobIDs == nil {
+		d.OcrJobIDs = []string{}
+	}
+	if d.Unassigned == nil {
+		d.Unassigned = []string{}
+	}
+	return d, err
+}
+
+// SaveMarkingDraft writes the draft and replaces its answers in one
+// transaction, so a draft is never stored with only some of its questions.
+func (p *Postgres) SaveMarkingDraft(d domain.MarkingDraft) error {
+	ctx := contextTODO()
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		p.errLog("SaveMarkingDraft begin", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	jobs, _ := json.Marshal(nonNilStrings(d.OcrJobIDs))
+	unassigned, _ := json.Marshal(nonNilStrings(d.Unassigned))
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marking_drafts (id, scheme_id, scheme_version, target_kind, submission_id,
+			student_id, class_id, source_text, ocr_job_ids, unassigned, status,
+			draft_total, max_total, needs_review, created_by, created_at, finalized_by, finalized_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,
+			COALESCE($16::timestamptz, now()), $17, $18::timestamptz)
+		ON CONFLICT (id) DO UPDATE SET
+			status = EXCLUDED.status, draft_total = EXCLUDED.draft_total,
+			max_total = EXCLUDED.max_total, needs_review = EXCLUDED.needs_review,
+			unassigned = EXCLUDED.unassigned,
+			finalized_by = EXCLUDED.finalized_by, finalized_at = EXCLUDED.finalized_at`,
+		d.ID, d.SchemeID, d.SchemeVersion, d.TargetKind, d.SubmissionID, d.StudentID,
+		d.ClassID, d.SourceText, string(jobs), string(unassigned), d.Status,
+		d.DraftTotal, d.MaxTotal, d.NeedsReview, d.CreatedBy, nullStr(d.CreatedAt),
+		nullStr(d.FinalizedBy), nullStr(d.FinalizedAt)); err != nil {
+		p.errLog("SaveMarkingDraft", err)
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM marking_draft_answers WHERE draft_id = $1`, d.ID); err != nil {
+		p.errLog("SaveMarkingDraft answers delete", err)
+		return err
+	}
+	if len(d.Answers) > 0 {
+		answers, err := json.Marshal(d.Answers)
+		if err != nil {
+			return err
+		}
+		// One statement for every question rather than a round trip each.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO marking_draft_answers (draft_id, scheme_question_id, question_number,
+				student_answer, working, draft_marks, total_marks, method, matched_text,
+				matched_answer_id, misconception_id, likely_cause, needs_review, reasons, steps)
+			SELECT $1, a->>'schemeQuestionId', (a->>'questionNumber')::int,
+				a->>'studentAnswer', COALESCE(a->'working','[]'::jsonb),
+				(a->>'draftMarks')::numeric, (a->>'totalMarks')::numeric, a->>'method',
+				COALESCE(a->>'matchedText',''),
+				NULLIF((a->>'matchedAnswerId')::bigint, 0), NULLIF((a->>'misconceptionId')::bigint, 0),
+				COALESCE(a->>'likelyCause',''), (a->>'needsReview')::boolean,
+				COALESCE(a->'reasons','[]'::jsonb), COALESCE(a->'steps','[]'::jsonb)
+			FROM jsonb_array_elements($2::jsonb) AS a`, d.ID, string(answers)); err != nil {
+			p.errLog("SaveMarkingDraft answers", err)
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("SaveMarkingDraft commit", err)
+		return err
+	}
+	return nil
+}
+
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
+}
+
+func (p *Postgres) draftAnswers(draftID string) []domain.MarkingDraftAnswer {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT scheme_question_id, question_number, student_answer, working::text,
+		       draft_marks::float8, total_marks::float8, method, matched_text,
+		       COALESCE(matched_answer_id,0), COALESCE(misconception_id,0), likely_cause,
+		       needs_review, reasons::text, steps::text
+		FROM marking_draft_answers WHERE draft_id = $1 ORDER BY question_number`, draftID)
+	if err != nil {
+		p.errLog("draftAnswers", err)
+		return nil
+	}
+	defer rows.Close()
+	out := []domain.MarkingDraftAnswer{}
+	for rows.Next() {
+		var a domain.MarkingDraftAnswer
+		var working, reasons, steps string
+		if err := rows.Scan(&a.SchemeQuestionID, &a.QuestionNumber, &a.StudentAnswer, &working,
+			&a.DraftMarks, &a.TotalMarks, &a.Method, &a.MatchedText, &a.MatchedAnswerID,
+			&a.MisconceptionID, &a.LikelyCause, &a.NeedsReview, &reasons, &steps); err != nil {
+			p.errLog("draftAnswers scan", err)
+			continue
+		}
+		_ = json.Unmarshal([]byte(working), &a.Working)
+		_ = json.Unmarshal([]byte(reasons), &a.Reasons)
+		_ = json.Unmarshal([]byte(steps), &a.Steps)
+		out = append(out, a)
+	}
+	return out
+}
+
+func (p *Postgres) MarkingDraftByID(id string) (domain.MarkingDraft, bool) {
+	d, err := scanDraft(p.db.QueryRowContext(contextTODO(),
+		`SELECT `+draftColumns+` FROM marking_drafts WHERE id = $1`, id))
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("MarkingDraftByID", err)
+		}
+		return domain.MarkingDraft{}, false
+	}
+	d.Answers = p.draftAnswers(d.ID)
+	return d, true
+}
+
+// draftsWhere loads headers, closing the query before any answers are loaded
+// so it never holds one pooled connection while waiting for another.
+func (p *Postgres) draftsWhere(where, arg string, withAnswers bool) []domain.MarkingDraft {
+	rows, err := p.db.QueryContext(contextTODO(),
+		`SELECT `+draftColumns+` FROM marking_drafts WHERE `+where+` ORDER BY created_at, id`, arg)
+	if err != nil {
+		p.errLog("MarkingDrafts", err)
+		return nil
+	}
+	var out []domain.MarkingDraft
+	for rows.Next() {
+		d, err := scanDraft(rows)
+		if err != nil {
+			p.errLog("MarkingDrafts scan", err)
+			continue
+		}
+		out = append(out, d)
+	}
+	_ = rows.Close()
+	if withAnswers {
+		for i := range out {
+			out[i].Answers = p.draftAnswers(out[i].ID)
+		}
+	}
+	return out
+}
+
+func (p *Postgres) MarkingDraftsForSubmission(submissionID string) []domain.MarkingDraft {
+	return p.draftsWhere("submission_id = $1", submissionID, true)
+}
+
+func (p *Postgres) MarkingDraftsByScheme(schemeID string) []domain.MarkingDraft {
+	return p.draftsWhere("scheme_id = $1", schemeID, false)
+}
+
+func (p *Postgres) SetMarkingDraftStatus(id, status string) error {
+	if _, err := p.db.ExecContext(contextTODO(),
+		`UPDATE marking_drafts SET status = $2 WHERE id = $1`, id, status); err != nil {
+		p.errLog("SetMarkingDraftStatus", err)
 		return err
 	}
 	return nil

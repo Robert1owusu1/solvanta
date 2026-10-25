@@ -304,12 +304,16 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 
 	gradeChanged := !schemeQuestionsMatch(existingQuestions, body.Questions)
 
-	// Check if there are submissions marked against this scheme
+	// Check if there are submissions marked against this scheme. A draft
+	// (Phase 5) counts too, whatever its status: it records marks proposed
+	// against these exact questions, and its answers point at their rows.
 	submissions := s.store.SubmissionsByScheme(existing.ID)
+	drafts := s.store.MarkingDraftsByScheme(existing.ID)
+	marked := len(submissions) + len(drafts)
 
 	var schemeToSave domain.MarkingScheme
 
-	if gradeChanged && len(submissions) > 0 {
+	if gradeChanged && marked > 0 {
 		// SUBMISSIONS EXIST → CREATE NEW VERSION
 		newVersion := existing.Version + 1
 		schemeToSave = domain.MarkingScheme{
@@ -323,7 +327,7 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 			Questions:      body.Questions,
 		}
 		s.audit(c, "marking_scheme.update.new_version", schemeToSave.ID,
-			"Created new version v"+itoa(newVersion)+" of marking scheme (v"+itoa(existing.Version)+" had "+itoa(len(submissions))+" submissions)",
+			"Created new version v"+itoa(newVersion)+" of marking scheme (v"+itoa(existing.Version)+" had "+itoa(len(submissions))+" submissions and "+itoa(len(drafts))+" drafts)",
 			"")
 	} else {
 		// UPDATE IN PLACE — either there are no submissions, or the only
@@ -332,9 +336,9 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 		schemeToSave = existing
 		schemeToSave.Questions = body.Questions
 		reason := "no submissions"
-		if len(submissions) > 0 {
+		if marked > 0 {
 			reason = "notes-only change, no grade impact (" +
-				itoa(len(submissions)) + " submissions unaffected)"
+				itoa(len(submissions)) + " submissions and " + itoa(len(drafts)) + " drafts unaffected)"
 		}
 		s.audit(c, "marking_scheme.update.in_place", existing.ID,
 			"Updated marking scheme v"+itoa(existing.Version)+" in place ("+reason+")",
@@ -353,8 +357,18 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	// (The in-place branch deletes the old rows first, so re-minting is safe
 	// there too — and it also stops one scheme's client-side ids from
 	// colliding with another scheme's.)
+	//
+	// A notes-only edit is the exception: it keeps every row's id, because
+	// drafts and their per-question links point at those rows. The lists are
+	// the same shape (schemeQuestionsMatch compared their lengths), so the
+	// ids carry over position by position.
+	notesOnly := !gradeChanged
 	schemeToSave.CreatedAt = now()
 	for i := range schemeToSave.Questions {
+		if notesOnly {
+			keepRowIDs(&schemeToSave.Questions[i], existingQuestions[i])
+			continue
+		}
 		schemeToSave.Questions[i].ID = newQuestionID()
 		schemeToSave.Questions[i].SchemeID = schemeToSave.ID
 		schemeToSave.Questions[i].CreatedAt = now()
@@ -382,7 +396,7 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	// In-place update: the old rows must go first, because (scheme_id,
 	// question_number) is unique and the replacements reuse the numbers.
 	inPlace := schemeToSave.ID == existing.ID
-	if inPlace {
+	if inPlace && !notesOnly {
 		s.deleteSchemeRows(existingQuestions)
 	}
 	if err := s.saveSchemeRows(schemeToSave.Questions); err != nil {
@@ -440,6 +454,11 @@ func (s *Server) deleteMarkingScheme(c *gin.Context) {
 	submissions := s.store.SubmissionsByScheme(existing.ID)
 	if len(submissions) > 0 {
 		fail(c, http.StatusConflict, "Cannot delete marking scheme with existing submissions (versioning required)")
+		return
+	}
+	// Or drafts: they record marks proposed against this exact scheme.
+	if len(s.store.MarkingDraftsByScheme(existing.ID)) > 0 {
+		fail(c, http.StatusConflict, "Cannot delete a marking scheme that papers have been drafted against")
 		return
 	}
 
@@ -633,6 +652,27 @@ func validateSchemeQuestions(qs []domain.SchemeQuestion) string {
 		}
 	}
 	return ""
+}
+
+// keepRowIDs gives an edited question the stored question's row ids, for a
+// notes-only edit that must not move any row.
+func keepRowIDs(q *domain.SchemeQuestion, stored domain.SchemeQuestion) {
+	q.ID, q.SchemeID, q.CreatedAt = stored.ID, stored.SchemeID, stored.CreatedAt
+	for j := range q.MarkBreakdown {
+		if q.MarkBreakdown[j].ID == "" {
+			q.MarkBreakdown[j].ID = "step-" + itoa(j+1)
+		}
+	}
+	for j := range q.AcceptedAnswers {
+		a := stored.AcceptedAnswers[j]
+		q.AcceptedAnswers[j].ID, q.AcceptedAnswers[j].SchemeQuestionID, q.AcceptedAnswers[j].CreatedAt =
+			a.ID, a.SchemeQuestionID, a.CreatedAt
+	}
+	for j := range q.Misconceptions {
+		m := stored.Misconceptions[j]
+		q.Misconceptions[j].ID, q.Misconceptions[j].SchemeQuestionID, q.Misconceptions[j].CreatedAt =
+			m.ID, m.SchemeQuestionID, m.CreatedAt
+	}
 }
 
 // saveSchemeRows writes every question with its answers and misconceptions.

@@ -386,6 +386,7 @@ func (s *Server) Router() *gin.Engine {
 		questions.GET("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.aiRequests)
 		questions.POST("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequest)
 		questions.POST("/ai/requests/:id/generate", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiGenerate)
+		questions.GET("/ai/requests/:id/ocr", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequestOCR)
 		questions.POST("/ai/requests/:id/publish", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiPublish)
 		questions.POST("/ai/requests/:id/reject", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiReject)
 	}
@@ -420,6 +421,17 @@ func (s *Server) Router() *gin.Engine {
 		ms.GET("/:id", s.getMarkingScheme)
 		ms.PUT("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateMarkingScheme)
 		ms.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.deleteMarkingScheme)
+	}
+
+	// Marking drafts (Phase 5): proposals from the matching engine, never
+	// marks. Grading is a teacher's action; students, parents and staff
+	// have no access.
+	drafts := api.Group("/marking-drafts", s.schoolScope(),
+		requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher))
+	{
+		drafts.POST("", s.createMarkingDraft)
+		drafts.GET("", s.listMarkingDrafts)
+		drafts.GET("/:id", s.getMarkingDraft)
 	}
 
 	api.GET("/submissions", s.schoolScope(), s.listSubmissions)

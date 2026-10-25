@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/assessment/scans_repository.dart';
 import '../../features/fees/fees_repository.dart';
+import '../../features/marking/marking_drafts_repository.dart';
 import '../../features/ocr/ocr_repository.dart';
 import '../api/api_client.dart';
 import '../api/remote_data_source.dart';
@@ -168,6 +169,8 @@ class ServerSync extends ChangeNotifier {
     // the same hook the scan and submission photo retries use, so "we're back
     // online" has one meaning across the app.
     unawaited(OcrRepository(store: _store).retryQueued());
+    // Draft-mark requests made offline go out on the same hook.
+    unawaited(MarkingDraftsRepository(store: _store).retryPending());
 
     if (!reached) return false;
     lastPulled = DateTime.now();

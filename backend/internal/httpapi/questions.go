@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -126,7 +127,32 @@ func (s *Server) deleteQuestion(c *gin.Context) {
 
 // aiRequests lists AI question-generation requests (doc §43).
 func (s *Server) aiRequests(c *gin.Context) {
-	sendJSON(c, s.store.AIRequests())
+	u := currentUser(c)
+	out := s.store.AIRequests()
+	// A saved OCR reading is a student's handwriting: only the teacher who
+	// asked for it sees it, here as on its own route.
+	for i := range out {
+		if out[i].RequesterID != u.ID {
+			out[i].OCRResult = nil
+		}
+	}
+	sendJSON(c, out)
+}
+
+// aiRequestOCR returns the reading saved by an earlier generate, so a
+// reading whose response never reached the device can be recovered instead
+// of the page being photographed again. Requester only.
+func (s *Server) aiRequestOCR(c *gin.Context) {
+	req, ok := s.store.AIRequestByID(c.Param("id"))
+	if !ok || req.RequesterID != currentUser(c).ID {
+		fail(c, http.StatusNotFound, "Request not found")
+		return
+	}
+	if len(req.OCRResult) == 0 {
+		fail(c, http.StatusNotFound, "No reading has been saved for this request")
+		return
+	}
+	c.Data(http.StatusOK, "application/json", req.OCRResult)
 }
 
 // aiRequest creates a generation request (status pending).
@@ -252,6 +278,12 @@ func (s *Server) aiGenerate(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Request not found")
 		return
 	}
+	// The reading is saved on the request and billed to whoever runs it, so
+	// only the teacher who made the request may run it.
+	if req.RequesterID != currentUser(c).ID {
+		fail(c, http.StatusForbidden, "Only the teacher who made this request can run it")
+		return
+	}
 	if req.Status != domain.QGenPending && req.Status != domain.QGenRejected {
 		fail(c, http.StatusConflict, "Request already generated")
 		return
@@ -285,8 +317,12 @@ func (s *Server) aiGenerate(c *gin.Context) {
 	ocr.LogCost(req.ID, res)
 
 	drafts := questionDraftFor(req, res)
+	summary := summarize(res)
 	req.Drafts = drafts
 	req.Status = domain.QGenGenerated
+	if b, err := json.Marshal(summary); err == nil {
+		req.OCRResult = b
+	}
 	if writeFailed(c, s.store.SaveAIRequest(req)) {
 		return
 	}
@@ -296,7 +332,8 @@ func (s *Server) aiGenerate(c *gin.Context) {
 		"")
 	s.audit(c, "questiongen.generate", req.ID,
 		"Recognised "+itoa(res.Lines)+" lines via "+string(res.Provider)+" ("+string(res.CostTier)+" rate), "+itoa(len(drafts))+" drafts", "")
-	sendJSON(c, generateResponse{GenRequest: req, OCR: summarize(res)})
+	req.OCRResult = nil // carried as "ocr" below; not twice
+	sendJSON(c, generateResponse{GenRequest: req, OCR: summary})
 }
 
 // hasBody reports whether the request carried a body worth decoding.

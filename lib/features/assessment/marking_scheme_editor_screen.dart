@@ -395,6 +395,13 @@ String normalizeAnswer(String text) {
   return text.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
 }
 
+/// What a misconception's wrong-answer pattern is saved as: the text as the
+/// teacher typed it, trimmed. It used to be saved through [normalizeAnswer],
+/// which strips every symbol ("4/10" became "410"), so the matching engine
+/// could not tell "4/10" from "410" and had to flag every such match. The
+/// engine normalizes patterns itself, symbols intact.
+String storedMisconceptionPattern(String typed) => typed.trim();
+
 const List<String> kBreakdownTypes = [
   'method',
   'final_answer',
@@ -592,7 +599,7 @@ class _EditableQuestion {
             'id': misconceptions[i].id ?? (number * 1000 + 500 + i + 1),
             'schemeQuestionId': qid,
             'wrongAnswerPattern':
-                normalizeAnswer(misconceptions[i].pattern.text),
+                storedMisconceptionPattern(misconceptions[i].pattern.text),
             'likelyCause': misconceptions[i].cause.text,
             'marksAwarded': misconceptions[i].marksValue,
             'createdAt': now,
