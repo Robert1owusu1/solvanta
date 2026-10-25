@@ -33,6 +33,12 @@ type Config struct {
 	AllowedOrigins []string
 	// Production refuses to boot without an explicit Secret.
 	Production bool
+	// TrustedProxies lists the reverse proxies (IPs or CIDRs, the
+	// TRUSTED_PROXIES env var) whose X-Forwarded-For is believed. Empty
+	// trusts none: right when clients connect directly, but behind a host's
+	// proxy every visitor then shares the proxy's address, and the login
+	// throttle counts the whole school as one client.
+	TrustedProxies []string
 }
 
 // sharedPasswordHashes precomputes bcrypt hashes once per process so repeated
@@ -204,6 +210,17 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	return &rateLimiter{hits: map[string][]time.Time{}, limit: limit, window: window}
 }
 
+// forget gives back one slot recorded for key.
+func (r *rateLimiter) forget(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h := r.hits[key]; len(h) > 1 {
+		r.hits[key] = h[:len(h)-1]
+	} else {
+		delete(r.hits, key)
+	}
+}
+
 func (r *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	r.mu.Lock()
@@ -230,16 +247,26 @@ func (r *rateLimiter) allow(key string) bool {
 	return true
 }
 
-// loginRateLimit throttles brute-force attempts per client IP (10/min).
+// loginRateLimit throttles brute-force attempts per client IP: 10 failed
+// sign-ins a minute.
+//
+// Every attempt reserves a slot before the password is checked, so a burst of
+// parallel guesses cannot all slip in before any failure is counted, and a
+// successful sign-in hands its slot back. A classroom sharing one school IP
+// can therefore all sign in, while guessing stays capped as before.
 func (s *Server) loginRateLimit() gin.HandlerFunc {
 	rl := newRateLimiter(10, time.Minute)
 	return func(c *gin.Context) {
-		if !rl.allow(c.ClientIP()) {
+		ip := c.ClientIP()
+		if !rl.allow(ip) {
 			fail(c, http.StatusTooManyRequests, "Too many login attempts. Try again in a minute.")
 			c.Abort()
 			return
 		}
 		c.Next()
+		if c.Writer.Status() == http.StatusOK {
+			rl.forget(ip)
+		}
 	}
 }
 

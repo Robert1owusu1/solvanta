@@ -263,13 +263,14 @@ Environment variables:
 
 | Var               | Default | Purpose                                              |
 |-------------------|---------|------------------------------------------------------|
-| `ADDR`            | `:8080` | Listen address (overrides `PORT`)                    |
+| `ADDR`            | `127.0.0.1:8080` | Listen address (overrides `PORT`). Loopback by default; set `:8080` in a container or behind a proxy |
 | `PORT`            | `8080`  | Listen port                                          |
 | `SECRET`          | random  | Token-signing key. **Required** when `ENV=production`|
 | `ALLOWED_ORIGINS` | (none)  | Comma-separated CORS allow-list (e.g. web dashboard) |
-| `ENV`             | dev     | Set `production` to enforce `SECRET` + HSTS          |
+| `TRUSTED_PROXIES` | (none)  | Comma-separated IPs/CIDRs of your reverse proxy, so the login throttle sees each visitor's real IP. Leave empty when clients connect directly |
+| `ENV`             | dev     | Set `production` to enforce `SECRET`, HSTS and quiet logging |
 | `POSTGRES_DSN`    | (none)  | Enable PostgreSQL storage; schema is applied at boot |
-| `SEED`            | `true`  | Seed the demo dataset on boot (`false` to skip)      |
+| `SEED`            | on in dev, off in production | Seed the demo dataset on boot (`false` to skip; never `true` in production) |
 
 > Storage uses the `Store` interface as its seam: `store.New()` is the in-memory
 > in-process store (default), `store.NewPostgres(dsn, seed)` talks to PostgreSQL

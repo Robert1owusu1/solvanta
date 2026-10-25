@@ -6,10 +6,31 @@ offline-first Flutter client and a production-style Go API kept in parity.
 
 | Part        | Where                                                        |
 |-------------|--------------------------------------------------------------|
-| Client      | `lib/` (Flutter) · `test/`                                   |
+| Client      | `lib/` (Flutter: one codebase for web **and** Android) · `test/` · `integration_test/` |
+| Web shell   | `web/` (index.html, icons, manifest)                         |
 | API         | `backend/` (Go + Gin, see `backend/README.md`)               |
 | Storage     | PostgreSQL (schema in `backend/migrations`) or in-memory     |
+| Deploy      | `deploy/` (production settings template) · `docs/DEPLOYMENT.md` |
+| Scripts     | `scripts/check.sh` (all checks) · `scripts/build-web.sh` (production web build) |
+| Docs        | `docs/` (deployment guide, project documentation)            |
 | Infra       | `backend/Dockerfile` · `docker-compose.yml` · CI in `.github/workflows/ci.yml` |
+
+```
+SOLVANTA/
+├── lib/              Flutter app: core/ (models, storage, sync, API client) + features/
+├── test/             Flutter unit, widget and RBAC tests
+├── integration_test/ on-device RBAC run
+├── web/  android/  ios/  linux/  macos/  windows/   platform shells
+├── backend/          Go API
+│   ├── cmd/server/       entry point (reads the environment)
+│   ├── internal/         httpapi (routes, RBAC) · store (memory + Postgres) · marking · ocr · domain
+│   └── migrations/       SQL schema, applied automatically at boot
+├── deploy/           production environment template
+├── docs/             DEPLOYMENT.md and the project documentation
+└── scripts/          check.sh · build-web.sh
+```
+
+Deploying the web version: see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Roles & the RBAC contract
 
@@ -28,6 +49,12 @@ the API:
 - **Parent** — only their own children (arrival/departure, results, feedback).
 - **Student** — only self (profile, results, assignments, own work).
 - **Staff** — supporting duties (attendance, gate, announcements); no marking.
+
+Marking follows the same lines: a teacher captures, marks and writes marking
+schemes for **their own class** only; school admins / headteachers for any
+class. A marking scheme is the answer key, so students, parents and staff can
+never read one. A pupil cannot resubmit a paper once it is in, so a marked
+result cannot be overwritten.
 
 This is **locked in by tests**, not by convention:
 

@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"reflect"
 	"strings"
@@ -46,6 +48,13 @@ type Server struct {
 // fresh random key (invalidating old tokens on restart); in Production that is
 // a boot error instead.
 func NewServer(s store.Store, cfg Config) (*Server, error) {
+	for _, p := range cfg.TrustedProxies {
+		if net.ParseIP(p) == nil {
+			if _, _, err := net.ParseCIDR(p); err != nil {
+				return nil, fmt.Errorf("TRUSTED_PROXIES: %q is not an IP address or CIDR range", p)
+			}
+		}
+	}
 	if cfg.Secret == "" {
 		if cfg.Production {
 			return nil, errors.New("SECRET must be set in production (set SECRET env)")
@@ -279,10 +288,12 @@ func bind(c *gin.Context, v any) bool {
 // Router registers every route against the store.
 func (s *Server) Router() *gin.Engine {
 	r := gin.New()
-	// Trust no proxy. Gin otherwise honours X-Forwarded-For from anyone, and
-	// ClientIP() feeds the rate limiter below — a spoofable IP would let an
-	// attacker reset their own login throttle (and forge audit addresses).
-	_ = r.SetTrustedProxies(nil)
+	// Trust only the configured proxies (none by default). Gin otherwise
+	// honours X-Forwarded-For from anyone, and ClientIP() feeds the rate
+	// limiter below — a spoofable IP would let an attacker reset their own
+	// login throttle (and forge audit addresses). The list was validated in
+	// NewServer, so this cannot fail.
+	_ = r.SetTrustedProxies(s.cfg.TrustedProxies)
 	r.Use(gin.Logger(), gin.Recovery(), s.securityHeaders(), s.cors())
 
 	// Liveness stays "ok" while the process is up: the client reads this to

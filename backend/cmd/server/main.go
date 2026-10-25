@@ -1,5 +1,5 @@
 // Command server runs the SOLVANTA backend API. Configuration is read from
-// environment ("PORT", "ADDR", "SECRET", "ALLOWED_ORIGINS", "ENV",
+// environment ("PORT", "ADDR", "SECRET", "ALLOWED_ORIGINS", "TRUSTED_PROXIES", "ENV",
 // "POSTGRES_DSN", "SEED"). Storage defaults to the in-memory development store
 // (seeded together with the client app); setting POSTGRES_DSN switches to the
 // PostgreSQL-backed store (schema applied at boot).
@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/httpapi"
 	"solvanta/backend/internal/store"
@@ -28,13 +30,8 @@ func main() {
 		Secret:     os.Getenv("SECRET"),
 		Production: os.Getenv("ENV") == "production",
 	}
-	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
-		for _, o := range strings.Split(origins, ",") {
-			if o = strings.TrimSpace(o); o != "" {
-				cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)
-			}
-		}
-	}
+	cfg.AllowedOrigins = splitList(os.Getenv("ALLOWED_ORIGINS"))
+	cfg.TrustedProxies = splitList(os.Getenv("TRUSTED_PROXIES"))
 
 	var st store.Store
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
@@ -52,6 +49,12 @@ func main() {
 		} else {
 			st = store.NewUnseeded()
 		}
+	}
+
+	// Gin's debug mode prints every route at boot and warns on each start;
+	// production runs quiet unless GIN_MODE is set explicitly.
+	if cfg.Production && os.Getenv("GIN_MODE") == "" {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	server, err := httpapi.NewServer(st, cfg)
@@ -95,6 +98,17 @@ func envLabel(cfg httpapi.Config) string {
 		return "production"
 	}
 	return "development"
+}
+
+// splitList reads a comma-separated env value, dropping blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, item := range strings.Split(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func firstNonEmpty(a, b string) string {
