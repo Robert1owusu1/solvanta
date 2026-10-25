@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"math"
 	"net/http"
 	"sort"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -312,12 +314,28 @@ func (s *Server) submitAssessment(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only submit your own class assessments")
 		return
 	}
+	if !teacherCoversClass(u, st.ClassID) {
+		fail(c, http.StatusForbidden, "You may only capture work for your own class")
+		return
+	}
+	// A resubmission replaces the whole row, teacher marks included. Staff
+	// re-capturing a paper do that on purpose (the app sends the marks again
+	// straight after); a pupil re-sending — or their outbox replaying an old
+	// submit — must not wipe a result that has already been marked.
+	if u.Role == domain.RoleStudent {
+		if _, exists := s.store.SubmissionFor(a.ID, st.ID); exists {
+			fail(c, http.StatusConflict, "You have already submitted this assessment")
+			return
+		}
+	}
 	earned := marking.ComputeEarned(a.Questions, body.Answers, nil)
 	sub := domain.Submission{
 		ID:           newID("SUB"),
 		AssessmentID: a.ID,
 		StudentID:    st.ID,
-		ClassID:      firstNonEmpty(body.ClassID, st.ClassID),
+		// Always the pupil's own class: class analytics group on this, so a
+		// body naming another class would file the result in the wrong one.
+		ClassID:      st.ClassID,
 		Date:         firstNonEmpty(body.Date, today()),
 		Answers:      body.Answers,
 		TeacherMarks: map[string]float64{},
@@ -366,6 +384,10 @@ func (s *Server) markVerdicts(c *gin.Context) {
 		fail(c, http.StatusNotFound, "No submission for this assessment/student")
 		return
 	}
+	if !teacherCoversClass(currentUser(c), sub.ClassID) {
+		fail(c, http.StatusForbidden, "You may only mark work for your own class")
+		return
+	}
 	sub.TeacherMarks = clampMarks(a.Questions, body.TeacherMarks)
 	remaining := subjectiveNeedingVerdict(a.Questions, sub)
 	if len(remaining) > 0 {
@@ -388,7 +410,7 @@ func (s *Server) markVerdicts(c *gin.Context) {
 	}
 	if st.ParentUserID != "" {
 		s.notify(st.ParentUserID, domain.NotifMarking, a.Title+" marked",
-			st.FullName()+" scored "+itoa(int(sub.Earned))+"/"+itoa(int(a.TotalMarks()))+" ("+marking.GradeLetter(pct)+").",
+			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
 	s.audit(c, "marking.verdicts", sub.ID, "Marked "+a.Title+" for "+st.FullName(), "")
@@ -445,6 +467,19 @@ func (s *Server) assessmentResults(c *gin.Context) {
 
 // --- helpers ---
 
+// teacherCoversClass applies the classroom rule to capturing and marking: a
+// teacher works on their own class only, school leaders on any. Other roles
+// are decided by the caller and the route's own gates.
+func teacherCoversClass(u domain.User, classID string) bool {
+	return u.Role != domain.RoleTeacher || (classID != "" && classID == u.ClassID)
+}
+
+// formatMarks prints a mark without dropping a half: 7.5 stays 7.5 rather
+// than truncating to 7, and whole marks print without a trailing ".0".
+func formatMarks(v float64) string {
+	return strconv.FormatFloat(math.Round(v*100)/100, 'f', -1, 64)
+}
+
 func hasSubjectiveQuestions(qs []domain.Question) bool {
 	for _, q := range qs {
 		if !q.IsObjective() {
@@ -499,7 +534,7 @@ func (s *Server) notifyAssessmentComplete(a domain.Assessment, st domain.Student
 	}
 	if st.ParentUserID != "" {
 		s.notify(st.ParentUserID, domain.NotifAssessment, a.Title+" — result available",
-			st.FullName()+" scored "+itoa(int(sub.Earned))+"/"+itoa(int(a.TotalMarks()))+" ("+marking.GradeLetter(pct)+").",
+			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
 }

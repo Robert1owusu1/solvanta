@@ -101,3 +101,47 @@ func TestMarkingSchemeLifecycleOnPostgres(t *testing.T) {
 		t.Errorf("%d storage error(s), last: %v", n-errsBefore, last)
 	}
 }
+
+// TestMarksAreRecordedOnPostgres repeats the capture → verdict → results flow
+// against PostgreSQL, where earned is NUMERIC(8,2) and teacher marks are
+// JSONB: a half mark must come back as exactly what was given.
+func TestMarksAreRecordedOnPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN not set; skipping PostgreSQL integration test")
+	}
+	pg, err := store.NewPostgres(dsn, false)
+	if err != nil {
+		t.Fatalf("NewPostgres: %v", err)
+	}
+	t.Cleanup(func() { pg.Close() })
+	store.Seed(pg)
+	errsBefore, _, _ := pg.StoreErrors()
+	gin.SetMode(gin.TestMode)
+	s, err := NewServer(pg, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := s.Router()
+	teacher := bearer(login(t, r, "efua.mensah@school.gh", "teacher123"))
+
+	pupil := "STU-PGM-" + newID("X")
+	addPupil(t, pg, pupil, "JHS2A")
+	rec := do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/submit",
+		`{"studentId":"`+pupil+`","answers":{"Q-MATH-001":"2/4","Q-MATH-002":"1/4 m"}}`, teacher)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("submit: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/verdicts",
+		`{"studentId":"`+pupil+`","teacherMarks":{"Q-MATH-003":3.5}}`, teacher)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("verdicts: %d %s", rec.Code, rec.Body.String())
+	}
+	sub, ok := pg.SubmissionFor("ASSMT-MAT-HALF", pupil)
+	if !ok || sub.Earned != 5.5 || sub.TeacherMarks["Q-MATH-003"] != 3.5 || sub.Answers["Q-MATH-001"] != "2/4" {
+		t.Fatalf("stored submission = %+v (found %v), want earned 5.5 with Q3 = 3.5", sub, ok)
+	}
+	if n, last, _ := pg.StoreErrors(); n != errsBefore {
+		t.Errorf("%d storage error(s), last: %v", n-errsBefore, last)
+	}
+}

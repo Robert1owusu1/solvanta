@@ -356,9 +356,17 @@ func TestStudentCannotActForOthers(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("student submitting for another: got %d, want 403", rec.Code)
 	}
-	body = fmt.Sprintf(`{"assessmentId":"ASSMT-MAT-HALF","studentId":"STU-001","answers":{}}`)
-	rec = do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/submit", body, map[string]string{"Authorization": "Bearer " + tok})
+	// ASSMT-MAT-HALF is already submitted and teacher-marked for STU-001 in
+	// the seed, so the "own submission" case uses one they have not taken.
+	body = fmt.Sprintf(`{"assessmentId":"ASSMT-MOCK-BECE-MATH","studentId":"STU-001","answers":{}}`)
+	rec = do(r, "POST", "/api/assessments/ASSMT-MOCK-BECE-MATH/submit", body, map[string]string{"Authorization": "Bearer " + tok})
 	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
 		t.Errorf("student submitting own: got %d, want 2xx (%s)", rec.Code, rec.Body.String())
+	}
+	// Submitting again must not replace a result, marked or not.
+	body = fmt.Sprintf(`{"assessmentId":"ASSMT-MAT-HALF","studentId":"STU-001","answers":{}}`)
+	rec = do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/submit", body, map[string]string{"Authorization": "Bearer " + tok})
+	if rec.Code != http.StatusConflict {
+		t.Errorf("student resubmitting a marked paper: got %d, want 409 (%s)", rec.Code, rec.Body.String())
 	}
 }
