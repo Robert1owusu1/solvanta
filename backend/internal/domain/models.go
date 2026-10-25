@@ -293,14 +293,16 @@ func (a Assessment) TotalMarks() (m float64) {
 
 // Submission mirrors the client AssessmentSubmission model.
 type Submission struct {
-	ID           string             `json:"id"`
-	AssessmentID string             `json:"assessmentId"`
-	StudentID    string             `json:"studentId"`
-	ClassID      string             `json:"classId"`
-	Date         string             `json:"date"`
-	Answers      map[string]string  `json:"answers"`
-	TeacherMarks map[string]float64 `json:"teacherMarks"`
-	Earned       float64            `json:"earned"`
+	ID                   string             `json:"id"`
+	AssessmentID         string             `json:"assessmentId"`
+	StudentID            string             `json:"studentId"`
+	ClassID              string             `json:"classId"`
+	Date                 string             `json:"date"`
+	Answers              map[string]string  `json:"answers"`
+	TeacherMarks         map[string]float64 `json:"teacherMarks"`
+	Earned               float64            `json:"earned"`
+	MarkingSchemeID      string             `json:"markingSchemeId,omitempty"`
+	MarkingSchemeVersion int                `json:"markingSchemeVersion,omitempty"`
 }
 
 // Intervention mirrors the client Intervention model (doc §31).
@@ -539,14 +541,17 @@ func (i Invoice) WithDerived(payments []Payment, today string) Invoice {
 func (i Invoice) Key() string { return i.ID }
 
 // Key returns the primary identifier; used by the store layer upsert helper.
-func (u User) Key() string         { return u.ID }
-func (c ClassRoom) Key() string    { return c.ID }
-func (s Student) Key() string      { return s.ID }
-func (q Question) Key() string     { return q.ID }
-func (r GenRequest) Key() string   { return r.ID }
-func (a Assessment) Key() string   { return a.ID }
-func (i Intervention) Key() string { return i.ID }
-func (a Assignment) Key() string   { return a.ID }
+func (u User) Key() string            { return u.ID }
+func (c ClassRoom) Key() string       { return c.ID }
+func (s Student) Key() string         { return s.ID }
+func (q Question) Key() string        { return q.ID }
+func (r GenRequest) Key() string      { return r.ID }
+func (a Assessment) Key() string      { return a.ID }
+func (i Intervention) Key() string    { return i.ID }
+func (a Assignment) Key() string      { return a.ID }
+func (ms MarkingScheme) Key() string  { return ms.ID }
+func (sq SchemeQuestion) Key() string { return sq.ID }
+func (sp ScanPage) Key() string       { return sp.ID }
 
 // Record kinds the server stores (see Record).
 const (
@@ -556,6 +561,23 @@ const (
 	RecordCorrections       = "corrections"
 	RecordTargets           = "targets"
 	RecordScans             = "scans"
+	// RecordAssignmentSubmissions holds a teacher's captured submission of one
+	// student's assignment work: one record per submission, carrying any
+	// number of photographed pages. Scoped like RecordScans (student-scoped
+	// reads, staff may write) so a submission about a pupil stays inside the
+	// same visibility boundary.
+	RecordAssignmentSubmissions = "assignment_submissions"
+	// RecordOcrJobs holds one page handed to the OCR pipeline together with
+	// what the engine read from it and the teacher's confirmation of that
+	// reading.
+	//
+	// Owner-scoped rather than student-scoped: the row is written about
+	// work, not about a named pupil, and scoping it by student would make a
+	// job with no studentId invisible to the very teacher who created it.
+	// scopeOwner sets OwnerID on the server from the session, so a client
+	// cannot claim another teacher's reading, and the same teacher picks the
+	// job up on any device they sign in from.
+	RecordOcrJobs = "ocr_jobs"
 )
 
 // Record is one entry of a collection the server stores on the client's

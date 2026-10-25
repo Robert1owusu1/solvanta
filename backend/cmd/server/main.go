@@ -61,6 +61,11 @@ func main() {
 	r := server.Router()
 
 	log.Printf("SOLVANTA backend listening on %s (env=%s)", addr, envLabel(cfg))
+	// Stated loudly and once at boot: which engine actually serves maths
+	// content and which serves handwriting, and why. Without this a
+	// deployment that meant to buy a key can run for weeks on the mock with
+	// nothing in the logs to say so.
+	log.Println(server.OCRStatus())
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}

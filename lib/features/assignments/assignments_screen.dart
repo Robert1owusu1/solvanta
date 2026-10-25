@@ -6,8 +6,10 @@ import '../../core/models/subjects.dart';
 import '../../core/models/user.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../assessment/marking_scheme_editor_screen.dart';
 import '../auth/auth_repository.dart';
 import '../students/students_repository.dart';
+import 'assignment_capture_screen.dart';
 import 'assignments_repository.dart';
 
 class AssignmentsScreen extends StatefulWidget {
@@ -265,6 +267,44 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                                         label: 'Overdue',
                                         icon: Icons.schedule,
                                         color: AppColors.danger,
+                                      ),
+                                    ),
+                                  if (isStaff)
+                                    IconButton(
+                                      icon: const Icon(
+                                          Icons.photo_camera_outlined,
+                                          size: 20),
+                                      color: AppTheme.brand,
+                                      tooltip: 'Submit photos of work',
+                                      onPressed: () async {
+                                        final changed = await Navigator.of(
+                                                context)
+                                            .push<bool>(
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                AssignmentStudentPickerScreen(
+                                                    assignment: a),
+                                          ),
+                                        );
+                                        if (changed == true && mounted) {
+                                          _refresh();
+                                        }
+                                      },
+                                    ),
+                                  if (isStaff)
+                                    IconButton(
+                                      icon: const Icon(
+                                          Icons.assignment_turned_in_outlined,
+                                          size: 20),
+                                      color: AppTheme.brand,
+                                      tooltip: 'Marking scheme',
+                                      onPressed: () => Navigator.of(context)
+                                          .push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              MarkingSchemeEditorScreen(
+                                                  assignment: a),
+                                        ),
                                       ),
                                     ),
                                   if (isStaff)

@@ -81,6 +81,38 @@ type Store interface {
 	SubmissionFor(assessmentID, studentID string) (domain.Submission, bool)
 	SaveSubmission(s domain.Submission) error
 
+	// Marking Schemes (AI Marking — Phase 1)
+	MarkingSchemes() []domain.MarkingScheme
+	MarkingSchemeByID(id string) (domain.MarkingScheme, bool)
+	MarkingSchemesByAssessment(assessmentID string) []domain.MarkingScheme
+	MarkingSchemesByAssignment(assignmentID string) []domain.MarkingScheme
+	SaveMarkingScheme(ms domain.MarkingScheme) error
+	DeleteMarkingScheme(id string) error
+	LatestSchemeVersion(assessmentID, assignmentID string) int
+	SubmissionsByScheme(schemeID string) []domain.Submission
+
+	// Scheme Questions
+	SchemeQuestions(schemeID string) []domain.SchemeQuestion
+	SchemeQuestionByID(id string) (domain.SchemeQuestion, bool)
+	SaveSchemeQuestion(sq domain.SchemeQuestion) error
+	DeleteSchemeQuestion(id string) error
+
+	// Accepted Answers
+	AcceptedAnswers(schemeQuestionID string) []domain.AcceptedAnswer
+	SaveAcceptedAnswer(aa domain.AcceptedAnswer) error
+	DeleteAcceptedAnswer(id int64) error
+
+	// Misconceptions
+	Misconceptions(schemeQuestionID string) []domain.Misconception
+	SaveMisconception(m domain.Misconception) error
+	DeleteMisconception(id int64) error
+
+	// Scan Pages
+	ScanPages(submissionID string) []domain.ScanPage
+	ScanPageByID(id string) (domain.ScanPage, bool)
+	SaveScanPage(sp domain.ScanPage) error
+	DeleteScanPage(id string) error
+
 	// Interventions (doc §31)
 	Interventions() []domain.Intervention
 	InterventionByID(id string) (domain.Intervention, bool)
@@ -152,19 +184,24 @@ type Memory struct {
 	questions     []domain.Question
 	aiRequests    []domain.GenRequest
 	assessments   []domain.Assessment
-	submissions   []domain.Submission
-	interventions []domain.Intervention
-	messages      []domain.Message
-	announcements []domain.Announcement
-	notifications []domain.Notification
-	assignments   []domain.Assignment
-	invoices      []domain.Invoice
-	payments      []domain.Payment
-	audit         []domain.AuditEntry
-	refreshTokens map[string]refreshRecord
-	notifReads    map[string]map[string]bool // userID → notification ids
-	records       map[string][]domain.Record // kind → records
-	scanImages    map[string]scanImage
+	submissions       []domain.Submission
+	interventions     []domain.Intervention
+	messages          []domain.Message
+	announcements     []domain.Announcement
+	notifications     []domain.Notification
+	assignments       []domain.Assignment
+	invoices          []domain.Invoice
+	payments          []domain.Payment
+	audit             []domain.AuditEntry
+	refreshTokens     map[string]refreshRecord
+	notifReads        map[string]map[string]bool // userID → notification ids
+	records           map[string][]domain.Record // kind → records
+	scanImages        map[string]scanImage
+	markingSchemes    []domain.MarkingScheme
+	schemeQuestions   []domain.SchemeQuestion
+	acceptedAnswers   []domain.AcceptedAnswer
+	misconceptions    []domain.Misconception
+	scanPages         []domain.ScanPage
 }
 
 type scanImage struct {
@@ -913,6 +950,300 @@ func (m *Memory) DeleteRefreshTokensForUser(userID string) error {
 		}
 	}
 
+	return nil
+}
+
+// =============================================================================
+// Marking Schemes (Memory implementation)
+// =============================================================================
+
+func (m *Memory) MarkingSchemes() []domain.MarkingScheme {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]domain.MarkingScheme(nil), m.markingSchemes...)
+}
+
+func (m *Memory) MarkingSchemeByID(id string) (domain.MarkingScheme, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, ms := range m.markingSchemes {
+		if ms.ID == id {
+			return ms, true
+		}
+	}
+	return domain.MarkingScheme{}, false
+}
+
+func (m *Memory) MarkingSchemesByAssessment(assessmentID string) []domain.MarkingScheme {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.MarkingScheme
+	for _, ms := range m.markingSchemes {
+		if ms.AssessmentID == assessmentID {
+			out = append(out, ms)
+		}
+	}
+	return out
+}
+
+func (m *Memory) MarkingSchemesByAssignment(assignmentID string) []domain.MarkingScheme {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.MarkingScheme
+	for _, ms := range m.markingSchemes {
+		if ms.AssignmentID == assignmentID {
+			out = append(out, ms)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SaveMarkingScheme(ms domain.MarkingScheme) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.markingSchemes = upsert(m.markingSchemes, ms.ID, ms)
+	return nil
+}
+
+func (m *Memory) DeleteMarkingScheme(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.MarkingScheme, 0, len(m.markingSchemes))
+	for _, ms := range m.markingSchemes {
+		if ms.ID != id {
+			out = append(out, ms)
+		}
+	}
+	m.markingSchemes = out
+	return nil
+}
+
+func (m *Memory) LatestSchemeVersion(assessmentID, assignmentID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	maxV := 0
+	for _, ms := range m.markingSchemes {
+		if (assessmentID != "" && ms.AssessmentID == assessmentID) ||
+			(assignmentID != "" && ms.AssignmentID == assignmentID) {
+			if ms.Version > maxV {
+				maxV = ms.Version
+			}
+		}
+	}
+	return maxV
+}
+
+func (m *Memory) SubmissionsByScheme(schemeID string) []domain.Submission {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.Submission
+	for _, sub := range m.submissions {
+		if sub.MarkingSchemeID == schemeID {
+			out = append(out, sub)
+		}
+	}
+	return out
+}
+
+// =============================================================================
+// Scheme Questions (Memory implementation)
+// =============================================================================
+
+func (m *Memory) SchemeQuestions(schemeID string) []domain.SchemeQuestion {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.SchemeQuestion
+	for _, sq := range m.schemeQuestions {
+		if sq.SchemeID == schemeID {
+			out = append(out, sq)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SchemeQuestionByID(id string) (domain.SchemeQuestion, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, sq := range m.schemeQuestions {
+		if sq.ID == id {
+			return sq, true
+		}
+	}
+	return domain.SchemeQuestion{}, false
+}
+
+func (m *Memory) SaveSchemeQuestion(sq domain.SchemeQuestion) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.schemeQuestions = upsert(m.schemeQuestions, sq.ID, sq)
+	return nil
+}
+
+func (m *Memory) DeleteSchemeQuestion(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.SchemeQuestion, 0, len(m.schemeQuestions))
+	for _, sq := range m.schemeQuestions {
+		if sq.ID != id {
+			out = append(out, sq)
+		}
+	}
+	m.schemeQuestions = out
+	return nil
+}
+
+// =============================================================================
+// Accepted Answers (Memory implementation)
+// =============================================================================
+
+func (m *Memory) AcceptedAnswers(schemeQuestionID string) []domain.AcceptedAnswer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.AcceptedAnswer
+	for _, aa := range m.acceptedAnswers {
+		if aa.SchemeQuestionID == schemeQuestionID {
+			out = append(out, aa)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SaveAcceptedAnswer(aa domain.AcceptedAnswer) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.acceptedAnswers == nil {
+		m.acceptedAnswers = []domain.AcceptedAnswer{}
+	}
+	// Upsert by ID
+	out := make([]domain.AcceptedAnswer, 0, len(m.acceptedAnswers)+1)
+	added := false
+	for _, e := range m.acceptedAnswers {
+		if e.ID == aa.ID {
+			out = append(out, aa)
+			added = true
+		} else {
+			out = append(out, e)
+		}
+	}
+	if !added {
+		out = append(out, aa)
+	}
+	m.acceptedAnswers = out
+	return nil
+}
+
+func (m *Memory) DeleteAcceptedAnswer(id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.AcceptedAnswer, 0, len(m.acceptedAnswers))
+	for _, aa := range m.acceptedAnswers {
+		if aa.ID != id {
+			out = append(out, aa)
+		}
+	}
+	m.acceptedAnswers = out
+	return nil
+}
+
+// =============================================================================
+// Misconceptions (Memory implementation)
+// =============================================================================
+
+func (m *Memory) Misconceptions(schemeQuestionID string) []domain.Misconception {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.Misconception
+	for _, msc := range m.misconceptions {
+		if msc.SchemeQuestionID == schemeQuestionID {
+			out = append(out, msc)
+		}
+	}
+	return out
+}
+
+func (m *Memory) SaveMisconception(msc domain.Misconception) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.misconceptions == nil {
+		m.misconceptions = []domain.Misconception{}
+	}
+	out := make([]domain.Misconception, 0, len(m.misconceptions)+1)
+	added := false
+	for _, e := range m.misconceptions {
+		if e.ID == msc.ID {
+			out = append(out, msc)
+			added = true
+		} else {
+			out = append(out, e)
+		}
+	}
+	if !added {
+		out = append(out, msc)
+	}
+	m.misconceptions = out
+	return nil
+}
+
+func (m *Memory) DeleteMisconception(id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.Misconception, 0, len(m.misconceptions))
+	for _, msc := range m.misconceptions {
+		if msc.ID != id {
+			out = append(out, msc)
+		}
+	}
+	m.misconceptions = out
+	return nil
+}
+
+// =============================================================================
+// Scan Pages (Memory implementation)
+// =============================================================================
+
+func (m *Memory) ScanPages(submissionID string) []domain.ScanPage {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []domain.ScanPage
+	for _, sp := range m.scanPages {
+		if sp.SubmissionID == submissionID {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
+
+func (m *Memory) ScanPageByID(id string) (domain.ScanPage, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, sp := range m.scanPages {
+		if sp.ID == id {
+			return sp, true
+		}
+	}
+	return domain.ScanPage{}, false
+}
+
+func (m *Memory) SaveScanPage(sp domain.ScanPage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.scanPages == nil {
+		m.scanPages = []domain.ScanPage{}
+	}
+	m.scanPages = upsert(m.scanPages, sp.ID, sp)
+	return nil
+}
+
+func (m *Memory) DeleteScanPage(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.ScanPage, 0, len(m.scanPages))
+	for _, sp := range m.scanPages {
+		if sp.ID != id {
+			out = append(out, sp)
+		}
+	}
+	m.scanPages = out
 	return nil
 }
 

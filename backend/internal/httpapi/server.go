@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/ocr"
 	"solvanta/backend/internal/store"
 )
 
@@ -29,6 +30,11 @@ type Server struct {
 	store  store.Store
 	cfg    Config
 	secret []byte
+
+	// ocrs routes a page to Mathpix, Cloud Vision, or the mock. It is built
+	// once at startup from the environment: absent credentials are the normal
+	// state today and must leave the server answering, not failing to boot.
+	ocrs *ocr.Router
 
 	sessionsMu sync.Mutex
 	// revoked maps a token's jti to the time it expires (when it can be
@@ -51,8 +57,17 @@ func NewServer(s store.Store, cfg Config) (*Server, error) {
 		store:   s,
 		cfg:     cfg,
 		secret:  []byte(cfg.Secret),
+		ocrs:    ocr.NewRouter(ocr.FromEnv()),
 		revoked: map[string]time.Time{},
 	}, nil
+}
+
+// OCRStatus is the startup summary of which engine serves which route and
+// why. Printed once at boot so nobody has to guess whether a key took effect,
+// and so a deployment on the mock says so out loud instead of quietly
+// pretending to be a paid engine.
+func (s *Server) OCRStatus() string {
+	return s.ocrs.Status()
 }
 
 // sign issues a token for a user for the given ttl.
@@ -374,6 +389,26 @@ func (s *Server) Router() *gin.Engine {
 		assessments.POST("/:id/submit", s.submitAssessment)
 		assessments.POST("/:id/verdicts", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.markVerdicts)
 		assessments.GET("/:id/results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.assessmentResults)
+
+		// Marking schemes for this assessment
+		assessments.POST("/:id/marking-scheme", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createMarkingScheme)
+		assessments.GET("/:id/marking-scheme", s.listMarkingSchemesForAssessment)
+	}
+
+	// Marking schemes for assignments (separate from assessment ones)
+	assignmentsScheme := api.Group("/assignments/:id/marking-scheme", s.schoolScope())
+	{
+		assignmentsScheme.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createMarkingScheme)
+		assignmentsScheme.GET("", s.listMarkingSchemesForAssignment)
+	}
+
+	// Global marking scheme operations (by scheme ID)
+	ms := api.Group("/marking-schemes", s.schoolScope())
+	{
+		ms.GET("", s.listMarkingSchemes)
+		ms.GET("/:id", s.getMarkingScheme)
+		ms.PUT("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateMarkingScheme)
+		ms.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.deleteMarkingScheme)
 	}
 
 	api.GET("/submissions", s.schoolScope(), s.listSubmissions)
@@ -428,6 +463,14 @@ func (s *Server) Router() *gin.Engine {
 	}
 	api.PUT("/scans/:id/image", s.schoolScope(), s.putScanImage)
 	api.GET("/scans/:id/image", s.schoolScope(), s.getScanImage)
+
+	// Assignment submissions carry any number of photographed pages, so each
+	// page has its own photo under a composite key (see submissionPageKey).
+	// Same scope and write rules as a scan — see putScanImage.
+	api.PUT("/assignment-submissions/:id/pages/:page/image", s.schoolScope(),
+		s.putSubmissionPageImage)
+	api.GET("/assignment-submissions/:id/pages/:page/image", s.schoolScope(),
+		s.getSubmissionPageImage)
 
 	// Fees (client: lib/features/fees). The device pushes payments from its
 	// sync outbox; the reads are scoped per student inside the handlers (see

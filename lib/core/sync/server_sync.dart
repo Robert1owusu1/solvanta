@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/assessment/scans_repository.dart';
 import '../../features/fees/fees_repository.dart';
+import '../../features/ocr/ocr_repository.dart';
 import '../api/api_client.dart';
 import '../api/remote_data_source.dart';
 import '../models/correction.dart';
 import '../models/message.dart';
+import '../models/ocr_job.dart';
 import '../models/scan_page.dart';
 import '../models/user.dart';
 import '../storage/local_store.dart';
@@ -159,8 +161,13 @@ class ServerSync extends ChangeNotifier {
           (r) => _store.saveCorrections(r.map(Correction.fromJson).toList())),
       mirror('targets', () => remote.records('targets'), _saveTargets),
       mirror('scans', () => remote.records('scans'), _mergeScans),
+      mirror('ocr jobs', () => remote.records('ocr_jobs'), _mergeOcrJobs),
     ]);
     unawaited(ScansRepository(store: _store).retryUploads());
+    // A page photographed offline is read the moment connection returns —
+    // the same hook the scan and submission photo retries use, so "we're back
+    // online" has one meaning across the app.
+    unawaited(OcrRepository(store: _store).retryQueued());
 
     if (!reached) return false;
     lastPulled = DateTime.now();
@@ -231,6 +238,31 @@ class ServerSync extends ChangeNotifier {
         else
           ScanPage.fromJson({...r, 'imagePath': ''}),
     ]);
+  }
+
+  /// Merges the teacher's OCR jobs from the server without losing local work.
+  ///
+  /// The photo lives only on the device that captured it and a job still
+  /// waiting to be read has not been mirrored yet, so a local job is never
+  /// dropped just because the server has not heard of it. Where both sides
+  /// hold the same job the one further along wins; at level, the local copy is
+  /// kept because it is the one that still carries the photo.
+  Future<void> _mergeOcrJobs(List<Map<String, dynamic>> remote) async {
+    final local = {for (final j in await _store.loadOcrJobs()) j.id: j};
+    final out = <OcrJob>[];
+    for (final r in remote) {
+      final id = r['id'] as String?;
+      if (id == null) continue;
+      final theirs = OcrJob.fromJson(r);
+      final mine = local.remove(id);
+      if (mine == null) {
+        out.add(theirs);
+      } else {
+        out.add(mine.mergeRank >= theirs.mergeRank ? mine : theirs);
+      }
+    }
+    out.addAll(local.values);
+    await _store.saveOcrJobs(out);
   }
 
   /// The server carries receipts the other side reported; the device may

@@ -8,6 +8,7 @@ import '../../core/ui/ui_kit.dart';
 import 'assessment_builder_screen.dart';
 import 'assessment_repository.dart';
 import 'capture_screen.dart';
+import 'marking_scheme_editor_screen.dart';
 
 class AssessmentsScreen extends StatefulWidget {
   const AssessmentsScreen({super.key});
@@ -92,29 +93,39 @@ class _AssessmentListItem extends StatelessWidget {
       delay: Duration(milliseconds: 40 * index.clamp(0, 10)),
       child: SvPressScale(
         child: SvAvatarTile(
-        title: assessment.title,
-        meta:
-            '${assessment.type.label} · ${subjectName(assessment.subjectId)} · ${assessment.classId}',
-        icon: Icons.assignment,
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('${assessment.totalMarks.toStringAsFixed(0)} marks',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    color: AppTheme.brand)),
-            const SizedBox(width: 2),
-            Icon(Icons.chevron_right,
-                size: 20, color: AppColors.muted),
-          ],
-        ),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => CaptureScreen(assessment: assessment),
+          title: assessment.title,
+          meta:
+              '${assessment.type.label} · ${subjectName(assessment.subjectId)} · ${assessment.classId}',
+          icon: Icons.assignment,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+                color: AppTheme.brand,
+                tooltip: 'Marking scheme',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MarkingSchemeEditorScreen(assessment: assessment),
+                  ),
+                ),
+              ),
+              Text('${assessment.totalMarks.toStringAsFixed(0)} marks',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: AppTheme.brand)),
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right,
+                  size: 20, color: AppColors.muted),
+            ],
+          ),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => CaptureScreen(assessment: assessment),
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -248,22 +259,20 @@ class _AssessmentGridCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton.icon(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => CaptureScreen(assessment: assessment),
-                      ),
-                    ),
-                    icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                    label: const Text('Open'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.brand,
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MarkingSchemeEditorScreen(assessment: assessment),
                     ),
                   ),
-                ],
+                  icon: const Icon(Icons.assignment_turned_in, size: 16),
+                  label: const Text('Marking scheme'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.brand,
+                  ),
+                ),
               ),
             ],
           ),

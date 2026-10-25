@@ -6,6 +6,7 @@ import '../models/attendance.dart';
 import '../models/announcement.dart';
 import '../models/assessment.dart';
 import '../models/assignment.dart';
+import '../models/assignment_submission.dart';
 import '../models/audit.dart';
 import '../models/app_notification.dart';
 import '../models/class_room.dart';
@@ -13,6 +14,7 @@ import '../models/correction.dart';
 import '../models/gate_event.dart';
 import '../models/intervention.dart';
 import '../models/message.dart';
+import '../models/ocr_job.dart';
 import '../models/question.dart';
 import '../models/qgen_request.dart';
 import '../models/role.dart';
@@ -43,10 +45,12 @@ class LocalStore {
   static const _auditKey = 'solvanta.audit_v1';
   static const _assignmentsKey = 'solvanta.assignments_v1';
   static const _scansKey = 'solvanta.scans_v1';
+  static const _assignmentSubmissionsKey = 'solvanta.assignment_submissions_v1';
   static const _correctionsKey = 'solvanta.corrections_v1';
   static const _announcementsKey = 'solvanta.announcements_v1';
   static const _termKey = 'solvanta.term_v1';
   static const _qgenKey = 'solvanta.qgen_v1';
+  static const _ocrJobsKey = 'solvanta.ocr_jobs_v1';
 
   Future<List<User>> loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -468,6 +472,48 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _scansKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  Future<List<AssignmentSubmission>> loadAssignmentSubmissions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_assignmentSubmissionsKey);
+    if (raw == null) return [];
+    final list = jsonDecode(raw) as List;
+    return list
+        .map((e) => AssignmentSubmission.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveAssignmentSubmissions(
+      List<AssignmentSubmission> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _assignmentSubmissionsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  /// OCR jobs are stored like every other record: local first, so a page
+  /// photographed with no signal still exists and is still retried.
+  ///
+  /// The parked photo rides along inside the job rather than in a separate
+  /// map, because a job that has not been read has nothing without it.
+  Future<List<OcrJob>> loadOcrJobs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_ocrJobsKey);
+    if (raw == null) return [];
+    final list = jsonDecode(raw) as List;
+    return list
+        .map((e) => OcrJob.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveOcrJobs(List<OcrJob> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _ocrJobsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
   }

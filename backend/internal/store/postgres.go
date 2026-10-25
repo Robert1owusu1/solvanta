@@ -1908,3 +1908,455 @@ func (p *Postgres) ScanImage(id string) (string, []byte, bool) {
 	}
 	return ct, data, true
 }
+
+// =============================================================================
+// Marking Schemes (Postgres implementation)
+// =============================================================================
+
+func (p *Postgres) MarkingSchemes() []domain.MarkingScheme {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, COALESCE(assessment_id,''), COALESCE(assignment_id,''),
+		       version, COALESCE(parent_scheme_id,''), created_by, created_at
+		FROM marking_schemes ORDER BY created_at DESC`)
+	if err != nil {
+		p.errLog("MarkingSchemes", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.MarkingScheme
+	for rows.Next() {
+		var ms domain.MarkingScheme
+		if err := rows.Scan(&ms.ID, &ms.AssessmentID, &ms.AssignmentID, &ms.Version,
+			&ms.ParentSchemeID, &ms.CreatedBy, &ms.CreatedAt); err != nil {
+			p.errLog("MarkingSchemes scan", err)
+			continue
+		}
+		out = append(out, ms)
+	}
+	return out
+}
+
+func (p *Postgres) MarkingSchemeByID(id string) (domain.MarkingScheme, bool) {
+	var ms domain.MarkingScheme
+	err := p.db.QueryRowContext(contextTODO(), `
+		SELECT id, COALESCE(assessment_id,''), COALESCE(assignment_id,''),
+		       version, COALESCE(parent_scheme_id,''), created_by, created_at
+		FROM marking_schemes WHERE id = $1`, id).
+		Scan(&ms.ID, &ms.AssessmentID, &ms.AssignmentID, &ms.Version,
+			&ms.ParentSchemeID, &ms.CreatedBy, &ms.CreatedAt)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("MarkingSchemeByID", err)
+		}
+		return domain.MarkingScheme{}, false
+	}
+	return ms, true
+}
+
+func (p *Postgres) MarkingSchemesByAssessment(assessmentID string) []domain.MarkingScheme {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, COALESCE(assessment_id,''), COALESCE(assignment_id,''),
+		       version, COALESCE(parent_scheme_id,''), created_by, created_at
+		FROM marking_schemes WHERE assessment_id = $1 ORDER BY version DESC`, assessmentID)
+	if err != nil {
+		p.errLog("MarkingSchemesByAssessment", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.MarkingScheme
+	for rows.Next() {
+		var ms domain.MarkingScheme
+		if err := rows.Scan(&ms.ID, &ms.AssessmentID, &ms.AssignmentID, &ms.Version,
+			&ms.ParentSchemeID, &ms.CreatedBy, &ms.CreatedAt); err != nil {
+			p.errLog("MarkingSchemesByAssessment scan", err)
+			continue
+		}
+		out = append(out, ms)
+	}
+	return out
+}
+
+func (p *Postgres) MarkingSchemesByAssignment(assignmentID string) []domain.MarkingScheme {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, COALESCE(assessment_id,''), COALESCE(assignment_id,''),
+		       version, COALESCE(parent_scheme_id,''), created_by, created_at
+		FROM marking_schemes WHERE assignment_id = $1 ORDER BY version DESC`, assignmentID)
+	if err != nil {
+		p.errLog("MarkingSchemesByAssignment", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.MarkingScheme
+	for rows.Next() {
+		var ms domain.MarkingScheme
+		if err := rows.Scan(&ms.ID, &ms.AssessmentID, &ms.AssignmentID, &ms.Version,
+			&ms.ParentSchemeID, &ms.CreatedBy, &ms.CreatedAt); err != nil {
+			p.errLog("MarkingSchemesByAssignment scan", err)
+			continue
+		}
+		out = append(out, ms)
+	}
+	return out
+}
+
+func (p *Postgres) SaveMarkingScheme(ms domain.MarkingScheme) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO marking_schemes (id, assessment_id, assignment_id, version,
+		                           parent_scheme_id, created_by, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (id) DO UPDATE SET
+			assessment_id = EXCLUDED.assessment_id,
+			assignment_id = EXCLUDED.assignment_id,
+			version = EXCLUDED.version,
+			parent_scheme_id = EXCLUDED.parent_scheme_id,
+			created_by = EXCLUDED.created_by,
+			created_at = EXCLUDED.created_at`,
+		ms.ID, nullStr(ms.AssessmentID), nullStr(ms.AssignmentID),
+		ms.Version, nullStr(ms.ParentSchemeID), ms.CreatedBy, ms.CreatedAt)
+	if err != nil {
+		p.errLog("SaveMarkingScheme", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteMarkingScheme(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM marking_schemes WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteMarkingScheme", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) LatestSchemeVersion(assessmentID, assignmentID string) int {
+	var version int
+	var row *sql.Row
+	if assessmentID != "" {
+		row = p.db.QueryRowContext(contextTODO(),
+			`SELECT COALESCE(MAX(version),0) FROM marking_schemes WHERE assessment_id = $1`, assessmentID)
+	} else {
+		row = p.db.QueryRowContext(contextTODO(),
+			`SELECT COALESCE(MAX(version),0) FROM marking_schemes WHERE assignment_id = $1`, assignmentID)
+	}
+	err := row.Scan(&version)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("LatestSchemeVersion", err)
+		}
+		return 0
+	}
+	return version
+}
+
+func (p *Postgres) SubmissionsByScheme(schemeID string) []domain.Submission {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, assessment_id, student_id, class_id, date,
+		       answers::text, teacher_marks::text, earned,
+		       COALESCE(marking_scheme_id,''), COALESCE(marking_scheme_version,0)
+		FROM submissions WHERE marking_scheme_id = $1`, schemeID)
+	if err != nil {
+		p.errLog("SubmissionsByScheme", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.Submission
+	for rows.Next() {
+		var sub domain.Submission
+		var answers, marks string
+		if err := rows.Scan(&sub.ID, &sub.AssessmentID, &sub.StudentID, &sub.ClassID, &sub.Date,
+			&answers, &marks, &sub.Earned, &sub.MarkingSchemeID, &sub.MarkingSchemeVersion); err != nil {
+			p.errLog("SubmissionsByScheme scan", err)
+			continue
+		}
+		_ = json.Unmarshal([]byte(answers), &sub.Answers)
+		_ = json.Unmarshal([]byte(marks), &sub.TeacherMarks)
+		out = append(out, sub)
+	}
+	return out
+}
+
+// =============================================================================
+// Scheme Questions (Postgres implementation)
+// =============================================================================
+
+func (p *Postgres) SchemeQuestions(schemeID string) []domain.SchemeQuestion {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, scheme_id, question_number, total_marks,
+		       mark_breakdown::text, created_at
+		FROM scheme_questions WHERE scheme_id = $1 ORDER BY question_number`, schemeID)
+	if err != nil {
+		p.errLog("SchemeQuestions", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.SchemeQuestion
+	for rows.Next() {
+		var sq domain.SchemeQuestion
+		var mb string
+		if err := rows.Scan(&sq.ID, &sq.SchemeID, &sq.QuestionNumber, &sq.TotalMarks,
+			&mb, &sq.CreatedAt); err != nil {
+			p.errLog("SchemeQuestions scan", err)
+			continue
+		}
+		// mark_breakdown is JSONB, unmarshal it
+		if mb != "" {
+			_ = json.Unmarshal([]byte(mb), &sq.MarkBreakdown)
+		}
+		// Load accepted answers and misconceptions for this question
+		sq.AcceptedAnswers = p.AcceptedAnswers(sq.ID)
+		sq.Misconceptions = p.Misconceptions(sq.ID)
+		out = append(out, sq)
+	}
+	return out
+}
+
+func (p *Postgres) SchemeQuestionByID(id string) (domain.SchemeQuestion, bool) {
+	var sq domain.SchemeQuestion
+	var mb string
+	err := p.db.QueryRowContext(contextTODO(), `
+		SELECT id, scheme_id, question_number, total_marks,
+		       mark_breakdown::text, created_at
+		FROM scheme_questions WHERE id = $1`, id).
+		Scan(&sq.ID, &sq.SchemeID, &sq.QuestionNumber, &sq.TotalMarks,
+			&mb, &sq.CreatedAt)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("SchemeQuestionByID", err)
+		}
+		return domain.SchemeQuestion{}, false
+	}
+	if mb != "" {
+		_ = json.Unmarshal([]byte(mb), &sq.MarkBreakdown)
+	}
+	sq.AcceptedAnswers = p.AcceptedAnswers(sq.ID)
+	sq.Misconceptions = p.Misconceptions(sq.ID)
+	return sq, true
+}
+
+func (p *Postgres) SaveSchemeQuestion(sq domain.SchemeQuestion) error {
+	mb, _ := json.Marshal(sq.MarkBreakdown)
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO scheme_questions (id, scheme_id, question_number, total_marks,
+		                            mark_breakdown, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (id) DO UPDATE SET
+			scheme_id = EXCLUDED.scheme_id,
+			question_number = EXCLUDED.question_number,
+			total_marks = EXCLUDED.total_marks,
+			mark_breakdown = EXCLUDED.mark_breakdown,
+			created_at = EXCLUDED.created_at`,
+		sq.ID, sq.SchemeID, sq.QuestionNumber, sq.TotalMarks,
+		string(mb), sq.CreatedAt)
+	if err != nil {
+		p.errLog("SaveSchemeQuestion", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteSchemeQuestion(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM scheme_questions WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteSchemeQuestion", err)
+		return err
+	}
+	return nil
+}
+
+// =============================================================================
+// Accepted Answers (Postgres implementation)
+// =============================================================================
+
+func (p *Postgres) AcceptedAnswers(schemeQuestionID string) []domain.AcceptedAnswer {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, scheme_question_id, answer_text, normalized_form,
+		       marks_awarded, is_primary, created_at
+		FROM scheme_accepted_answers WHERE scheme_question_id = $1
+		ORDER BY is_primary DESC, id`, schemeQuestionID)
+	if err != nil {
+		p.errLog("AcceptedAnswers", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.AcceptedAnswer
+	for rows.Next() {
+		var aa domain.AcceptedAnswer
+		if err := rows.Scan(&aa.ID, &aa.SchemeQuestionID, &aa.AnswerText,
+			&aa.NormalizedForm, &aa.MarksAwarded, &aa.IsPrimary, &aa.CreatedAt); err != nil {
+			p.errLog("AcceptedAnswers scan", err)
+			continue
+		}
+		out = append(out, aa)
+	}
+	return out
+}
+
+func (p *Postgres) SaveAcceptedAnswer(aa domain.AcceptedAnswer) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO scheme_accepted_answers (id, scheme_question_id, answer_text,
+		                                     normalized_form, marks_awarded, is_primary, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (id) DO UPDATE SET
+			scheme_question_id = EXCLUDED.scheme_question_id,
+			answer_text = EXCLUDED.answer_text,
+			normalized_form = EXCLUDED.normalized_form,
+			marks_awarded = EXCLUDED.marks_awarded,
+			is_primary = EXCLUDED.is_primary,
+			created_at = EXCLUDED.created_at`,
+		aa.ID, aa.SchemeQuestionID, aa.AnswerText, aa.NormalizedForm,
+		aa.MarksAwarded, aa.IsPrimary, aa.CreatedAt)
+	if err != nil {
+		p.errLog("SaveAcceptedAnswer", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteAcceptedAnswer(id int64) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM scheme_accepted_answers WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteAcceptedAnswer", err)
+		return err
+	}
+	return nil
+}
+
+// =============================================================================
+// Misconceptions (Postgres implementation)
+// =============================================================================
+
+func (p *Postgres) Misconceptions(schemeQuestionID string) []domain.Misconception {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, scheme_question_id, wrong_answer_pattern,
+		       likely_cause, marks_awarded, created_at
+		FROM scheme_misconceptions WHERE scheme_question_id = $1 ORDER BY id`, schemeQuestionID)
+	if err != nil {
+		p.errLog("Misconceptions", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.Misconception
+	for rows.Next() {
+		var msc domain.Misconception
+		if err := rows.Scan(&msc.ID, &msc.SchemeQuestionID, &msc.WrongAnswerPattern,
+			&msc.LikelyCause, &msc.MarksAwarded, &msc.CreatedAt); err != nil {
+			p.errLog("Misconceptions scan", err)
+			continue
+		}
+		out = append(out, msc)
+	}
+	return out
+}
+
+func (p *Postgres) SaveMisconception(msc domain.Misconception) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO scheme_misconceptions (id, scheme_question_id, wrong_answer_pattern,
+		                                   likely_cause, marks_awarded, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (id) DO UPDATE SET
+			scheme_question_id = EXCLUDED.scheme_question_id,
+			wrong_answer_pattern = EXCLUDED.wrong_answer_pattern,
+			likely_cause = EXCLUDED.likely_cause,
+			marks_awarded = EXCLUDED.marks_awarded,
+			created_at = EXCLUDED.created_at`,
+		msc.ID, msc.SchemeQuestionID, msc.WrongAnswerPattern,
+		msc.LikelyCause, msc.MarksAwarded, msc.CreatedAt)
+	if err != nil {
+		p.errLog("SaveMisconception", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteMisconception(id int64) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM scheme_misconceptions WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteMisconception", err)
+		return err
+	}
+	return nil
+}
+
+// =============================================================================
+// Scan Pages (Postgres implementation)
+// =============================================================================
+
+func (p *Postgres) ScanPages(submissionID string) []domain.ScanPage {
+	rows, err := p.db.QueryContext(contextTODO(), `
+		SELECT id, submission_id, COALESCE(scheme_id,''), page_number,
+		       COALESCE(image_id,''), COALESCE(ocr_text,''), COALESCE(ocr_confidence,0),
+		       ocr_status, COALESCE(ocr_metadata::text,'{}'), created_at
+		FROM scan_pages WHERE submission_id = $1 ORDER BY page_number`, submissionID)
+	if err != nil {
+		p.errLog("ScanPages", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.ScanPage
+	for rows.Next() {
+		var sp domain.ScanPage
+		if err := rows.Scan(&sp.ID, &sp.SubmissionID, &sp.SchemeID, &sp.PageNumber,
+			&sp.ImageID, &sp.OCRText, &sp.OCRConfidence, &sp.OCRStatus,
+			&sp.OCRMetadata, &sp.CreatedAt); err != nil {
+			p.errLog("ScanPages scan", err)
+			continue
+		}
+		out = append(out, sp)
+	}
+	return out
+}
+
+func (p *Postgres) ScanPageByID(id string) (domain.ScanPage, bool) {
+	var sp domain.ScanPage
+	err := p.db.QueryRowContext(contextTODO(), `
+		SELECT id, submission_id, COALESCE(scheme_id,''), page_number,
+		       COALESCE(image_id,''), COALESCE(ocr_text,''), COALESCE(ocr_confidence,0),
+		       ocr_status, COALESCE(ocr_metadata::text,'{}'), created_at
+		FROM scan_pages WHERE id = $1`, id).
+		Scan(&sp.ID, &sp.SubmissionID, &sp.SchemeID, &sp.PageNumber,
+			&sp.ImageID, &sp.OCRText, &sp.OCRConfidence, &sp.OCRStatus,
+			&sp.OCRMetadata, &sp.CreatedAt)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			p.errLog("ScanPageByID", err)
+		}
+		return domain.ScanPage{}, false
+	}
+	return sp, true
+}
+
+func (p *Postgres) SaveScanPage(sp domain.ScanPage) error {
+	_, err := p.db.ExecContext(contextTODO(), `
+		INSERT INTO scan_pages (id, submission_id, scheme_id, page_number,
+		                        image_id, ocr_text, ocr_confidence, ocr_status,
+		                        ocr_metadata, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		ON CONFLICT (id) DO UPDATE SET
+			submission_id = EXCLUDED.submission_id,
+			scheme_id = EXCLUDED.scheme_id,
+			page_number = EXCLUDED.page_number,
+			image_id = EXCLUDED.image_id,
+			ocr_text = EXCLUDED.ocr_text,
+			ocr_confidence = EXCLUDED.ocr_confidence,
+			ocr_status = EXCLUDED.ocr_status,
+			ocr_metadata = EXCLUDED.ocr_metadata,
+			created_at = EXCLUDED.created_at`,
+		sp.ID, sp.SubmissionID, nullStr(sp.SchemeID), sp.PageNumber,
+		nullStr(sp.ImageID), sp.OCRText, sp.OCRConfidence, sp.OCRStatus,
+		nullStr(sp.OCRMetadata), sp.CreatedAt)
+	if err != nil {
+		p.errLog("SaveScanPage", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) DeleteScanPage(id string) error {
+	_, err := p.db.ExecContext(contextTODO(), `DELETE FROM scan_pages WHERE id = $1`, id)
+	if err != nil {
+		p.errLog("DeleteScanPage", err)
+		return err
+	}
+	return nil
+}

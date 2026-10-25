@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/ocr"
 )
 
 // validCognitiveLevels mirrors the app's four-value cognitive level set.
@@ -159,8 +162,89 @@ func (s *Server) aiRequest(c *gin.Context) {
 	sendCreated(c, req)
 }
 
-// aiGenerate simulates the Python AI pipeline (doc §43, §54): it writes
-// template drafts for the requested count and moves the request to "generated".
+// generateInput is the optional body on the generate call.
+//
+// Optional because the client already posts nothing here (see
+// QuestionGenRepository.update, which passes a null body), and making the body
+// required would break a working path for no gain. When a photo is supplied it
+// is what the recogniser reads; when it is not, the recogniser still runs and —
+// on a deployment with no keys — the mock's deterministic text stands in.
+type generateInput struct {
+	// ImageBase64 is the photo to recognise. A data-URL prefix is accepted
+	// and stripped, so callers need not know which form the far end wants.
+	ImageBase64 string `json:"imageBase64"`
+	// ContentType labels the photo; absent, the recogniser assumes JPEG.
+	ContentType string `json:"contentType"`
+	// OcrProvider is the question-level routing override for mixed subjects:
+	// "mathpix", "google_vision", or "mock". Empty inherits the subject-level
+	// default (Maths → math notation, everything else → plain handwriting).
+	// An unknown value is ignored rather than honoured, so a typo in a config
+	// can never route a student's page to an unintended engine.
+	OcrProvider string `json:"ocrProvider"`
+}
+
+// generateResponse is the generation request with its OCR run attached.
+//
+// The GenRequest is EMBEDDED, not nested: the existing client decodes this
+// response straight into QuestionGenRequest, and wrapping it in {"request":
+// {...}} would silently empty every field the review screen reads while still
+// parsing without error. Embedding keeps every field exactly where it was and
+// adds "ocr" alongside, so this is additive for old callers.
+type generateResponse struct {
+	domain.GenRequest
+	OCR ocrSummary `json:"ocr"`
+}
+
+// ocrSummary is what the teacher confirmation step needs, and nothing more:
+// what the engine said, which engine said it, how sure it was, and how the
+// page billed. No photo bytes and nothing identifying the student — this
+// travels through the same logs and caches as any other API response.
+//
+// Confirmed is always false when written here. Nothing may mark OCR output as
+// accepted on the way out of the server: acceptance is a teacher's act, taken
+// at the confirmation screen, and pre-setting it here would make the flag
+// meaningless.
+type ocrSummary struct {
+	Text       string       `json:"text"`
+	Math       string       `json:"math,omitempty"`
+	Provider   ocr.Kind     `json:"provider"`
+	CostTier   ocr.CostTier `json:"costTier"`
+	Lines      int          `json:"lines"`
+	Confidence float64      `json:"confidence"`
+	Warnings   []string     `json:"warnings"`
+	Confirmed  bool         `json:"confirmed"`
+}
+
+func summarize(res *ocr.Result) ocrSummary {
+	w := res.Warnings
+	if w == nil {
+		w = []string{} // never null: a UI ranging over warnings must not null-check
+	}
+	return ocrSummary{
+		Text:       res.Text,
+		Math:       res.Math,
+		Provider:   res.Provider,
+		CostTier:   res.CostTier,
+		Lines:      res.Lines,
+		Confidence: res.Confidence,
+		Warnings:   w,
+		Confirmed:  false,
+	}
+}
+
+// aiGenerate runs the OCR pipeline for this request and turns what it reads
+// into drafts a teacher can review (doc §43, §54).
+//
+// This is where a templated stand-in for an AI pipeline used to sit. The
+// recogniser now runs for real: Mathpix for maths content, Cloud Vision for
+// plain handwriting, or the mock when the relevant key is not installed — so
+// the endpoint answers on a machine with no credentials rather than failing to
+// start or hanging on a network call nobody can make.
+//
+// A recogniser failure stops generation outright rather than falling back to
+// mock text. Falling back would hand the teacher fabricated words labelled as
+// a reading of a real page, which is precisely the failure this phase exists
+// to prevent; a 502 that says what went wrong is the honest answer.
 func (s *Server) aiGenerate(c *gin.Context) {
 	id := c.Param("id")
 	req, ok := s.store.AIRequestByID(id)
@@ -172,7 +256,35 @@ func (s *Server) aiGenerate(c *gin.Context) {
 		fail(c, http.StatusConflict, "Request already generated")
 		return
 	}
-	drafts := questionDraftFor(req)
+
+	var in generateInput
+	if hasBody(c) {
+		if !bind(c, &in) {
+			return
+		}
+	}
+	image, err := decodeImageB64(in.ImageBase64)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	provider := s.ocrs.Provider(req.SubjectID, in.OcrProvider)
+	res, err := provider.Recognize(c.Request.Context(), ocr.Input{
+		PageID:      req.ID,
+		Image:       image,
+		ContentType: in.ContentType,
+		SubjectID:   req.SubjectID,
+	})
+	if err != nil {
+		fail(c, http.StatusBadGateway, "OCR failed: "+err.Error())
+		return
+	}
+	// Logged on every run, key or no key, so the rate-tier line is exercised
+	// by the test suite before real money is ever attached to it.
+	ocr.LogCost(req.ID, res)
+
+	drafts := questionDraftFor(req, res)
 	req.Drafts = drafts
 	req.Status = domain.QGenGenerated
 	if writeFailed(c, s.store.SaveAIRequest(req)) {
@@ -182,8 +294,36 @@ func (s *Server) aiGenerate(c *gin.Context) {
 		"AI question drafts ready",
 		itoa(len(drafts))+" "+req.Type+" questions drafted for "+req.SubjectID+" · "+req.Topic+". Review them.",
 		"")
-	s.audit(c, "questiongen.generate", req.ID, "Generated "+itoa(len(drafts))+" drafts", "")
-	sendJSON(c, req)
+	s.audit(c, "questiongen.generate", req.ID,
+		"Recognised "+itoa(res.Lines)+" lines via "+string(res.Provider)+" ("+string(res.CostTier)+" rate), "+itoa(len(drafts))+" drafts", "")
+	sendJSON(c, generateResponse{GenRequest: req, OCR: summarize(res)})
+}
+
+// hasBody reports whether the request carried a body worth decoding.
+//
+// ContentLength is 0 for the no-body calls the client already makes and -1
+// when a transfer is chunked (a body with an unknown size — which is a body).
+// Treating 0 as "nothing to decode" keeps the old callers working without
+// routing them through a JSON parse they never asked for.
+func hasBody(c *gin.Context) bool {
+	return c.Request != nil && c.Request.ContentLength != 0
+}
+
+// decodeImageB64 decodes the optional photo, accepting both the raw base64
+// form and a data-URL, since callers reach for either.
+func decodeImageB64(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	if i := strings.Index(s, ","); i >= 0 && strings.HasPrefix(s, "data:") {
+		s = s[i+1:]
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("imageBase64 is not valid base64")
+	}
+	return b, nil
 }
 
 // aiPublish approves the drafts into the question bank (status published).
@@ -236,32 +376,83 @@ func (s *Server) aiReject(c *gin.Context) {
 	sendJSON(c, req)
 }
 
-// questionDraftFor templates plausible questions for the requested subject and
-// topic using the curriculum bank as inspiration.
-func questionDraftFor(req domain.GenRequest) []domain.Question {
+// questionDraftFor builds draft questions from what the recogniser actually
+// read on this page.
+//
+// The stems quote recognised text rather than inventing it: with a photo
+// attached the drafts are grounded in that photo, and with none — the normal
+// case on a deployment with no keys — they are grounded in the mock's
+// deterministic text, which announces itself as synthetic and so can never be
+// mistaken for a student's work.
+//
+// The option scaffolding and placeholder answer are unchanged from before this
+// phase; they are placeholders a teacher replaces, a draft reaches the bank
+// only through an explicit publish, and changing them belongs to the review UI
+// in Phase 6 rather than to this change. What is new is provenance: every
+// draft says which engine produced it and how sure that engine was, so no
+// draft can quietly be mistaken for one a human wrote.
+func questionDraftFor(req domain.GenRequest, res *ocr.Result) []domain.Question {
 	classID := req.ClassID
 	if classID == "" {
 		classID = "JHS2A"
 	}
+	source := sourceExcerpts(res.Text)
+	provenance := provenanceFor(res)
+
 	var out []domain.Question
-	qtype := req.Type
 	for i := 1; i <= req.Count; i++ {
 		out = append(out, domain.Question{
 			ID:             newID("Q"),
-			Type:           qtype,
+			Type:           req.Type,
 			SubjectID:      req.SubjectID,
 			ClassID:        classID,
 			Topic:          req.Topic,
 			Difficulty:     (i % 3) + 1,
 			CognitiveLevel: levelFor(i),
 			Marks:          2.0,
-			Stem:           req.Topic + " — draft question " + itoa(i) + ". Review and edit before publishing.",
+			Stem:           req.Topic + " — " + source[(i-1)%len(source)],
 			Options:        []string{"Option A", "Option B", "Option C", "Option D"},
 			CorrectAnswer:  "Option A",
-			Explanation:    "AI-drafted answer; verify against the topic material.",
+			Explanation:    provenance,
 		})
 	}
 	return out
+}
+
+// sourceExcerpts splits recognised text into the per-line excerpts drafts are
+// built from.
+//
+// Always returns at least one entry: a page that read as nothing still has to
+// yield a stem, and a zero-length slice here would divide by zero in the loop
+// above. Saying "no readable text" is also the truthful thing to put in front
+// of a teacher.
+func sourceExcerpts(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"(this page returned no readable text)"}
+	}
+	return out
+}
+
+// provenanceFor describes where a draft came from and how sure the engine was.
+//
+// An unreported confidence is stated as unreported rather than printed as 0%:
+// "0% confident" reads as a definite judgement that the page is illegible,
+// when the truth is that the engine offered no judgement at all.
+func provenanceFor(res *ocr.Result) string {
+	if res.Confidence > 0 {
+		return fmt.Sprintf(
+			"Recognised by %s: %.0f%% confidence across %d lines. Review and edit before publishing.",
+			res.Provider, res.Confidence*100, res.Lines)
+	}
+	return fmt.Sprintf(
+		"Recognised by %s: confidence not reported, %d lines. Review and edit before publishing.",
+		res.Provider, res.Lines)
 }
 
 func levelFor(i int) string {

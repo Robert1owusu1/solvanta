@@ -9,6 +9,8 @@ class AssessmentSubmission {
   final Map<String, String> answers;
   final Map<String, double> teacherMarks;
   final double earned;
+  final String? markingSchemeId;
+  final int? markingSchemeVersion;
 
   const AssessmentSubmission({
     required this.id,
@@ -19,6 +21,8 @@ class AssessmentSubmission {
     required this.answers,
     required this.teacherMarks,
     required this.earned,
+    this.markingSchemeId,
+    this.markingSchemeVersion,
   });
 
   static const empty = AssessmentSubmission(
@@ -46,6 +50,8 @@ class AssessmentSubmission {
           (k, v) => MapEntry(k as String, ((v as num).toDouble())),
         ),
         earned: ((json['earned'] ?? 0) as num).toDouble(),
+        markingSchemeId: json['markingSchemeId'] as String?,
+        markingSchemeVersion: (json['markingSchemeVersion'] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -57,6 +63,8 @@ class AssessmentSubmission {
         'answers': answers,
         'teacherMarks': teacherMarks,
         'earned': earned,
+        if (markingSchemeId != null) 'markingSchemeId': markingSchemeId,
+        if (markingSchemeVersion != null) 'markingSchemeVersion': markingSchemeVersion,
       };
 }
 

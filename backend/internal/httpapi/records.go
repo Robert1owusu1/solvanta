@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -37,12 +38,19 @@ var staffRoles = []string{domain.RoleSuperAdmin, domain.RoleSchoolAdmin,
 	domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff}
 
 var recordKinds = map[string]recordKind{
-	domain.RecordLessons:           {scope: scopeSchool, writers: staffRoles},
-	domain.RecordResources:         {scope: scopeClass, writers: staffRoles},
-	domain.RecordSafetyCompletions: {scope: scopeStudent},
-	domain.RecordCorrections:       {scope: scopeStudent},
-	domain.RecordTargets:           {scope: scopeOwner},
-	domain.RecordScans:             {scope: scopeStudent, writers: staffRoles},
+	domain.RecordLessons:               {scope: scopeSchool, writers: staffRoles},
+	domain.RecordResources:             {scope: scopeClass, writers: staffRoles},
+	domain.RecordSafetyCompletions:     {scope: scopeStudent},
+	domain.RecordCorrections:           {scope: scopeStudent},
+	domain.RecordTargets:               {scope: scopeOwner},
+	domain.RecordScans:                 {scope: scopeStudent, writers: staffRoles},
+	domain.RecordAssignmentSubmissions: {scope: scopeStudent, writers: staffRoles},
+	// Owner-scoped: the reading and the teacher's confirmation of it belong to
+	// the person who made them, on every device they sign in from, and to
+	// nobody else. OwnerID is stamped here from the session (never taken from
+	// the body) and checked again against the stored row before an overwrite,
+	// so one teacher cannot read or amend another's confirmation.
+	domain.RecordOcrJobs: {scope: scopeOwner, writers: staffRoles},
 }
 
 // recordFields are the fields lifted out of a record's JSON.
@@ -253,6 +261,98 @@ func (s *Server) getScanImage(c *gin.Context) {
 	ct, data, ok := s.store.ScanImage(r.ID)
 	if !ok {
 		fail(c, http.StatusNotFound, "No image uploaded for this scan")
+		return
+	}
+	c.Header("Cache-Control", "private, max-age=86400")
+	c.Data(http.StatusOK, ct, data)
+}
+
+// submissionPageKey namespaces one page's photo inside the shared scan_images
+// store.
+//
+// An assignment submission carries any number of pages, so its photos cannot
+// be keyed by the submission id alone — that would overwrite page 1 with page
+// 2 on every upload. Both stores already key images by an arbitrary string and
+// neither validates it against a record id, so "<submissionId>#<pageNumber>"
+// namespaces the pages without a migration. The separator cannot collide with
+// a generated id: submission ids are minted as "ASUB-<digits>" and page
+// numbers are integers, so no legitimate id contains a '#'.
+func submissionPageKey(id string, page int) string {
+	return id + "#" + itoa(page)
+}
+
+// parseSubmissionPage reads and validates the page number from the URL.
+func parseSubmissionPage(c *gin.Context) (int, bool) {
+	n, err := strconv.Atoi(c.Param("page"))
+	if err != nil || n < 1 || n > 999 {
+		fail(c, http.StatusBadRequest, "Invalid page number")
+		return 0, false
+	}
+	return n, true
+}
+
+// putSubmissionPageImage stores the photo for one page of a submission that
+// already has a record. Mirrors putScanImage exactly — same size cap, same
+// content-type rule, same write scope — so a submission's page can never be
+// written by someone who could not write the submission itself.
+func (s *Server) putSubmissionPageImage(c *gin.Context) {
+	u := currentUser(c)
+	kind := domain.RecordAssignmentSubmissions
+	k := recordKinds[kind]
+	r, ok := s.store.RecordByID(kind, c.Param("id"))
+	if !ok {
+		fail(c, http.StatusNotFound, "Submission not found")
+		return
+	}
+	page, okPage := parseSubmissionPage(c)
+	if !okPage {
+		return
+	}
+	if !s.canWriteRecord(c, u, kind, k, r) {
+		return
+	}
+	ct := c.ContentType()
+	if !strings.HasPrefix(ct, "image/") {
+		fail(c, http.StatusUnsupportedMediaType, "Send the page as an image")
+		return
+	}
+	data, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		if isBodyTooLarge(err) {
+			fail(c, http.StatusRequestEntityTooLarge, "Image too large")
+			return
+		}
+		fail(c, http.StatusBadRequest, "Could not read the image")
+		return
+	}
+	if len(data) == 0 {
+		fail(c, http.StatusBadRequest, "Empty image")
+		return
+	}
+	// No explicit size check here: limitRequestBody already caps every PUT
+	// ending in "/image" at maxScanImage and turns an overflow into 413.
+	key := submissionPageKey(r.ID, page)
+	if writeFailed(c, s.store.SaveScanImage(key, ct, data)) {
+		return
+	}
+	sendJSON(c, gin.H{"stored": r.ID, "page": page, "bytes": len(data)})
+}
+
+func (s *Server) getSubmissionPageImage(c *gin.Context) {
+	u := currentUser(c)
+	kind := domain.RecordAssignmentSubmissions
+	r, ok := s.store.RecordByID(kind, c.Param("id"))
+	if !ok || !s.recordVisible(u, recordKinds[kind], s.visibleStudents(u), r) {
+		fail(c, http.StatusNotFound, "Submission not found")
+		return
+	}
+	page, okPage := parseSubmissionPage(c)
+	if !okPage {
+		return
+	}
+	ct, data, ok := s.store.ScanImage(submissionPageKey(r.ID, page))
+	if !ok {
+		fail(c, http.StatusNotFound, "No image uploaded for this page")
 		return
 	}
 	c.Header("Cache-Control", "private, max-age=86400")

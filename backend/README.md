@@ -17,8 +17,11 @@ project documentation is noted against each route/section (doc §…).
   `sub/exp/iat/jti` claims), role + tenant middleware with token-revocation
   blacklist. Passwords are **bcrypt-hashed** (seeded at low cost for demo speed;
   runtime hashing uses the default cost); no plaintext passwords anywhere.
-- **AI:** `POST /api/questions/ai/...` simulates the Python pipeline
-  (FastAPI/Transformers per §54); drafts are templated locally
+- **AI / OCR:** `POST /api/questions/ai/...` runs a real OCR provider behind an
+  `ocr.Provider` interface — Mathpix for math-notation content, Google Cloud
+  Vision `DOCUMENT_TEXT_DETECTION` for plain handwriting — and derives drafts
+  from what it actually reads. Neither key is required: see
+  [OCR providers](#ocr-providers).
 - **Marking:** mirrors the app's `computeEarned`, `gradeLetter`, blueprint pick,
   gap analytics, weak-topic analysis (§17–18, §26–32)
 
@@ -37,6 +40,124 @@ PORT=8080 SECRET=my-secret go run ./cmd/server
 go test ./...
 go vet ./...
 ```
+
+### OCR providers
+
+The engine for each route is chosen once at startup, from the environment:
+
+| Variable | Enables | When unset |
+| --- | --- | --- |
+| `MATHPIX_APP_ID` **and** `MATHPIX_APP_KEY` | Mathpix for **math-notation** content (Mathematics by default) | that route serves the mock |
+| `GOOGLE_VISION_API_KEY` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` for plain handwriting (every other subject by default) | that route serves the mock |
+
+Both Mathpix fields are needed together. One alone leaves the route on the
+mock rather than half-configured: a key that fails on the first student's page
+is worse than one that is honestly absent.
+
+```sh
+MATHPIX_APP_ID=… MATHPIX_APP_KEY=… GOOGLE_VISION_API_KEY=… go run ./cmd/server
+```
+
+The active choice is printed once at boot, and says why:
+
+```
+OCR routes — math-notation: mock (MATHPIX_APP_ID/MATHPIX_APP_KEY unset) · plain-text: mock (GOOGLE_VISION_API_KEY unset)
+```
+
+**No keys are needed.** The server boots, answers every request, and passes
+the full test suite with none set — the mock returns deterministic text and
+never opens a socket. It is the default, not a placeholder that breaks later.
+Nothing in the app blocks or waits on credentials.
+
+Routing is **subject-level** (Mathematics → Mathpix, everything else →
+Vision) with a **question-level override** per request via `ocrProvider` in
+the generate body; an unrecognised override value is ignored rather than
+honoured, so a typo can never route a student's page to an unintended engine.
+
+**Key handling.** Read from the environment only. Never committed, never
+logged, never echoed in a response body, never asked for in chat. The Vision
+key is sent in the `X-Goog-Api-Key` header rather than the usual `?key=`
+query parameter — Google accepts both, and a key in a query string ends up in
+error strings, proxy access logs and panic traces. There is no `.env` file to
+put these in: set them in the process environment when the keys are purchased.
+
+Google **service-account** authentication (`GOOGLE_APPLICATION_CREDENTIALS`)
+is *not* implemented — that is an OAuth2 token exchange rather than a key on a
+header, and faking it would be worse than leaving it out. API-key auth only.
+
+**Cost logging.** Every recogniser call — keyed or mocked — writes one line:
+
+```
+ocr: cost page=… provider=mathpix lines=17 rate=high duration_ms=842
+```
+
+`rate` is `high` when the page is above Mathpix's ~12-line threshold, which
+bills at a higher per-page rate; that case adds a second, separately greppable
+line naming the threshold. This runs from day one because the failure it
+prevents is a term's worth of quietly over-billed pages noticed only when the
+invoice arrives. The line carries a page id and nothing about the student —
+a name in an application log is a name in a place nobody thought about — and
+one test asserts that a request containing student data leaves no trace in it.
+
+**OCR jobs collection.** Readings and the teacher's confirmation of them are
+mirrored to `PUT /api/records/ocr_jobs/:id`, an **owner-scoped** collection:
+the owner is stamped server-side from the session (a `ownerId` field in the
+body is stored but decides nothing), reads return only your own rows, and a
+second teacher cannot overwrite one you confirmed. No migration — it reuses
+the generic records store.
+
+### Data privacy — read before enabling real keys
+
+Both vendors' current retention and model-training terms were checked before
+any real key exists, deliberately: these are photographs of identifiable
+schoolchildren, so this has to be settled first rather than discovered later.
+
+**Mathpix — retention is opt-**in** by default, and we opt out.**
+
+- Mathpix's `improve_mathpix` defaults to **`true`**. In that state they
+  document retaining the submitted image for up to **90 days**, caching the
+  OCR result for up to 30, making the request queryable through
+  `/v3/ocr-results`, and routing processed images into an internal quality
+  assurance database (with personally-identifying images dropped within 24h).
+  That is exactly the behaviour this pipeline must not have.
+- Every request we send carries `metadata: {"improve_mathpix": false}`
+  (`ocr.ImproveMathpix`). Mathpix documents that in this state the image is
+  **not written to disk**, the result is **not cached**, and the request is
+  **not queryable** — only billing/audit metadata (timestamps, status, page
+  counts, error codes) is retained.
+- Mathpix also exposes retention as a **per-key** setting. When the key is
+  purchased, confirm the key-level setting is off as well — a key configured
+  to retain would contradict what each request asks for.
+- ⚠️ **Flagged, not resolved:** Mathpix's own pages disagree on the retention
+  window — the Data Retention page says QA images are removed after **90
+  days**, the Snip privacy page says **60 days**. Noted rather than
+  papered over; if a fixed number matters to the school's policy, confirm it
+  with Mathpix directly before enabling a key.
+- Source: `docs.mathpix.com` → *Data Retention*, *Privacy*.
+
+**Google Cloud Vision — no training on submitted content.**
+
+- Google states it does not use submitted content for any purpose other than
+  providing the Vision API, does **not** use it to train or improve the
+  Cloud Vision models, does not claim ownership, and does not share it
+  publicly or with third parties. It complies with the Cloud Data Processing
+  Addendum.
+- Online annotation (`BatchAnnotateImages`, which is what this pipeline uses)
+  processes the image **in memory and does not persist it to disk**. Only
+  transient metadata (time, size, status) is logged. Retention concerns here
+  apply to the async batch APIs, which we do not call.
+- Processing region defaults to **global** and is constrained at the Google
+  Cloud project level, not by this code. If the school has a data-residency
+  requirement, set it deliberately when the project is created.
+- Source: Cloud Vision API → *Data Usage FAQ*.
+
+**Verdict:** as configured, neither vendor retains or trains on student
+images. For Google that is their standing default; for Mathpix it holds *only*
+because we explicitly opt out of a default that would otherwise do exactly
+that. Because the opt-out is load-bearing, it is asserted directly by
+`TestMathpixDisablesImprovementOptOut`, which fails if the flag is flipped,
+removed, or left absent — a refactor cannot silently re-enable retention on
+student pages.
 
 ### PostgreSQL integration tests
 
@@ -259,6 +380,7 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8080/api/school
 `GET/POST /api/questions` · `PATCH/DELETE /api/questions/:id`
 `GET /api/questions/ai/requests` · `POST /api/questions/ai/requests`
 `POST /api/questions/ai/requests/:id/generate|publish|reject`
+(`generate` takes an optional body: `{"imageBase64":"…","contentType":"image/png","ocrProvider":"mathpix"}`)
 
 ### Assessments & marking (doc §16, §18, §26, §54)
 `GET/POST /api/assessments` · `GET /api/assessments/:id`
@@ -322,8 +444,14 @@ migrations/           embedded PostgreSQL schema (*.sql, filename order)
   `ctx context.Context` pass-through before deadlines/tracing are useful.
 - **Out-of-scope modules documented in the product docs but not implemented:**
   the Next.js dashboard (uses `ALLOWED_ORIGINS` + the token flow), Redis-backed
-  queues, and the real Python AI pipeline (FastAPI/Transformers) — the
-  `/api/questions/ai/…` endpoints currently serve templated drafts in its place.
+  queues, and the Python AI pipeline (FastAPI/Transformers). The
+  `/api/questions/ai/…` generate endpoint now calls a real OCR provider
+  (Mathpix / Cloud Vision / mock) in place of that pipeline, but the server
+  keeps no copy of a reading alongside the generation request — it is returned
+  once and then held client-side and in the `ocr_jobs` record collection. A
+  generate response lost in transit therefore cannot be re-fetched; the client
+  reports it and asks for the page to be submitted again. Persisting readings
+  server-side would need a migration and is deferred.
 
 ## Parity guarantees
 

@@ -3,12 +3,52 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
 )
+
+// intIDBase seeds a strictly monotonic id sequence shared by newID and
+// newIntID. Seeded from the clock at process start so a restart cannot re-issue
+// ids minted by a previous run.
+var intIDBase = time.Now().UnixNano()
+
+// newIntID mints a process-unique positive int64 for rows whose tables use
+// BIGSERIAL primary keys (accepted answers, misconceptions).
+//
+// The SERVER owns these ids. Accepting the client's is unsafe: clients number
+// answers per question (1, 2, 3 …, or 1001, 1002 …), so two unrelated schemes
+// send the same id — and because both stores upsert ON CONFLICT (id), the
+// second save would silently overwrite and re-parent the first scheme's rows.
+func newIntID() int64 {
+	return atomic.AddInt64(&intIDBase, 1)
+}
+
+// newID builds a short unique id with the given prefix.
+//
+// The clock alone is NOT a unique source. On coarse-timer platforms (Windows
+// ticks at ~15ms) two calls inside the same tick return identical values —
+// which minted duplicate primary keys. It broke the marking-scheme version
+// chain deterministically: a fork created in the same tick as its parent
+// reused the parent's id, so the upsert overwrote v1 instead of creating v2,
+// destroying the version that submissions were graded against.
+//
+// The counter supplies within-process uniqueness; the clock seed supplies
+// across-restart uniqueness. `prefix` is still the readable, greppable part.
+func newID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, newIntID())
+}
+
+// newQuestionID mints a unique TEXT id for a scheme_questions row, for the same
+// reason newIntID exists: client-generated question ids ("SQ-1", "SQ-2") are
+// only unique within one scheme, while scheme_questions.id is a global
+// primary key that both stores upsert on.
+func newQuestionID() string {
+	return fmt.Sprintf("SQ-%d", newIntID())
+}
 
 // writeFailed reports a failed store write as a 500 and tells the caller to
 // stop. The store has already recorded the detail (Postgres.errLog, surfaced
@@ -22,11 +62,6 @@ func writeFailed(c *gin.Context, err error) bool {
 	}
 	fail(c, http.StatusInternalServerError, "Could not save your changes. Please try again.")
 	return true
-}
-
-// newID builds a short unique id with the given prefix.
-func newID(prefix string) string {
-	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().Unix(), time.Now().Nanosecond()%100000)
 }
 
 // now returns a compact local timestamp string, in the 'yyyy-MM-dd HH:mm'

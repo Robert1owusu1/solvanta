@@ -20,6 +20,7 @@ import '../communication/messages_screen.dart';
 import '../fees/fees_module.dart';
 import '../interventions/interventions_screen.dart';
 import '../marking/marking_dashboard_screen.dart';
+import '../ocr/ocr_review_screen.dart';
 import '../prep/prep_screen.dart';
 import '../prep/study_hub_screen.dart';
 import '../questions/question_gen_screen.dart';
@@ -140,6 +141,9 @@ final _teacherModules = [
   Module(Icons.document_scanner, 'Mark Work', ModulePhase.live,
       subtitle: 'Rule & AI-assisted marking',
       builder: (_) => const MarkingDashboardScreen()),
+  Module(Icons.document_scanner_outlined, 'OCR Review', ModulePhase.latest,
+      subtitle: 'Read photographed work, then confirm it yourself',
+      builder: (_) => const OcrReviewScreen()),
   Module(Icons.data_exploration, 'Learning Gaps', ModulePhase.live,
       subtitle: 'Class weaknesses & interventions',
       builder: (_) => const AnalyticsScreen()),
