@@ -8,6 +8,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- New navigation. On large screens (1000px and up) a navy sidebar lists
+  every module, grouped (People, Attendance & Safety, Teaching & Learning,
+  Marking & Insights, Reports & Records, Communication, Finance), and the
+  chosen module loads beside it under a white top bar with search,
+  notifications and an account menu. The sidebar collapses to icons
+  (remembered per person) and its search is focused with Ctrl/⌘+K. On phones
+  and small tablets the same menu is a hamburger drawer. Home shows the
+  overview and the modules opened most recently ("Jump back in") instead of
+  a long grid of cards.
 - AI marking, Phases 1–5: structured marking schemes with versioning,
   multi-page assignment capture with blur and lighting checks, an OCR pipeline
   (Mathpix / Cloud Vision / mock) with teacher confirmation, and a matching
