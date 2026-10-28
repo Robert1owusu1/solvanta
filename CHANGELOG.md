@@ -20,6 +20,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ticked as checked or changed; finalizing is an explicit, confirmed action
   that records the marks and tells the parent. A "Draft marks" screen asks
   for a draft from confirmed readings or typed answers.
+- AI marking Phase 7: feedback reports from finalized marks only. A
+  per-student report lists the questions that lost marks, the likely
+  misconception where the scheme names one, and a suggested next step
+  (Marking Feedback for teachers and leaders, from Reports & Export, and a
+  "Marking feedback" button on the Results screens parents and students
+  already have). A per-class report
+  shows how the class did on each question, which ones it struggled with,
+  and who to go over them with. The last copy of each report is kept on the
+  device, per account, for use offline.
 - OCR readings are kept on the server for the teacher who asked for them,
   so a reading lost on a bad connection is fetched again rather than re-read.
 - `docs/DEPLOYMENT.md`, `deploy/production.env.example`, `scripts/check.sh`

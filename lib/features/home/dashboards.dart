@@ -24,6 +24,7 @@ import '../ocr/ocr_review_screen.dart';
 import '../prep/prep_screen.dart';
 import '../prep/study_hub_screen.dart';
 import '../questions/question_gen_screen.dart';
+import '../reports/marking_feedback_screen.dart';
 import '../reports/report_card_screen.dart';
 import '../reports/reports_screen.dart';
 import '../resources/resources_screen.dart';
@@ -96,6 +97,9 @@ final _adminModules = [
   Module(Icons.receipt_long, 'Reports & Export', ModulePhase.live,
       subtitle: 'Report cards, PDF/Excel & CSV export',
       builder: (_) => const ReportsScreen()),
+  Module(Icons.fact_check_outlined, 'Marking Feedback', ModulePhase.latest,
+      subtitle: 'Questions each class struggled with',
+      builder: (_) => const MarkingFeedbackScreen()),
   Module(Icons.palette, 'Report Card Designer', ModulePhase.live,
       subtitle: 'Classic, modern & transcript PDF layouts',
       builder: (_) => const ReportCardScreen()),
@@ -144,6 +148,9 @@ final _teacherModules = [
   Module(Icons.document_scanner_outlined, 'OCR Review', ModulePhase.latest,
       subtitle: 'Read photographed work, then confirm it yourself',
       builder: (_) => const OcrReviewScreen()),
+  Module(Icons.fact_check_outlined, 'Marking Feedback', ModulePhase.latest,
+      subtitle: 'Per-student & class feedback from marking',
+      builder: (_) => const MarkingFeedbackScreen()),
   Module(Icons.data_exploration, 'Learning Gaps', ModulePhase.live,
       subtitle: 'Class weaknesses & interventions',
       builder: (_) => const AnalyticsScreen()),

@@ -522,6 +522,12 @@ func (s *Server) Router() *gin.Engine {
 	{
 		reports.GET("/students/:studentId/report-card", s.studentReportCard)
 		reports.GET("/assessments/:id/class-results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classResultsReport)
+		// Feedback from finalized AI-assisted marking (marking_reports.go):
+		// a student's own report follows the report card's visibility, a
+		// class aggregate the class-results roles; a teacher sees only their
+		// own class in both.
+		reports.GET("/marking/students/:studentId", s.studentMarkingFeedback)
+		reports.GET("/marking/classes/:classId", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classMarkingFeedback)
 	}
 
 	audit := api.Group("/audit", s.schoolScope())

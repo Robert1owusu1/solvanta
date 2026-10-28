@@ -4,6 +4,7 @@ import '../../core/models/assessment.dart';
 import '../../core/models/submission.dart';
 import '../../core/models/subjects.dart';
 import '../../core/theme/app_theme.dart';
+import '../reports/marking_feedback_screen.dart';
 import 'assessment_repository.dart';
 import 'feedback_screen.dart';
 
@@ -39,6 +40,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
       appBar: widget.showAppBar
           ? AppBar(title: Text(widget.title ?? 'Results'))
           : null,
+      // Phase 7: what to work on next, from marks a teacher finalized.
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'marking-feedback-${widget.studentId}',
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => StudentFeedbackView(studentId: widget.studentId),
+        )),
+        icon: const Icon(Icons.fact_check_outlined),
+        label: const Text('Marking feedback'),
+      ),
       body: FutureBuilder(
         future: _data,
         builder: (context, snap) {
@@ -50,7 +60,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
             return const Center(child: Text('No assessments found'));
           }
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
+            // Room at the bottom so the last card clears the button.
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
             itemCount: rows.length,
             itemBuilder: (context, i) {
               final a = rows[i].assessment;

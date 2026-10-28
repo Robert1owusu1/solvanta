@@ -455,6 +455,19 @@ payment recorded on one device shows on the bill every device reads.
 `GET /api/reports/students/:studentId/report-card` ·
 `GET /api/reports/assessments/:id/class-results` (includes CSV body)
 
+Marking feedback (Phase 7, `marking_reports.go`), built only from finalized
+drafts — a draft awaiting review never appears:
+`GET /api/reports/marking/students/:studentId` — per finalized paper, the
+questions short of full marks, the scheme's likely misconception where one
+matched, and a next step (blank answer → misconception → question topic →
+"go over it with your teacher"). Same visibility as the report card (the
+student, their parent, staff), but a teacher only for their own class; the
+marker's note is sent to staff only, and no accepted answer is ever included.
+`GET /api/reports/marking/classes/:classId` (staff roles; a teacher only their
+own class) — per scheme, each question's average, full/zero/blank counts,
+misconceptions seen, who lost marks, and `hardest`: questions averaging below
+50%, worst first. `awaitingReview` counts drafts not yet finalized.
+
 ### Audit (doc §49)
 `GET /api/audit` (superAdmin/schoolAdmin/headteacher)
 

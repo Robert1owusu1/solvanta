@@ -55,6 +55,7 @@ class LocalStore {
   static const _markingDraftsKey = 'solvanta.marking_drafts_v1';
   static const _draftRequestsKey = 'solvanta.marking_draft_requests_v1';
   static const _draftReviewsKey = 'solvanta.marking_draft_reviews_v1';
+  static const _markingFeedbackKey = 'solvanta.marking_feedback_v1';
 
   Future<List<User>> loadUsers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -548,6 +549,20 @@ class LocalStore {
     final raw = prefs.getString(_draftReviewsKey);
     if (raw == null) return {};
     return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  /// The last feedback reports fetched, keyed by viewer and report, so a
+  /// report read once can still be shown without a signal.
+  Future<Map<String, dynamic>> loadMarkingFeedback() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_markingFeedbackKey);
+    if (raw == null) return {};
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  }
+
+  Future<void> saveMarkingFeedback(Map<String, dynamic> reports) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_markingFeedbackKey, jsonEncode(reports));
   }
 
   Future<void> saveDraftReviews(Map<String, dynamic> reviews) async {

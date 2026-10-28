@@ -16,6 +16,7 @@ import '../assessment/assessment_repository.dart';
 import '../attendance/attendance_repository.dart';
 import '../calendar/term_repository.dart';
 import '../students/students_repository.dart';
+import 'marking_feedback_screen.dart';
 import 'report_card_screen.dart';
 import 'reporting_service.dart';
 
@@ -221,6 +222,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                   'class_${assessment.id}',
                 ),
+              ),
+              const Divider(height: 32),
+              Text('Marking feedback', style: _head2),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => StudentFeedbackView(
+                          studentId: student.id, title: student.fullName),
+                    )),
+                    icon: const Icon(Icons.person_search_outlined),
+                    label: Text('${student.firstName}\'s feedback'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MarkingFeedbackScreen(),
+                    )),
+                    icon: const Icon(Icons.groups_outlined),
+                    label: const Text('Class feedback'),
+                  ),
+                ],
               ),
               const Divider(height: 32),
               Text('School summary — ${d.term.label}', style: _head2),
