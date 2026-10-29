@@ -8,6 +8,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Dashboard charts: attendance trend (line), results per assessment and
+  grade spread (bars), each with tooltips and a table view, scoped to the
+  person (a teacher's class, a parent's children, the whole school for
+  leaders). Chart colours are validated for contrast in light and dark.
+- Dashboard panels: the latest notices (emergencies first) and what's
+  coming up (assessments and assignment deadlines), beside the charts on
+  desktop and below the shortcuts on phones, each with a "View all" link.
+- Desktop tables for students, invoices and assessments: sortable columns,
+  paging, and row actions.
 - New navigation. On large screens (1000px and up) a navy sidebar lists
   every module, grouped (People, Attendance & Safety, Teaching & Learning,
   Marking & Insights, Reports & Records, Communication, Finance), and the

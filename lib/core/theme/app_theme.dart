@@ -458,6 +458,12 @@ class AppColors {
 
   static Color get infoBg => palette.infoBg;
 
+  /// The single data series of a chart: brand blue, validated for contrast,
+  /// lightness and chroma against each mode's surface (dark needs a brighter,
+  /// more saturated step than [info], which reads grey as a fill).
+  static Color get chart =>
+      isDark ? const Color(0xFF5B95E0) : AppTheme.brandLight;
+
   // Neutrals — structural only, never meaningful on their own.
   static Color get ink => palette.ink; // headings, primary text
   static Color get body => palette.body; // secondary text

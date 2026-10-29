@@ -11,7 +11,9 @@ import '../../notifications/notifications_repository.dart';
 import '../../search/global_search_screen.dart';
 import '../../settings/settings_screen.dart';
 import '../../students/students_repository.dart';
+import 'home_charts.dart';
 import 'home_overview.dart';
+import 'home_panels.dart';
 
 /// The group a module is listed under in the navigation menu.
 enum NavSection {
@@ -225,6 +227,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
         listTitle: widget.listTitle,
         recent: _recentModules,
         suggested: widget.modules.take(4).toList(),
+        modules: widget.modules,
         overviewStamp: _overviewStamp,
         unread: _unread,
         onOpen: (m) => _open(m, wide: wide),
@@ -891,6 +894,7 @@ class _HomeTab extends StatelessWidget {
     required this.listTitle,
     required this.recent,
     required this.suggested,
+    required this.modules,
     required this.overviewStamp,
     required this.unread,
     required this.onOpen,
@@ -905,6 +909,9 @@ class _HomeTab extends StatelessWidget {
   final String listTitle;
   final List<Module> recent;
   final List<Module> suggested;
+
+  /// Every module the person has, to open "View all" targets by name.
+  final List<Module> modules;
   final int overviewStamp;
   final int unread;
   final ValueChanged<Module> onOpen;
@@ -916,78 +923,116 @@ class _HomeTab extends StatelessWidget {
   final VoidCallback onSettings;
   final Future<void> Function() onRefresh;
 
+  VoidCallback? _opener(String label) {
+    final m = modules.where((m) => m.label == label).firstOrNull;
+    return m == null ? null : () => onOpen(m);
+  }
+
   @override
   Widget build(BuildContext context) {
     final quick = recent.isNotEmpty ? recent : suggested;
+    final wide = onMenu == null;
+    final panels = HomePanels(
+      key: ValueKey('panels-$overviewStamp'),
+      user: user,
+      onOpenNotices: _opener('Announcements'),
+      onOpenCalendar: _opener('Academic Calendar'),
+    );
+    final shortcuts = <Widget>[
+      if (quick.isNotEmpty) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(recent.isNotEmpty ? 'Jump back in' : listTitle,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+              ),
+              if (!wide)
+                TextButton.icon(
+                  onPressed: onMenu,
+                  icon: const Icon(Icons.menu, size: 16),
+                  label: const Text('All tools'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.brand,
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final m in quick)
+                ActionChip(
+                  avatar: Icon(m.icon, size: 18, color: AppColors.brand),
+                  label: Text(m.label),
+                  tooltip: m.subtitle,
+                  onPressed: () => onOpen(m),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ];
+    final overview = Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: HomeOverview(key: ValueKey(overviewStamp), user: user),
+    );
+    final charts = HomeCharts(key: ValueKey('charts-$overviewStamp'), user: user);
+
     return SvRefresh(
       onRefresh: onRefresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(top: 0, bottom: 24),
         children: [
-          if (onMenu == null)
+          if (wide) ...[
             _PageHeading(
               title: 'Dashboard',
               subtitle: 'Welcome back, ${user.name.split(' ').where((w) => !w.endsWith('.')).firstOrNull ?? user.name}',
-            )
-          else
-          SvEntrance(
-            offset: const Offset(0, -.08),
-            duration: const Duration(milliseconds: 560),
-            child: _ShellHeader(
-              user: user,
-              unread: unread,
-              onMenu: onMenu,
-              onInbox: onInbox,
-              onSearch: onSearch,
-              onSettings: onSettings,
-              onLogout: () => AuthLogout.of(context)?.onLogout.call(),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: HomeOverview(key: ValueKey(overviewStamp), user: user),
-          ),
-          if (quick.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(recent.isNotEmpty ? 'Jump back in' : listTitle,
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+            // Beside the sidebar: the overview, shortcuts and charts on the
+            // left, notices and what's coming up in a column on the right.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [overview, ...shortcuts, const SizedBox(height: 12), charts],
                   ),
-                  if (onMenu != null)
-                    TextButton.icon(
-                      onPressed: onMenu,
-                      icon: const Icon(Icons.menu, size: 16),
-                      label: const Text('All tools'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.brand,
-                        visualDensity: VisualDensity.compact,
-                        textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                ],
+                ),
+                SizedBox(
+                  width: 340,
+                  child: Padding(padding: const EdgeInsets.fromLTRB(4, 14, 16, 0), child: panels),
+                ),
+              ],
+            ),
+          ] else ...[
+            SvEntrance(
+              offset: const Offset(0, -.08),
+              duration: const Duration(milliseconds: 560),
+              child: _ShellHeader(
+                user: user,
+                unread: unread,
+                onMenu: onMenu,
+                onInbox: onInbox,
+                onSearch: onSearch,
+                onSettings: onSettings,
+                onLogout: () => AuthLogout.of(context)?.onLogout.call(),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final m in quick)
-                    ActionChip(
-                      avatar: Icon(m.icon, size: 18, color: AppColors.brand),
-                      label: Text(m.label),
-                      tooltip: m.subtitle,
-                      onPressed: () => onOpen(m),
-                    ),
-                ],
-              ),
-            ),
+            overview,
+            ...shortcuts,
+            // On a phone: what needs reading, then the charts a scroll away.
+            Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 12), child: panels),
+            charts,
           ],
         ],
       ),
