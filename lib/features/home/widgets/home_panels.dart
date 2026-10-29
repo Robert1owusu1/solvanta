@@ -6,6 +6,7 @@ import '../../../core/models/subjects.dart';
 import '../../../core/models/user.dart';
 import '../../../core/sync/server_sync.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/ui_kit.dart';
 import '../../assessment/assessment_repository.dart';
 import '../../assignments/assignments_repository.dart';
 import '../../communication/announcements_repository.dart';
@@ -114,7 +115,9 @@ class _HomePanelsState extends State<HomePanels> {
       future: _future,
       builder: (context, snap) {
         final (notices, upcoming) = snap.data ?? (const <Announcement>[], const <UpcomingItem>[]);
-        if (snap.connectionState != ConnectionState.done) return const SizedBox.shrink();
+        if (snap.connectionState != ConnectionState.done) {
+          return const Column(children: [SvCardSkeleton(lines: 4), SizedBox(height: 12), SvCardSkeleton(lines: 4)]);
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

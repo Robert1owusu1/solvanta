@@ -613,7 +613,7 @@ class _NavPanel extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.all(12),
                       child: Text('Nothing matches "$query"',
-                          style: TextStyle(color: Colors.white.withValues(alpha: .7))),
+                          style: TextStyle(color: Colors.white.withValues(alpha: .85))),
                     ),
                 ],
               ),
@@ -719,7 +719,7 @@ class _NavPanel extends StatelessWidget {
           decoration: InputDecoration(
             isDense: true,
             hintText: 'Filter menu',
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 13.5),
+            hintStyle: TextStyle(color: Colors.white.withValues(alpha: .85), fontSize: 13.5),
             prefixIcon: Icon(Icons.search, size: 20, color: Colors.white.withValues(alpha: .7)),
             filled: true,
             fillColor: Colors.white.withValues(alpha: .08),
@@ -751,7 +751,8 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: TextStyle(
-          color: Colors.white.withValues(alpha: .5),
+          // 75% white clears 4.5:1 down to the sidebar's lighter end.
+          color: Colors.white.withValues(alpha: .75),
           fontSize: 11,
           fontWeight: FontWeight.w800,
           letterSpacing: 1,

@@ -8,6 +8,7 @@ import '../../../core/responsive.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/sync/server_sync.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/ui/ui_kit.dart';
 import '../../analytics/analytics_service.dart';
 import '../../assessment/assessment_repository.dart';
 import 'home_panels.dart';
@@ -129,7 +130,24 @@ class _HomeChartsState extends State<HomeCharts> {
       future: _future,
       builder: (context, snap) {
         final d = snap.data;
-        if (d == null) return const SizedBox.shrink();
+        if (d == null) {
+          // Placeholders the size of the charts, so the page doesn't jump.
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+            child: ResponsiveGridView(
+              minItemWidth: 320,
+              maxColumns: 3,
+              minColumns: 1,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.45,
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: const [SvCardSkeleton(lines: 5), SvCardSkeleton(lines: 5), SvCardSkeleton(lines: 5)],
+            ),
+          );
+        }
         final who = widget.user.role.isTeacher
             ? 'Your class'
             : d.family

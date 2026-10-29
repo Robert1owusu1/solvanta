@@ -89,7 +89,7 @@ class _StudentFeedbackViewState extends State<StudentFeedbackView> {
       future: _data,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const SvLoading(message: 'Loading feedback…');
+          return const SvListSkeleton(avatar: false);
         }
         final res = snap.data;
         final f = res?.data;
@@ -305,7 +305,7 @@ class _MarkingFeedbackScreenState extends State<MarkingFeedbackScreen> {
         future: _setup,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const SvLoading(message: 'Loading feedback…');
+            return const SvListSkeleton(avatar: false);
           }
           final (me, classes) = snap.data ?? (null, const <ClassRoom>[]);
           if (me == null) return const Center(child: Text('Not signed in'));

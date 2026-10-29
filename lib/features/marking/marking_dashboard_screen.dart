@@ -65,7 +65,7 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
             );
           }
           if (snap.connectionState != ConnectionState.done) {
-            return const SvLoading(message: 'Loading marking list…');
+            return const SvListSkeleton();
           }
           final (assessments, students, subs) =
               snap.data ?? (<Assessment>[], <Student>[], <AssessmentSubmission>[]);

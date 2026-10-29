@@ -158,7 +158,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
         future: _data,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const SvLoading();
+            return const SvListSkeleton();
           }
           if (snap.hasError) {
             return SvErrorState(

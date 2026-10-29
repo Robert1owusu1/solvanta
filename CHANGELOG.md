@@ -65,6 +65,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Accessibility: menu section labels and the menu filter's placeholder
+  were below 4.5:1 against the sidebar; both now pass in light and dark.
+  Main lists and the dashboard show content-shaped placeholders while
+  loading instead of a spinner.
 - Dark mode: text and icons coloured with the fixed brand navy were nearly
   invisible on dark backgrounds; they now use the theme-aware brand colour
   (pale navy in dark mode) across 30 screens.

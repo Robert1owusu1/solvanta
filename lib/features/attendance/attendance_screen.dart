@@ -151,7 +151,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         future: _data,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const SvListSkeleton();
           }
           final (classes, students, defaultClass) =
               snap.data ?? (<ClassRoom>[], <Student>[], null);

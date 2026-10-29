@@ -49,7 +49,7 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
         future: _data,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
-            return const SvLoading();
+            return const SvListSkeleton();
           }
           if (snap.hasError) {
             return SvErrorState(
