@@ -12,6 +12,7 @@ import '../../notifications/notifications_repository.dart';
 import '../../search/global_search_screen.dart';
 import '../../settings/settings_screen.dart';
 import '../../students/students_repository.dart';
+import 'command_palette.dart';
 import 'home_charts.dart';
 import 'home_overview.dart';
 import 'home_panels.dart';
@@ -106,6 +107,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
   var _query = '';
   var _collapsed = false;
   var _recent = <String>[];
+  var _pinned = <String>[];
 
   String get _prefsKey => 'solvanta.nav.${widget.user.id}';
 
@@ -176,6 +178,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
       if (!mounted) return;
       setState(() {
         _recent = recent.where(known.contains).toList();
+        _pinned = (p.getStringList('$_prefsKey.pinned') ?? const []).where(known.contains).toList();
         _collapsed = p.getBool('$_prefsKey.collapsed') ?? false;
       });
     } catch (_) {}
@@ -185,6 +188,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
     try {
       final p = await SharedPreferences.getInstance();
       await p.setStringList('$_prefsKey.recent', _recent);
+      await p.setStringList('$_prefsKey.pinned', _pinned);
       await p.setBool('$_prefsKey.collapsed', _collapsed);
     } catch (_) {}
   }
@@ -249,6 +253,16 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
     if (dest == _homeDest && mounted) setState(() => _overviewStamp++);
   }
 
+  void _togglePin(String label) {
+    svHaptic(SvHaptic.light);
+    final pin = !_pinned.contains(label);
+    setState(() => _pinned = pin ? [..._pinned, label] : _pinned.where((l) => l != label).toList());
+    _savePrefs();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(pin ? '$label pinned to the top of the menu' : '$label unpinned')));
+  }
+
   void _toggleCollapsed() {
     setState(() => _collapsed = !_collapsed);
     _savePrefs();
@@ -281,6 +295,8 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
         onToggleCollapsed: wide ? _toggleCollapsed : null,
         onSettings: () => _push((_) => const SettingsScreen()),
         onLogout: _logout,
+        pinned: _pinned,
+        onTogglePin: _togglePin,
       );
 
   Widget _home({required bool wide}) => _HomeTab(
@@ -294,7 +310,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
         onOpen: (m) => _open(m, wide: wide),
         onMenu: wide ? null : () => _scaffoldKey.currentState?.openDrawer(),
         onInbox: () => _go(_inboxDest, wide: wide),
-        onSearch: () => _push((_) => const GlobalSearchScreen()),
+        onSearch: () => _palette(wide: wide),
         onSettings: () => _push((_) => const SettingsScreen()),
         onRefresh: _refresh,
       );
@@ -331,10 +347,10 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
       final wide = constraints.maxWidth >= sidebarBreakpoint;
       if (wide) {
         return CallbackShortcuts(
-          // Ctrl/⌘+K jumps to the menu search, as in most web apps.
+          // Ctrl/⌘+K opens the quick search, as in most web apps.
           bindings: {
-            const SingleActivator(LogicalKeyboardKey.keyK, control: true): _focusSearch,
-            const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _focusSearch,
+            const SingleActivator(LogicalKeyboardKey.keyK, control: true): () => _palette(wide: true),
+            const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () => _palette(wide: true),
           },
           child: Scaffold(
             body: Column(
@@ -357,7 +373,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
                               collapsed: _collapsed,
                               unread: _unread,
                               onToggle: _toggleCollapsed,
-                              onSearch: () => _push((_) => const GlobalSearchScreen()),
+                              onSearch: () => _palette(wide: true),
                               onInbox: () => _go(_inboxDest, wide: true),
                               onAccount: () => _go(_accountDest, wide: true),
                               onSettings: () => _push((_) => const SettingsScreen()),
@@ -455,10 +471,14 @@ class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindi
           ],
       };
 
-  void _focusSearch() {
-    if (_collapsed) _toggleCollapsed();
-    _searchFocus.requestFocus();
-  }
+  /// The quick search: menu items, and students and assessments for staff.
+  void _palette({required bool wide}) => showCommandPalette(
+        context,
+        user: widget.user,
+        modules: widget.modules,
+        onModule: (m) => _open(m, wide: wide),
+        onPush: _push,
+      );
 }
 
 /// Hosts a module beside the sidebar in its own navigator, so the screens it
@@ -508,10 +528,16 @@ class _NavPanel extends StatelessWidget {
     required this.onToggleCollapsed,
     required this.onSettings,
     required this.onLogout,
+    required this.pinned,
+    required this.onTogglePin,
   });
 
   final User user;
   final List<Module> modules;
+
+  /// Labels pinned to the top of the menu, in the order pinned.
+  final List<String> pinned;
+  final ValueChanged<String> onTogglePin;
   final String selected;
   final bool collapsed;
   final String query;
@@ -575,17 +601,13 @@ class _NavPanel extends StatelessWidget {
                     collapsed: collapsed,
                     onTap: () => onGo(_homeDest),
                   ),
+                  if (pinnedModules.isNotEmpty && q.isEmpty) ...[
+                    _SectionLabel('Pinned', collapsed: collapsed),
+                    for (final m in pinnedModules) _item(m),
+                  ],
                   for (final s in sections) ...[
                     _SectionLabel(s.label, collapsed: collapsed),
-                    for (final m in shown.where((m) => m.section == s))
-                      _NavItem(
-                        icon: m.icon,
-                        label: m.label,
-                        tooltip: m.subtitle,
-                        selected: selected == m.label,
-                        collapsed: collapsed,
-                        onTap: () => onOpen(m),
-                      ),
+                    for (final m in shown.where((m) => m.section == s)) _item(m),
                   ],
                   if (shown.isEmpty)
                     Padding(
@@ -641,6 +663,21 @@ class _NavPanel extends StatelessWidget {
     );
   }
 
+  List<Module> get pinnedModules => [
+        for (final l in pinned) ...modules.where((m) => m.label == l),
+      ];
+
+  Widget _item(Module m) => _NavItem(
+        icon: m.icon,
+        label: m.label,
+        tooltip: m.subtitle,
+        selected: selected == m.label,
+        collapsed: collapsed,
+        pinned: pinned.contains(m.label),
+        onPin: () => onTogglePin(m.label),
+        onTap: () => onOpen(m),
+      );
+
   Widget _brand() {
     final logo = Container(
       width: 32,
@@ -681,7 +718,7 @@ class _NavPanel extends StatelessWidget {
           cursorColor: AppTheme.gold,
           decoration: InputDecoration(
             isDense: true,
-            hintText: onToggleCollapsed == null ? 'Search menu' : 'Search menu  (Ctrl+K)',
+            hintText: 'Filter menu',
             hintStyle: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 13.5),
             prefixIcon: Icon(Icons.search, size: 20, color: Colors.white.withValues(alpha: .7)),
             filled: true,
@@ -724,7 +761,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _NavItem extends StatelessWidget {
+class _NavItem extends StatefulWidget {
   const _NavItem({
     required this.icon,
     required this.label,
@@ -733,6 +770,8 @@ class _NavItem extends StatelessWidget {
     required this.onTap,
     this.tooltip = '',
     this.badge = 0,
+    this.pinned,
+    this.onPin,
   });
 
   final IconData icon;
@@ -743,24 +782,41 @@ class _NavItem extends StatelessWidget {
   final int badge;
   final VoidCallback onTap;
 
+  /// Whether the module is pinned; null for items that can't be pinned.
+  final bool? pinned;
+
+  /// Pins or unpins: the star on hover, or a long press on a phone.
+  final VoidCallback? onPin;
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  var _hover = false;
+
   @override
   Widget build(BuildContext context) {
-    final fg = selected ? Colors.white : Colors.white.withValues(alpha: .78);
-    Widget glyph = Icon(icon, size: 21, color: fg);
-    if (badge > 0) {
-      glyph = Badge(label: Text(_badgeText(badge)), child: glyph);
+    final w = widget;
+    final fg = w.selected ? Colors.white : Colors.white.withValues(alpha: .78);
+    Widget glyph = Icon(w.icon, size: 21, color: fg);
+    if (w.badge > 0) {
+      glyph = Badge(label: Text(_badgeText(w.badge)), child: glyph);
     }
+    final pinned = w.pinned ?? false;
+    final showStar = !w.collapsed && w.onPin != null && (pinned || _hover);
     final item = Material(
-      color: selected ? AppTheme.brandLight : Colors.transparent,
+      color: w.selected ? AppTheme.brandLight : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
+        onTap: w.onTap,
+        onLongPress: w.onPin,
         child: Container(
           height: 42,
-          padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 12),
-          alignment: collapsed ? Alignment.center : Alignment.centerLeft,
-          child: collapsed
+          padding: EdgeInsets.only(left: w.collapsed ? 0 : 12, right: w.collapsed ? 0 : 2),
+          alignment: w.collapsed ? Alignment.center : Alignment.centerLeft,
+          child: w.collapsed
               ? glyph
               : Row(
                   children: [
@@ -768,36 +824,48 @@ class _NavItem extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        label,
+                        w.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: fg,
                           fontSize: 14,
-                          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                          fontWeight: w.selected ? FontWeight.w800 : FontWeight.w600,
                         ),
                       ),
                     ),
+                    if (showStar)
+                      IconButton(
+                        tooltip: pinned ? 'Unpin ${w.label}' : 'Pin ${w.label} to the top',
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        onPressed: w.onPin,
+                        icon: Icon(pinned ? Icons.star_rounded : Icons.star_outline_rounded,
+                            color: pinned ? AppTheme.gold : Colors.white.withValues(alpha: .7)),
+                      ),
                   ],
                 ),
         ),
       ),
     );
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.5),
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: tooltip.isEmpty ? label : '$label. $tooltip',
-        excludeSemantics: true,
-        child: collapsed || tooltip.isNotEmpty
-            ? Tooltip(
-                message: collapsed ? label : tooltip,
-                waitDuration: const Duration(milliseconds: 500),
-                preferBelow: false,
-                child: item,
-              )
-            : item,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1.5),
+        child: Semantics(
+          button: true,
+          selected: w.selected,
+          label: w.tooltip.isEmpty ? w.label : '${w.label}. ${w.tooltip}',
+          child: w.collapsed || w.tooltip.isNotEmpty
+              ? Tooltip(
+                  message: w.collapsed ? w.label : w.tooltip,
+                  waitDuration: const Duration(milliseconds: 500),
+                  preferBelow: false,
+                  child: item,
+                )
+              : item,
+        ),
       ),
     );
   }
@@ -871,7 +939,7 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: 'Search',
+            tooltip: 'Search (Ctrl+K)',
             onPressed: onSearch,
             icon: Icon(Icons.search, color: AppColors.ink),
           ),

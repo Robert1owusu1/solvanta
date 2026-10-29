@@ -8,6 +8,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Quick search (Ctrl/⌘+K, or the search button): jump to any page and, for
+  staff, a student by name or admission number or an assessment by title;
+  arrow keys and Enter, Esc to close, with a hand-off to the full search.
+- Pinned pages: a star on hover (long press on a phone) pins a page to a
+  "Pinned" group at the top of the menu, remembered per person.
 - Web addresses and Back beside the sidebar: each module has its own
   address (`/#/take-attendance`), so a refresh or a bookmark reopens it;
   the browser's Back closes a page opened inside a module, then returns
