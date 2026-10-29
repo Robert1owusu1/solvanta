@@ -49,6 +49,8 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Dark mode: text and icons coloured with the fixed brand navy were nearly
   invisible on dark backgrounds; they now use the theme-aware brand colour
   (pale navy in dark mode) across 30 screens.
+- Dark mode: switching the theme now repaints screens that are already open
+  (the home page under Settings kept the light palette, dark text on dark).
 - Attendance: once every student in a class is marked for the day, the roll
   opens as taken and read-only instead of a fresh roll. "Edit attendance"
   unlocks it; saving a change asks for a reason and writes it to the audit

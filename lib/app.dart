@@ -167,7 +167,16 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
       listenable: _settings,
       builder: (context, _) {
         final settings = _settings;
-        AppColors.setBrightness(settings.resolveBrightness());
+        final brightness = settings.resolveBrightness();
+        if (brightness != AppColors.brightness) {
+          AppColors.setBrightness(brightness);
+          // `AppColors.*` are plain getters, so screens already open (the
+          // home page under Settings) don't depend on the theme and would
+          // keep the old palette. Rebuild everything once after the switch.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) (context as Element).visitChildren(_rebuildAll);
+          });
+        }
         return MaterialApp(
           title: 'SOLVANTA',
           debugShowCheckedModeBanner: false,
@@ -244,4 +253,9 @@ class _SessionGateState extends State<_SessionGate> {
       },
     );
   }
+}
+
+void _rebuildAll(Element element) {
+  element.markNeedsBuild();
+  element.visitChildren(_rebuildAll);
 }
