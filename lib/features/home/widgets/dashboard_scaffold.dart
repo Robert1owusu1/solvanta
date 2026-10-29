@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,6 +51,15 @@ class Module {
 /// module opens as its own screen with a back button.
 const sidebarBreakpoint = 1000.0;
 
+/// The address a module has on the web: its name in lower case, words
+/// joined by dashes ("Take Attendance" → `take-attendance`).
+String moduleSlug(String label) =>
+    label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-|-$'), '');
+
+/// A module asked for by the address the app was opened at (a refresh or a
+/// bookmark), as a slug; consumed by the first dashboard that shows.
+String? pendingModuleSlug;
+
 const _homeDest = '#home';
 const _inboxDest = '#inbox';
 const _accountDest = '#account';
@@ -74,8 +84,15 @@ class DashboardScaffold extends StatefulWidget {
   State<DashboardScaffold> createState() => _DashboardScaffoldState();
 }
 
-class _DashboardScaffoldState extends State<DashboardScaffold> {
+class _DashboardScaffoldState extends State<DashboardScaffold> with WidgetsBindingObserver {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// The module beside the sidebar runs its own navigator; Back closes its
+  /// inner pages before leaving it.
+  final _moduleNav = GlobalKey<NavigatorState>();
+
+  /// Destinations visited beside the sidebar, for Back.
+  final _history = <String>[];
   final _searchFocus = FocusNode();
   var _unread = 0;
   var _overviewStamp = 0;
@@ -95,14 +112,58 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refreshBadge();
     _loadPrefs();
+    final slug = pendingModuleSlug;
+    if (slug != null) {
+      pendingModuleSlug = null;
+      final m = widget.modules.where((m) => moduleSlug(m.label) == slug).firstOrNull;
+      if (m != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _open(m, wide: MediaQuery.sizeOf(context).width >= sidebarBreakpoint);
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  /// Browser or system Back beside the sidebar: close the module's inner
+  /// page, else return to the previous module, else let the app decide.
+  /// Anything shown over the dashboard (Settings, a dialog) handles Back
+  /// itself first.
+  @override
+  Future<bool> didPopRoute() async {
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    if (MediaQuery.sizeOf(context).width < sidebarBreakpoint) return false;
+    final nav = _moduleNav.currentState;
+    if (nav != null && nav.canPop()) {
+      nav.pop();
+      return true;
+    }
+    if (_history.isEmpty) return false;
+    _show(_history.removeLast(), remember: false);
+    return true;
+  }
+
+  /// Moves the content area beside the sidebar to [dest], recording where
+  /// it was for Back, and puts the module's address in the browser bar.
+  void _show(String dest, {bool remember = true}) {
+    if (dest == _dest) return;
+    setState(() {
+      if (remember) _history.add(_dest);
+      _dest = dest;
+    });
+    if (kIsWeb) {
+      final path = dest.startsWith('#') ? '/' : '/${moduleSlug(dest)}';
+      SystemNavigator.routeInformationUpdated(uri: Uri(path: path));
+    }
   }
 
   /// Recently opened modules and the sidebar's collapsed state are a
@@ -165,7 +226,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     }
     setState(() => _remember(m));
     if (wide) {
-      setState(() => _dest = m.label);
+      _show(m.label);
     } else {
       _scaffoldKey.currentState?.closeDrawer();
       _push(builder);
@@ -175,7 +236,7 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
   void _go(String dest, {required bool wide}) {
     svHaptic(SvHaptic.light);
     if (wide) {
-      setState(() => _dest = dest);
+      _show(dest);
     } else {
       _scaffoldKey.currentState?.closeDrawer();
       setState(() => _tab = switch (dest) {
@@ -258,8 +319,9 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     if (module?.builder == null) return _home(wide: true);
     return _ModuleHost(
       key: ValueKey(module!.label),
+      navigatorKey: _moduleNav,
       module: module,
-      onClosed: () => setState(() => _dest = _homeDest),
+      onClosed: () => _show(_homeDest),
     );
   }
 
@@ -290,7 +352,8 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
                           children: [
                             _TopBar(
                               user: widget.user,
-                              subtitle: widget.listTitle,
+                              crumbs: _crumbs(),
+                              onHome: () => _go(_homeDest, wide: true),
                               collapsed: _collapsed,
                               unread: _unread,
                               onToggle: _toggleCollapsed,
@@ -380,6 +443,18 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
     });
   }
 
+  /// Where the content area is, as Home › section › module.
+  List<String> _crumbs() => switch (_dest) {
+        _homeDest => const ['Dashboard'],
+        _inboxDest => const ['Home', 'Inbox'],
+        _accountDest => const ['Home', 'My account'],
+        _ => [
+            'Home',
+            ...widget.modules.where((m) => m.label == _dest).map((m) => m.section.label).take(1),
+            _dest,
+          ],
+      };
+
   void _focusSearch() {
     if (_collapsed) _toggleCollapsed();
     _searchFocus.requestFocus();
@@ -390,8 +465,9 @@ class _DashboardScaffoldState extends State<DashboardScaffold> {
 /// opens stay in the content area and its back buttons return within it.
 /// Closing the module's first screen returns to Home.
 class _ModuleHost extends StatelessWidget {
-  const _ModuleHost({super.key, required this.module, required this.onClosed});
+  const _ModuleHost({super.key, required this.navigatorKey, required this.module, required this.onClosed});
 
+  final GlobalKey<NavigatorState> navigatorKey;
   final Module module;
   final VoidCallback onClosed;
 
@@ -399,6 +475,7 @@ class _ModuleHost extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRect(
       child: Navigator(
+        key: navigatorKey,
         pages: [
           MaterialPage<void>(
             key: ValueKey(module.label),
@@ -731,7 +808,8 @@ class _NavItem extends StatelessWidget {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.user,
-    required this.subtitle,
+    required this.crumbs,
+    required this.onHome,
     required this.collapsed,
     required this.unread,
     required this.onToggle,
@@ -743,7 +821,11 @@ class _TopBar extends StatelessWidget {
   });
 
   final User user;
-  final String subtitle;
+
+  /// Home › section › module; the first is a link home unless it is the
+  /// only one.
+  final List<String> crumbs;
+  final VoidCallback onHome;
   final bool collapsed;
   final int unread;
   final VoidCallback onToggle;
@@ -784,10 +866,7 @@ class _TopBar extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, letterSpacing: -.2),
                 ),
-                Text(subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
+                _Breadcrumbs(crumbs: crumbs, onHome: onHome),
               ],
             ),
           ),
@@ -853,6 +932,41 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Breadcrumbs extends StatelessWidget {
+  const _Breadcrumbs({required this.crumbs, required this.onHome});
+
+  final List<String> crumbs;
+  final VoidCallback onHome;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(fontSize: 12.5, color: AppColors.muted);
+    return Semantics(
+      label: 'You are in ${crumbs.join(', ')}',
+      child: Row(
+        children: [
+          for (var i = 0; i < crumbs.length; i++) ...[
+            if (i > 0) Icon(Icons.chevron_right, size: 14, color: AppColors.muted),
+            if (i == 0 && crumbs.length > 1)
+              InkWell(
+                onTap: onHome,
+                borderRadius: BorderRadius.circular(4),
+                child: Text(crumbs[i], style: style.copyWith(color: AppColors.brand, fontWeight: FontWeight.w600)),
+              )
+            else
+              Flexible(
+                child: Text(crumbs[i],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: i == crumbs.length - 1 ? style.copyWith(color: AppColors.body, fontWeight: FontWeight.w600) : style),
+              ),
+          ],
         ],
       ),
     );

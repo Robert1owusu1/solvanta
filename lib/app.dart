@@ -159,6 +159,13 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
     if (_settings.themeMode == ThemeMode.system && mounted) setState(() {});
   }
 
+  late final Map<String, WidgetBuilder> _routes = {
+    '/': (_) => _SessionGate(auth: _auth),
+    '/login': (_) => const LoginScreen(),
+    '/register': (_) => const RegisterScreen(),
+    '/home': (_) => const HomeShellPage(),
+  };
+
   @override
   Widget build(BuildContext context) {
     // The palette globals are read by every `AppColors.*` call site during
@@ -206,11 +213,20 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
             );
           },
           initialRoute: '/',
-          routes: {
-            '/': (_) => _SessionGate(auth: _auth),
-            '/login': (_) => const LoginScreen(),
-            '/register': (_) => const RegisterScreen(),
-            '/home': (_) => const HomeShellPage(),
+          routes: _routes,
+          // On the web the address may name a module (`/#/take-attendance`
+          // after a refresh or from a bookmark). That is not a route: open
+          // the app as usual and let the dashboard open the module.
+          onGenerateInitialRoutes: (name) {
+            final known = _routes[name];
+            if (known == null && name.length > 1) {
+              pendingModuleSlug = name.substring(1).split('?').first;
+            }
+            return [
+              MaterialPageRoute<void>(settings: const RouteSettings(name: '/'), builder: _routes['/']!),
+              if (known != null && name != '/')
+                MaterialPageRoute<void>(settings: RouteSettings(name: name), builder: known),
+            ];
           },
         );
       },

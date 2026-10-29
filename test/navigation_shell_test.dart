@@ -41,7 +41,7 @@ void main() {
     await _teacherAt(tester, 1440);
     expect(_uiError(tester), isNull);
     expect(find.text('SOLVANTA'), findsOneWidget);
-    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Dashboard'), findsWidgets); // heading and breadcrumb
     expect(find.byTooltip('Account menu'), findsOneWidget);
     expect(find.text('PEOPLE'), findsOneWidget);
     expect(find.text('ATTENDANCE & SAFETY'), findsOneWidget);

@@ -8,6 +8,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Web addresses and Back beside the sidebar: each module has its own
+  address (`/#/take-attendance`), so a refresh or a bookmark reopens it;
+  the browser's Back closes a page opened inside a module, then returns
+  through the modules visited, then home. The top bar shows breadcrumbs
+  (Home › section › module).
 - Dashboard charts: attendance trend (line), results per assessment and
   grade spread (bars), each with tooltips and a table view, scoped to the
   person (a teacher's class, a parent's children, the whole school for
