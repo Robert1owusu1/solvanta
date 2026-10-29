@@ -235,7 +235,7 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
         Card(
           color: AppTheme.brand.withValues(alpha: .05),
           child: ListTile(
-            leading: const Icon(Icons.auto_awesome, color: AppTheme.brand),
+            leading: Icon(Icons.auto_awesome, color: AppColors.brand),
             title: const Text('How it works',
                 style: TextStyle(fontWeight: FontWeight.w700)),
             subtitle: const Text(

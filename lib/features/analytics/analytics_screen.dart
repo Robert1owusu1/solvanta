@@ -93,7 +93,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         icon: Icons.school,
         label: 'Overall class average',
         value: '${(100 * p.classAverage()).toStringAsFixed(1)}%',
-        color: AppTheme.brand,
+        color: AppColors.brand,
       ),
       const SizedBox(height: 16),
       Text('By subject', style: _head),
@@ -105,9 +105,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             title: Text(subjectName(s)),
             trailing: Text(
               '${(100 * p.subjectAverage(s)).toStringAsFixed(1)}%',
-              style: const TextStyle(
+              style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.brand),
+                  color: AppColors.brand),
             ),
           ),
         ),
@@ -380,7 +380,7 @@ class _OverviewGrid extends StatelessWidget {
           icon: Icons.school,
           label: 'Overall class average',
           value: '${(100 * p.classAverage()).toStringAsFixed(1)}%',
-          color: AppTheme.brand,
+          color: AppColors.brand,
         ),
         for (final s in subjects)
           _SubjectGridCard(
@@ -457,7 +457,7 @@ class _SubjectGridCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.menu_book, color: AppTheme.brand, size: 20),
+                Icon(Icons.menu_book, color: AppColors.brand, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -476,8 +476,8 @@ class _SubjectGridCard extends StatelessWidget {
                 Text('Average', style: _muted2),
                 Text(
                   average,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w800, color: AppTheme.brand),
+                  style: TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.brand),
                 ),
               ],
             ),

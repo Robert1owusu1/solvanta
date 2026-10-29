@@ -186,7 +186,7 @@ class _MockTakeScreenState extends State<MockTakeScreen> {
         LinearProgressIndicator(
           value: (_index + 1) / questions.length,
           minHeight: 4,
-          color: AppTheme.brand,
+          color: AppColors.brand,
         ),
         Expanded(
           child: ListView(
@@ -306,7 +306,7 @@ class _ResultView extends StatelessWidget {
           '${earned.toStringAsFixed(1)} / ${assessment.totalMarks.toStringAsFixed(1)} '
           '  ·  ${pct.toStringAsFixed(1)}%  ·  Grade ${gradeLetter(pct)}',
           style: TextStyle(
-              fontSize: 22, fontWeight: FontWeight.w800, color: AppTheme.brand),
+              fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.brand),
         ),
         const SizedBox(height: 8),
         Text(

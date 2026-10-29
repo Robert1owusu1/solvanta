@@ -522,7 +522,7 @@ class _RecordPaymentSheetState extends State<_RecordPaymentSheet> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.add_card, color: AppTheme.brand),
+                  Icon(Icons.add_card, color: AppColors.brand),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
@@ -720,7 +720,7 @@ class _ReceiptSheetState extends State<_ReceiptSheet> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.receipt_long, color: AppTheme.brand),
+                  Icon(Icons.receipt_long, color: AppColors.brand),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
@@ -738,10 +738,10 @@ class _ReceiptSheetState extends State<_ReceiptSheet> {
               Text(
                 svCedis(r.amount),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.brand,
+                  color: AppColors.brand,
                 ),
               ),
               const SizedBox(height: 4),

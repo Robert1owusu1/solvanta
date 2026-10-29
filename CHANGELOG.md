@@ -46,6 +46,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Dark mode: text and icons coloured with the fixed brand navy were nearly
+  invisible on dark backgrounds; they now use the theme-aware brand colour
+  (pale navy in dark mode) across 30 screens.
+- Attendance: once every student in a class is marked for the day, the roll
+  opens as taken and read-only instead of a fresh roll. "Edit attendance"
+  unlocks it; saving a change asks for a reason and writes it to the audit
+  log, and the roll locks again.
 - Students and parents could read marking schemes (the answer key).
 - On PostgreSQL a submission lost its marking-scheme link, so editing a
   scheme after marking rewrote it in place instead of versioning it.

@@ -150,9 +150,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
                           backgroundColor:
                               AppTheme.brand.withValues(alpha: .12),
                           child: Text(s.initials,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontWeight: .w700,
-                                  color: AppTheme.brand,
+                                  color: AppColors.brand,
                                   fontSize: 12)),
                         ),
                         title: Text(s.fullName,
@@ -174,7 +174,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                             IconButton(
                               tooltip: 'Scan answer sheet',
                               icon: const Icon(Icons.photo_camera_outlined),
-                              color: AppTheme.brand,
+                              color: AppColors.brand,
                               onPressed: () async {
                                 await Navigator.of(context).push(
                                   MaterialPageRoute(

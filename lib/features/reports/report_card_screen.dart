@@ -362,7 +362,7 @@ const TextStyle _pvScore = TextStyle(
 final TextStyle _pvMuted =
     TextStyle(color: AppPalette.light.body, fontSize: 7.5);
 final TextStyle _pvSection = TextStyle(
-    color: AppTheme.brand, fontSize: 10.5, fontWeight: FontWeight.w800);
+    color: AppColors.brand, fontSize: 10.5, fontWeight: FontWeight.w800);
 const TextStyle _pvWhite = TextStyle(
     color: Colors.white, fontSize: 13, fontWeight: FontWeight.w800);
 const TextStyle _pvWhiteSmall = TextStyle(
@@ -505,8 +505,8 @@ Widget _previewModern(ReportCardData d) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(d.schoolName,
-                            style: const TextStyle(
-                                color: AppTheme.brand,
+                            style: TextStyle(
+                                color: AppColors.brand,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w800)),
                         Text(d.schoolMotto, style: _pvMuted),
@@ -618,8 +618,8 @@ Widget _previewTranscript(ReportCardData d) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(d.schoolName,
-                            style: const TextStyle(
-                                color: AppTheme.brand,
+                            style: TextStyle(
+                                color: AppColors.brand,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w800)),
                         Text(d.schoolMotto, style: _pvMuted),

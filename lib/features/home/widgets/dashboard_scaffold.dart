@@ -775,7 +775,7 @@ class _TopBar extends StatelessWidget {
                 Text.rich(
                   TextSpan(children: [
                     TextSpan(text: 'Solvanta ', style: TextStyle(color: AppColors.ink)),
-                    TextSpan(text: 'School Management', style: TextStyle(color: AppTheme.brandLight)),
+                    TextSpan(text: 'School Management', style: TextStyle(color: AppColors.info)),
                   ]),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -964,7 +964,7 @@ class _HomeTab extends StatelessWidget {
                       icon: const Icon(Icons.menu, size: 16),
                       label: const Text('All tools'),
                       style: TextButton.styleFrom(
-                        foregroundColor: AppTheme.brand,
+                        foregroundColor: AppColors.brand,
                         visualDensity: VisualDensity.compact,
                         textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
                       ),
@@ -980,7 +980,7 @@ class _HomeTab extends StatelessWidget {
                 children: [
                   for (final m in quick)
                     ActionChip(
-                      avatar: Icon(m.icon, size: 18, color: AppTheme.brand),
+                      avatar: Icon(m.icon, size: 18, color: AppColors.brand),
                       label: Text(m.label),
                       tooltip: m.subtitle,
                       onPressed: () => onOpen(m),
@@ -1301,7 +1301,7 @@ class _AccountTab extends StatelessWidget {
                         SvStatusBadge(
                           label: user.role.label,
                           icon: Icons.verified_user_outlined,
-                          color: AppTheme.brand,
+                          color: AppColors.brand,
                         ),
                       ],
                     ),
@@ -1317,14 +1317,14 @@ class _AccountTab extends StatelessWidget {
           icon: Icons.search,
           title: 'Search',
           subtitle: 'Find students, messages and alerts',
-          color: AppTheme.brand,
+          color: AppColors.brand,
           onTap: onSearch,
         ),
         _AccountAction(
           icon: Icons.settings_outlined,
           title: 'Settings',
           subtitle: 'Theme, notifications, security and data',
-          color: AppTheme.brand,
+          color: AppColors.brand,
           onTap: onSettings,
         ),
         const SizedBox(height: 10),

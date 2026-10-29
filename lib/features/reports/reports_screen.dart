@@ -286,7 +286,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _termChip(SchoolTerm term) => Card(
         color: AppTheme.brand.withValues(alpha: .05),
         child: ListTile(
-          leading: Icon(Icons.school, color: AppTheme.brand),
+          leading: Icon(Icons.school, color: AppColors.brand),
           title: Text(term.label,
               style: const TextStyle(fontWeight: FontWeight.w700)),
           subtitle: Text('${term.start} → ${term.end}'),
@@ -396,7 +396,7 @@ class _StudentReportCard extends StatelessWidget {
                   style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 16,
-                      color: AppTheme.brand),
+                      color: AppColors.brand),
                 ),
                 if (overall != null) ...[
                   const SizedBox(width: 8),

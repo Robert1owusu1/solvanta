@@ -633,7 +633,7 @@ class _SvSearchFieldState extends State<SvSearchField> {
         textInputAction: TextInputAction.search,
         decoration: InputDecoration(
           hintText: widget.hint,
-          prefixIcon: const Icon(Icons.search_rounded, color: AppTheme.brand),
+          prefixIcon: Icon(Icons.search_rounded, color: AppColors.brand),
           prefixIconColor: AppTheme.brand,
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: _controller,
@@ -1059,7 +1059,7 @@ class SvRefresh extends StatelessWidget {
         svHaptic(SvHaptic.selection);
         await onRefresh();
       },
-      color: AppTheme.brand,
+      color: AppColors.brand,
       backgroundColor: AppColors.surface,
       strokeWidth: 2.6,
       edgeOffset: 10,

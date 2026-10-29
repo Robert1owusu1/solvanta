@@ -198,8 +198,8 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
                           CircleAvatar(
                             backgroundColor: AppTheme.brand.withValues(alpha: .14),
                             child: Text(school.id.replaceAll('SCH-', ''),
-                                style: const TextStyle(
-                                    color: AppTheme.brand, fontWeight: .w800)),
+                                style: TextStyle(
+                                    color: AppColors.brand, fontWeight: .w800)),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -234,7 +234,7 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
                         if (row.$2.isNotEmpty)
                           ListTile(
                             dense: true,
-                            leading: Icon(row.$1, size: 18, color: AppTheme.brand),
+                            leading: Icon(row.$1, size: 18, color: AppColors.brand),
                             title: Text(row.$2),
                           ),
                     ],

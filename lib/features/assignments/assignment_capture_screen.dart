@@ -137,9 +137,9 @@ class _AssignmentStudentPickerScreenState
                               backgroundColor:
                                   AppTheme.brand.withValues(alpha: .12),
                               child: Text(s.initials,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                       fontWeight: FontWeight.w700,
-                                      color: AppTheme.brand,
+                                      color: AppColors.brand,
                                       fontSize: 12)),
                             ),
                             title: Text(s.fullName,

@@ -288,10 +288,10 @@ class _StudentFeesScreenState extends State<StudentFeesScreen> {
       avatarColor: AppTheme.brand,
       trailing: Text(
         svCedis(fee.amount),
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w800,
           fontSize: 14,
-          color: AppTheme.brand,
+          color: AppColors.brand,
         ),
       ),
     );

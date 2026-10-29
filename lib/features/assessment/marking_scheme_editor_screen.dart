@@ -329,7 +329,7 @@ class _MarkingSchemeEditorScreenState extends State<MarkingSchemeEditorScreen> {
           children: [
             Icon(
               _isAssessment ? Icons.assignment : Icons.assignment_turned_in,
-              color: AppTheme.brand,
+              color: AppColors.brand,
               size: 28,
             ),
             const SizedBox(width: 12),
@@ -350,7 +350,7 @@ class _MarkingSchemeEditorScreenState extends State<MarkingSchemeEditorScreen> {
               label: Text(_isAssessment ? 'Assessment' : 'Assignment'),
               backgroundColor: AppTheme.brand.withValues(alpha: .12),
               labelStyle: TextStyle(
-                color: AppTheme.brand,
+                color: AppColors.brand,
                 fontWeight: FontWeight.w700,
                 fontSize: 11,
               ),
@@ -369,13 +369,13 @@ class _MarkingSchemeEditorScreenState extends State<MarkingSchemeEditorScreen> {
         child: Column(
           children: [
             Icon(Icons.assignment_add,
-                size: 48, color: AppTheme.brand.withValues(alpha: .5)),
+                size: 48, color: AppColors.brand.withValues(alpha: .5)),
             const SizedBox(height: 12),
             Text('No questions yet',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.brand)),
+                    color: AppColors.brand)),
             const SizedBox(height: 4),
             Text(
               'Tap "Add question" to start building the marking scheme',
@@ -648,7 +648,7 @@ class _QuestionCard extends StatelessWidget {
           backgroundColor: AppTheme.brand.withValues(alpha: .12),
           child: Text('Q${question.number}',
               style: TextStyle(
-                  color: AppTheme.brand, fontWeight: FontWeight.w800)),
+                  color: AppColors.brand, fontWeight: FontWeight.w800)),
         ),
         title: Text('Question ${question.number}',
             style: const TextStyle(fontWeight: FontWeight.w700)),

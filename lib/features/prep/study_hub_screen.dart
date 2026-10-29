@@ -195,7 +195,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppTheme.brand.withValues(alpha: .12),
-                child: const Icon(Icons.refresh, color: AppTheme.brand),
+                child: Icon(Icons.refresh, color: AppColors.brand),
               ),
               title: Text(c.question.stem,
                   maxLines: 2,
@@ -277,8 +277,8 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppTheme.brand.withValues(alpha: .12),
-                child: const Icon(Icons.quiz_outlined,
-                    color: AppTheme.brand),
+                child: Icon(Icons.quiz_outlined,
+                    color: AppColors.brand),
               ),
               title: Text(s.name,
                   style: const TextStyle(fontWeight: .w600)),
@@ -312,7 +312,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
         Card(
           color: AppTheme.brand.withValues(alpha: .05),
           child: ListTile(
-            leading: Icon(Icons.verified, color: AppTheme.brand),
+            leading: Icon(Icons.verified, color: AppColors.brand),
             title: Text('Break progress',
                 style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Column(
@@ -359,8 +359,8 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: AppTheme.brand.withValues(alpha: .12),
-                child: const Icon(Icons.assignment_outlined,
-                    color: AppTheme.brand),
+                child: Icon(Icons.assignment_outlined,
+                    color: AppColors.brand),
               ),
               title: Text(a.title,
                   style: const TextStyle(fontWeight: .w600)),

@@ -24,6 +24,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   final Set<String> _touched = {};
   bool _saving = false;
 
+  /// The roll as saved, to tell an edit from no change.
+  Map<String, AttendanceStatus> _saved = {};
+
+  /// Once every student in the class is marked for the day the roll is
+  /// taken: it opens read-only, and changing it is a deliberate edit that
+  /// needs a reason and is written to the audit log.
+  bool _taken = false;
+  bool _editing = false;
+
   @override
   void initState() {
     super.initState();
@@ -56,16 +65,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final byStudent = <String, AttendanceStatus>{
       for (final r in records) r.studentId: r.status,
     };
+    final roll = students.where((s) => s.classId == classId);
+    final taken = roll.isNotEmpty && roll.every((s) => byStudent.containsKey(s.id));
     if (mounted) {
       setState(() {
         _statuses = byStudent;
+        _saved = Map.of(byStudent);
         _touched
           ..clear()
           ..addAll(records.map((r) => r.studentId));
         _classId = classId;
+        _taken = taken;
+        _editing = false;
       });
     }
   }
+
+  /// Asks why a taken roll is being changed. Null when the teacher cancels.
+  Future<String?> _askReason() =>
+      showDialog<String>(context: context, builder: (_) => const _ReasonDialog());
 
   Future<void> _save() async {
     if (_classId == null) return;
@@ -77,16 +95,41 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       );
       return;
     }
+    final changed = {
+      for (final id in _touched)
+        if (_statuses[id] != _saved[id]) id: _statuses[id] ?? AttendanceStatus.absent,
+    };
+    if (_taken && changed.isEmpty) {
+      setState(() => _editing = false);
+      return;
+    }
+    String? reason;
+    if (_taken) {
+      reason = await _askReason();
+      if (reason == null || !mounted) return;
+    }
     setState(() => _saving = true);
     try {
       final toSave = <String, AttendanceStatus>{
         for (final id in _touched) id: _statuses[id] ?? AttendanceStatus.absent,
       };
-      await AttendanceRepository().saveDay(_classId!, _date, toSave);
+      final me = await AuthRepository().currentUser();
+      await AttendanceRepository().saveDay(
+        _classId!,
+        _date,
+        // An edit sends only what changed, so its audit entry counts those.
+        reason == null ? toSave : changed,
+        reason: reason,
+        actor: me?.name,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Attendance saved for $_date')),
+        SnackBar(
+            content: Text(reason == null
+                ? 'Attendance saved for $_date'
+                : 'Changes saved and logged for $_date')),
       );
+      await _initRoll();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,6 +190,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               ),
               _statusBar(counts),
+              if (_taken && classId != null) _takenBanner(),
               Expanded(
                 child: classId == null
                     ? Center(
@@ -181,36 +225,90 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                   child: _rollTile(
                                 s,
                                 _statuses[s.id],
-                                (status) => setState(() {
-                                  _statuses[s.id] = status;
-                                  _touched.add(s.id);
-                                }),
+                                _taken && !_editing
+                                    ? null
+                                    : (status) => setState(() {
+                                          _statuses[s.id] = status;
+                                          _touched.add(s.id);
+                                        }),
                               ),
                                 ),
                               );
                             },
                           ),
               ),
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: FilledButton(
-                    onPressed: _saving ? null : _save,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+              if (!_taken || _editing)
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        if (_editing) ...[
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _saving ? null : _initRoll,
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            onPressed: _saving ? null : _save,
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: _saving
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2))
+                                : Text(_editing ? 'Save changes' : 'Save attendance'),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: _saving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('Save attendance'),
                   ),
                 ),
-              ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// Says the roll is done, and offers the deliberate way to change it.
+  Widget _takenBanner() {
+    final colour = _editing ? AppColors.warning : AppColors.success;
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      color: colour.withValues(alpha: .1),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+        child: Row(
+          children: [
+            Icon(_editing ? Icons.edit_note : Icons.task_alt, color: colour),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _editing
+                    ? 'Editing the roll. Your reason is logged.'
+                    : 'Attendance taken for $_date.',
+                style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.ink),
+              ),
+            ),
+            if (!_editing)
+              TextButton.icon(
+                onPressed: () => setState(() => _editing = true),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Edit attendance'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -238,7 +336,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Widget _rollTile(Student s, AttendanceStatus? status, ValueChanged<AttendanceStatus> onChanged) {
+  /// [onChanged] is null while the roll is taken and not being edited.
+  Widget _rollTile(Student s, AttendanceStatus? status, ValueChanged<AttendanceStatus>? onChanged) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       child: Padding(
@@ -283,14 +382,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               IconButton(
                 tooltip: st.label,
                 isSelected: status == st,
-                onPressed: () => onChanged(st),
+                onPressed: onChanged == null ? null : () => onChanged(st),
                 style: IconButton.styleFrom(
                   backgroundColor: status == st
                       ? _statusColor(st).withValues(alpha: .15)
                       : null,
                 ),
                 icon: Icon(_statusIcon(st), size: 20),
-                color: status == st ? _statusColor(st) : AppColors.border,
+                color: status == st ? _statusColor(st) : AppColors.muted,
+                // A taken roll still shows each mark, just not as a button.
+                disabledColor: status == st ? _statusColor(st) : AppColors.border,
               ),
           ],
         ),
@@ -306,9 +407,55 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       };
 
   Color _statusColor(AttendanceStatus s) => switch (s) {
-        AttendanceStatus.present => AppTheme.brand,
+        AttendanceStatus.present => AppColors.brand,
         AttendanceStatus.late => AppColors.warning,
         AttendanceStatus.absent => AppColors.danger,
         AttendanceStatus.excused => AppColors.notAttempted,
       };
+}
+
+/// Asks for the reason behind a change to a taken roll; it owns its text
+/// field so the field outlives the dialog's closing animation.
+class _ReasonDialog extends StatefulWidget {
+  const _ReasonDialog();
+
+  @override
+  State<_ReasonDialog> createState() => _ReasonDialogState();
+}
+
+class _ReasonDialogState extends State<_ReasonDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reason = _controller.text.trim();
+    return AlertDialog(
+      title: const Text('Why change this roll?'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 2,
+        decoration: const InputDecoration(
+          hintText: 'e.g. Kojo arrived after the roll was taken',
+          border: OutlineInputBorder(),
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: reason.isEmpty ? null : () => Navigator.pop(context, reason),
+          child: const Text('Save changes'),
+        ),
+      ],
+    );
+  }
 }

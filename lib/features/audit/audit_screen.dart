@@ -112,7 +112,7 @@ class _AuditScreenState extends State<AuditScreen> {
                                 backgroundColor:
                                     AppTheme.brand.withValues(alpha: .12),
                                 child: Icon(_iconFor(e.action),
-                                    size: 20, color: AppTheme.brand),
+                                    size: 20, color: AppColors.brand),
                               ),
                               title: Text(
                                   '${_friendlyAction(e.action)} · ${e.target}',

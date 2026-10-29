@@ -274,7 +274,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                                       icon: const Icon(
                                           Icons.photo_camera_outlined,
                                           size: 20),
-                                      color: AppTheme.brand,
+                                      color: AppColors.brand,
                                       tooltip: 'Submit photos of work',
                                       onPressed: () async {
                                         final changed = await Navigator.of(
@@ -296,7 +296,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                                       icon: const Icon(
                                           Icons.assignment_turned_in_outlined,
                                           size: 20),
-                                      color: AppTheme.brand,
+                                      color: AppColors.brand,
                                       tooltip: 'Marking scheme',
                                       onPressed: () => Navigator.of(context)
                                           .push(

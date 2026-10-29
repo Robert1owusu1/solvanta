@@ -102,7 +102,7 @@ class _AssessmentListItem extends StatelessWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
-                color: AppTheme.brand,
+                color: AppColors.brand,
                 tooltip: 'Marking scheme',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
@@ -111,10 +111,10 @@ class _AssessmentListItem extends StatelessWidget {
                 ),
               ),
               Text('${assessment.totalMarks.toStringAsFixed(0)} marks',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
-                      color: AppTheme.brand)),
+                      color: AppColors.brand)),
               const SizedBox(width: 2),
               Icon(Icons.chevron_right,
                   size: 20, color: AppColors.muted),
@@ -211,7 +211,7 @@ class _AssessmentGridCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.brand,
+                            color: AppColors.brand,
                             letterSpacing: 0.5,
                           ),
                         ),
@@ -270,7 +270,7 @@ class _AssessmentGridCard extends StatelessWidget {
                   icon: const Icon(Icons.assignment_turned_in, size: 16),
                   label: const Text('Marking scheme'),
                   style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.brand,
+                    foregroundColor: AppColors.brand,
                   ),
                 ),
               ),

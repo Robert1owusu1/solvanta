@@ -328,8 +328,8 @@ class _ProfileView extends StatelessWidget {
               Card(
                 color: AppTheme.brand.withValues(alpha: .06),
                 child: ListTile(
-                  leading: const Icon(Icons.tips_and_updates,
-                      color: AppTheme.brand),
+                  leading: Icon(Icons.tips_and_updates,
+                      color: AppColors.brand),
                   title: const Text('Next steps',
                       style: TextStyle(fontWeight: .w700)),
                   subtitle: Text(

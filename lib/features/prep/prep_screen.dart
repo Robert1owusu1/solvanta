@@ -159,7 +159,7 @@ class _PrepScreenState extends State<PrepScreen> {
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: AppTheme.brand.withValues(alpha: .12),
-                  child: const Icon(Icons.timer, color: AppTheme.brand),
+                  child: Icon(Icons.timer, color: AppColors.brand),
                 ),
                 title: Text(a.title,
                     style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -238,7 +238,7 @@ class _PrepScreenState extends State<PrepScreen> {
                 leading: CircleAvatar(
                   backgroundColor: AppTheme.brand.withValues(alpha: .12),
                   child: Icon(Icons.timer_outlined,
-                      color: AppTheme.brand),
+                      color: AppColors.brand),
                 ),
                 title: Text('${subjectName(paper.subjectId)} · ${paper.paper}',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -296,9 +296,9 @@ class _PrepScreenState extends State<PrepScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(
+        Row(
           children: [
-            Icon(Icons.psychology_outlined, color: AppTheme.brand, size: 18),
+            Icon(Icons.psychology_outlined, color: AppColors.brand, size: 18),
             SizedBox(width: 6),
             Text('Weak-topic practice',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),

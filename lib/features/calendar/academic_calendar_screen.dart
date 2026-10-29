@@ -181,7 +181,7 @@ class _AcademicCalendarScreenState extends State<AcademicCalendarScreen> {
     return Card(
       color: AppTheme.brand.withValues(alpha: .05),
       child: ListTile(
-        leading: Icon(Icons.school, color: AppTheme.brand),
+        leading: Icon(Icons.school, color: AppColors.brand),
         title: Text(d.term.label,
             style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text('${d.term.start} → ${d.term.end}\n'

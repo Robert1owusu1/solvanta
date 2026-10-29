@@ -182,7 +182,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         const SizedBox(height: 14),
         Row(
           children: [
-            Icon(Icons.edit_note, color: AppTheme.brand, size: 18),
+            Icon(Icons.edit_note, color: AppColors.brand, size: 18),
             const SizedBox(width: 6),
             Text(
               total == 0
@@ -240,8 +240,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               children: [
                 Text('${sub.earned.toStringAsFixed(1)} / '
                     '${total.toStringAsFixed(1)}',
-                    style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.w800, color: AppTheme.brand)),
+                    style: TextStyle(
+                        fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.brand)),
                 const SizedBox(width: 8),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),

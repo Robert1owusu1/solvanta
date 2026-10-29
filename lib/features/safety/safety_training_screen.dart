@@ -100,11 +100,11 @@ class _SafetyTrainingScreenState extends State<SafetyTrainingScreen> {
                       backgroundColor:
                           AppTheme.brand.withValues(alpha: .12),
                       child: completedIds.contains(p.id)
-                          ? const Icon(Icons.check_circle,
-                              color: AppTheme.brand)
+                          ? Icon(Icons.check_circle,
+                              color: AppColors.brand)
                           : Text('${p.lessons.length}',
-                              style: const TextStyle(
-                                  color: AppTheme.brand,
+                              style: TextStyle(
+                                  color: AppColors.brand,
                                   fontWeight: .w700)),
                     ),
                     title: Text(p.title,
@@ -210,7 +210,7 @@ class _PackRunnerState extends State<_PackRunner> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.menu_book, size: 56, color: AppTheme.brand),
+              Icon(Icons.menu_book, size: 56, color: AppColors.brand),
               const SizedBox(height: 16),
               const Text('Lessons read — ready for the quiz',
                   style: TextStyle(fontSize: 17, fontWeight: .w700)),
@@ -229,7 +229,7 @@ class _PackRunnerState extends State<_PackRunner> {
       children: [
         LinearProgressIndicator(
             value: (_step + 1) / pack.lessons.length,
-            color: AppTheme.brand),
+            color: AppColors.brand),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
@@ -279,7 +279,7 @@ class _PackRunnerState extends State<_PackRunner> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.task_alt, size: 56, color: AppTheme.brand),
+              Icon(Icons.task_alt, size: 56, color: AppColors.brand),
               const SizedBox(height: 16),
               const Text('Quiz complete',
                   style: TextStyle(fontSize: 17, fontWeight: .w700)),
@@ -299,7 +299,7 @@ class _PackRunnerState extends State<_PackRunner> {
       children: [
         LinearProgressIndicator(
             value: (_step + 1) / pack.quizQuestions.length,
-            color: AppTheme.brand),
+            color: AppColors.brand),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(24),

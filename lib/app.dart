@@ -228,10 +228,10 @@ class _SessionGateState extends State<_SessionGate> {
       future: _user,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const Scaffold(
+          return Scaffold(
             body: Center(
               child: CircularProgressIndicator(
-                color: AppTheme.brand,
+                color: AppColors.brand,
                 strokeWidth: 2.5,
               ),
             ),

@@ -393,7 +393,7 @@ class _StudentPicker extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.brand)),
+                      color: AppColors.brand)),
             ),
             Expanded(
               child: ListView.builder(

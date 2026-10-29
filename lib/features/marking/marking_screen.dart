@@ -226,11 +226,11 @@ class _MarkingScreenState extends State<MarkingScreen> {
               color: AppTheme.brand.withValues(alpha: .06),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.verified_user_outlined,
-                    size: 18, color: AppTheme.brand),
+                    size: 18, color: AppColors.brand),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -331,7 +331,7 @@ class _MarkingScreenState extends State<MarkingScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.task_alt, size: 16, color: AppTheme.brand),
+                    Icon(Icons.task_alt, size: 16, color: AppColors.brand),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -469,8 +469,8 @@ class _QuestionCard extends StatelessWidget {
                   radius: 12,
                   backgroundColor: AppTheme.brand.withValues(alpha: .12),
                   child: Text('$index',
-                      style: const TextStyle(
-                          fontSize: 12, fontWeight: .w700, color: AppTheme.brand)),
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: .w700, color: AppColors.brand)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -589,9 +589,9 @@ class _QuestionCard extends StatelessWidget {
                               q.correctAnswer.trim().toLowerCase()
                       ? 'Auto-marked correct (+${q.marks.toStringAsFixed(0)} marks)'
                       : 'No marks yet — AI text must match the scheme',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: .w600,
-                      color: AppTheme.brand,
+                      color: AppColors.brand,
                       fontSize: 13),
                 ),
               ),

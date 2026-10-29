@@ -151,7 +151,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
                         icon: const Icon(Icons.done_all, size: 17),
                         label: const Text('Mark all read'),
                         style: TextButton.styleFrom(
-                          foregroundColor: AppTheme.brand,
+                          foregroundColor: AppColors.brand,
                           textStyle: const TextStyle(
                               fontSize: 12.5, fontWeight: FontWeight.w700),
                         ),

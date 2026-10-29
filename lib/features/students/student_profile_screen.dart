@@ -250,7 +250,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
         .toList();
     final cards = <Widget>[
       ListTile(
-        leading: const Icon(Icons.auto_stories, color: AppTheme.brand),
+        leading: Icon(Icons.auto_stories, color: AppColors.brand),
         title: const Text('Vacation progress'),
         subtitle: Text(
             '${l.vacationDone} of ${l.vacationTotal} vacation pack(s) '
@@ -468,7 +468,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
 
   Widget _statusIcon(AttendanceStatus s) => switch (s) {
         AttendanceStatus.present =>
-          const Icon(Icons.check_circle, color: AppTheme.brand),
+          Icon(Icons.check_circle, color: AppColors.brand),
         AttendanceStatus.late => Icon(Icons.schedule, color: AppColors.warning),
         AttendanceStatus.absent => Icon(Icons.cancel, color: AppColors.danger),
         AttendanceStatus.excused =>
@@ -493,8 +493,8 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               radius: 32,
               backgroundColor: AppTheme.brand.withValues(alpha: .14),
               child: Text(s.initials,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: .w800, color: AppTheme.brand)),
+                  style: TextStyle(
+                      fontSize: 22, fontWeight: .w800, color: AppColors.brand)),
             ),
             const SizedBox(height: 10),
             Text(s.fullName,
@@ -508,8 +508,8 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
               children: [
                 Text('Attendance ', style: TextStyle(color: AppColors.muted)),
                 Text('$pct%',
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: .w800, color: AppTheme.brand)),
+                    style: TextStyle(
+                        fontSize: 20, fontWeight: .w800, color: AppColors.brand)),
               ],
             ),
           ],
