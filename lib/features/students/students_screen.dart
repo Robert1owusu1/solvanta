@@ -5,6 +5,7 @@ import '../../core/models/student.dart';
 import '../../core/models/user.dart';
 import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/data_table.dart';
 import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../audit/audit_repository.dart';
@@ -235,11 +236,40 @@ class _StudentsScreenState extends State<StudentsScreen> {
                             students: filtered,
                             menuFor: _canManage ? _manageMenu : null,
                             onOpen: _openProfile),
-                        desktop: (context) => _StudentGrid(
-                            students: filtered,
-                            menuFor: _canManage ? _manageMenu : null,
-                            onOpen: _openProfile,
-                            minItemWidth: 340),
+                        // Desktop: a sortable table, like the rest of a
+                        // school's records software.
+                        desktop: (context) => SvDataTable<Student>(
+                          rows: filtered,
+                          initialSort: 0,
+                          onOpen: _openProfile,
+                          actions: _canManage ? _manageMenu : null,
+                          columns: [
+                            SvColumn(
+                              label: 'Name',
+                              flex: 4,
+                              sortKey: (s) => s.fullName.toLowerCase(),
+                              cell: (s) => Row(children: [
+                                CircleAvatar(
+                                  radius: 15,
+                                  backgroundColor: AppColors.brand.withValues(alpha: .14),
+                                  child: Text(s.initials,
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.brand)),
+                                ),
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(s.fullName,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                                ),
+                              ]),
+                            ),
+                            SvColumn(label: 'Admission no.', sortKey: (s) => s.admissionNo, cell: (s) => Text(s.admissionNo)),
+                            SvColumn(label: 'Student ID', sortKey: (s) => s.id, cell: (s) => Text(s.id)),
+                            SvColumn(label: 'Class', flex: 1, sortKey: (s) => s.classId, cell: (s) => Text(s.classId)),
+                            SvColumn(label: 'Gender', flex: 1, sortKey: (s) => s.gender, cell: (s) => Text(s.gender)),
+                            SvColumn(label: 'Status', sortKey: (s) => s.status, cell: _statusBadge),
+                          ],
+                        ),
                       ),
               ),
             ],
@@ -322,7 +352,6 @@ class _StudentGrid extends StatelessWidget {
     required this.students,
     required this.menuFor,
     required this.onOpen,
-    this.minItemWidth = 300,
   });
 
   final List<Student> students;
@@ -330,12 +359,11 @@ class _StudentGrid extends StatelessWidget {
   /// The manage menu for a student, or null when the viewer can't manage.
   final Widget Function(Student)? menuFor;
   final void Function(Student) onOpen;
-  final double minItemWidth;
 
   @override
   Widget build(BuildContext context) {
     return ResponsiveGridView(
-      minItemWidth: minItemWidth,
+      minItemWidth: 300,
       maxColumns: 4,
       minColumns: 2,
       mainAxisSpacing: 16,

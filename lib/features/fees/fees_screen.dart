@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/student.dart';
 import '../../core/models/user.dart';
+import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/data_table.dart';
 import '../../core/ui/ui_kit.dart';
 import '../students/students_repository.dart';
 import 'fee_models.dart';
@@ -190,7 +192,34 @@ class _FeesScreenState extends State<FeesScreen> {
                             message:
                                 'Try a different search term or status filter.',
                           ))
-                    : SvRefresh(
+                    : MediaQuery.sizeOf(context).width >= Breakpoints.largeTablet
+                        // Desktop: the invoices as a sortable table.
+                        ? SvDataTable<Invoice>(
+                            rows: shown,
+                            onOpen: _open,
+                            columns: [
+                              SvColumn(
+                                label: 'Student',
+                                flex: 4,
+                                sortKey: (i) => (byId[i.studentId]?.fullName ?? i.studentId).toLowerCase(),
+                                cell: (i) => Text(byId[i.studentId]?.fullName ?? i.studentId,
+                                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                              SvColumn(label: 'Class', flex: 1, sortKey: (i) => byId[i.studentId]?.classId ?? '',
+                                  cell: (i) => Text(byId[i.studentId]?.classId ?? '–')),
+                              SvColumn(label: 'Invoice', sortKey: (i) => i.id, cell: (i) => Text(i.id)),
+                              SvColumn(label: 'Total', numeric: true, sortKey: (i) => i.total,
+                                  cell: (i) => Text(svCedis(i.total))),
+                              SvColumn(label: 'Paid', numeric: true, sortKey: (i) => i.amountPaid,
+                                  cell: (i) => Text(svCedis(i.amountPaid))),
+                              SvColumn(label: 'Balance', numeric: true, sortKey: (i) => i.balance,
+                                  cell: (i) => Text(svCedis(i.balance), style: const TextStyle(fontWeight: FontWeight.w700))),
+                              SvColumn(label: 'Due', sortKey: (i) => i.dueDate, cell: (i) => Text(i.dueDate)),
+                              SvColumn(label: 'Status', sortKey: (i) => i.resolveStatus().index,
+                                  cell: (i) => invoiceStatusChip(i.resolveStatus())),
+                            ],
+                          )
+                        : SvRefresh(
                         onRefresh: _refresh,
                         child: ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),

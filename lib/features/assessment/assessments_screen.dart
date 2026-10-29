@@ -4,6 +4,7 @@ import '../../core/models/assessment.dart';
 import '../../core/models/subjects.dart';
 import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/data_table.dart';
 import '../../core/ui/ui_kit.dart';
 import 'assessment_builder_screen.dart';
 import 'assessment_repository.dart';
@@ -73,7 +74,36 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
               itemBuilder: (context, i) => _AssessmentListItem(assessment: assessments[i], index: i),
             ),
             tablet: (context) => _AssessmentGrid(assessments: assessments),
-            desktop: (context) => _AssessmentGrid(assessments: assessments, minItemWidth: 350),
+            // Desktop: a sortable table; a row opens results capture.
+            desktop: (context) => SvDataTable<Assessment>(
+              rows: assessments,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              onOpen: (a) => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => CaptureScreen(assessment: a)),
+              ),
+              actions: (a) => IconButton(
+                icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+                color: AppColors.brand,
+                tooltip: 'Marking scheme',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => MarkingSchemeEditorScreen(assessment: a)),
+                ),
+              ),
+              columns: [
+                SvColumn(
+                  label: 'Title',
+                  flex: 4,
+                  sortKey: (a) => a.title.toLowerCase(),
+                  cell: (a) => Text(a.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                ),
+                SvColumn(label: 'Type', sortKey: (a) => a.type.label, cell: (a) => Text(a.type.label)),
+                SvColumn(label: 'Subject', sortKey: (a) => subjectName(a.subjectId), cell: (a) => Text(subjectName(a.subjectId))),
+                SvColumn(label: 'Class', flex: 1, sortKey: (a) => a.classId, cell: (a) => Text(a.classId)),
+                SvColumn(label: 'Date', sortKey: (a) => a.date, cell: (a) => Text(a.date)),
+                SvColumn(label: 'Marks', flex: 1, numeric: true, sortKey: (a) => a.totalMarks,
+                    cell: (a) => Text(a.totalMarks.toStringAsFixed(0))),
+              ],
+            ),
           );
         },
       ),
@@ -132,15 +162,14 @@ class _AssessmentListItem extends StatelessWidget {
 }
 
 class _AssessmentGrid extends StatelessWidget {
-  const _AssessmentGrid({required this.assessments, this.minItemWidth = 300});
+  const _AssessmentGrid({required this.assessments});
 
   final List<Assessment> assessments;
-  final double minItemWidth;
 
   @override
   Widget build(BuildContext context) {
     return ResponsiveGridView(
-      minItemWidth: minItemWidth,
+      minItemWidth: 300,
       maxColumns: 4,
       minColumns: 2,
       mainAxisSpacing: 16,
