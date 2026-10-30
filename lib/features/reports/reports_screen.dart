@@ -77,7 +77,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             return SvErrorState(
               title: "Couldn't load reports",
               message: 'Something went wrong. Please try again.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {

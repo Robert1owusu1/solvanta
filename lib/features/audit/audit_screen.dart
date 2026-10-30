@@ -60,7 +60,7 @@ class _AuditScreenState extends State<AuditScreen> {
             return SvErrorState(
               title: "Couldn't load the audit trail",
               message: 'We couldn\'t load the activity log. Please try again.',
-              onRetry: () => setState(() => _data = AuditRepository().all()),
+              onRetry: () => setState(() { _data = AuditRepository().all(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {

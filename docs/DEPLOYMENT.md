@@ -25,7 +25,25 @@ No host has been chosen yet. Everything below works with any provider.
   transaction per file — so upgrades need no manual step. A new school (the
   super admin's `POST /api/schools`) gets its schema and migrations on
   creation.
-- Back it up. Marks, attendance and fees live here.
+- Back it up. Marks, attendance and fees live here. Back up the whole
+  database nightly (`pg_dump -Fc`), and one school on its own when needed —
+  each school is one schema:
+
+  ```sh
+  # one school (schema school_<id>, lower case, - becomes _)
+  pg_dump -Fc -n school_sch_002 "$POSTGRES_DSN" > sch-002.dump
+  # restore it (into a database where that schema doesn't exist yet)
+  pg_restore -d "$POSTGRES_DSN" sch-002.dump
+  ```
+
+  The school's sign-in emails live in `public.user_directory` and its
+  registration in `public.tenants`; a restored school needs its row in
+  `public.tenants`, and the API fills the email directory at its next boot.
+  The super admin can also download a school's data as JSON
+  (`GET /api/schools/<id>/export`, or **Schools → Export** in the app).
+- Connections: each school in use holds a pool of up to 4 connections,
+  closed after 10 idle minutes. Size the database's `max_connections` for
+  4 × the schools active at once (plus a few), or put PgBouncer in front.
 - **Never** point `TEST_POSTGRES_DSN` (the test suite) at this database. The
   tests empty every table.
 

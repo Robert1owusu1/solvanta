@@ -61,7 +61,7 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
             return SvErrorState(
               title: "Couldn't load marking",
               message: 'We couldn\'t load the marking list. Please try again.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {
@@ -165,7 +165,7 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
                                 assessment: selected, student: s),
                           ),
                         );
-                        setState(() => _data = _load());
+                        setState(() { _data = _load(); });
                       },
                     ),
                   ),

@@ -166,7 +166,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
               title: "Couldn't load messages",
               message: 'We couldn\'t load your conversations. '
                   'Please try again.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {
@@ -219,7 +219,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
                         ),
                       );
                       if (!mounted) return;
-                      setState(() => _data = _load());
+                      setState(() { _data = _load(); });
                     },
                   ),
                 ),
@@ -287,7 +287,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
             ),
           );
           if (!mounted) return;
-          setState(() => _data = _load());
+          setState(() { _data = _load(); });
         },
       ),
     );
@@ -398,7 +398,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
     if (d == null || !mounted) return;
     final hasUnread =
         d.messages.any((m) => m.toId == d.meId && m.state != MessageState.read);
-    if (hasUnread) setState(() => _data = _load());
+    if (hasUnread) setState(() { _data = _load(); });
   }
 
   Future<void> _send(String body) async {
@@ -421,7 +421,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
         body: text,
       );
       _input.clear();
-      if (mounted) setState(() => _data = _load());
+      if (mounted) setState(() { _data = _load(); });
     } catch (_) {
       if (mounted) {
         messagesFailSnack(
@@ -448,7 +448,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
             return SvErrorState(
               title: "Couldn't load this conversation",
               message: 'We couldn\'t load the messages. Please try again.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {

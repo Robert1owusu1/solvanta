@@ -139,7 +139,7 @@ class _SafetyGateScreenState extends State<SafetyGateScreen> {
         ),
       ),
     );
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
     if (!mounted) return;
     if (outcome != null && outcome.startsWith('UNAUTHORIZED:')) {
       ScaffoldMessenger.of(context).showSnackBar(

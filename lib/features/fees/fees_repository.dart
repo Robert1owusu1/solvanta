@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/models/app_notification.dart';
@@ -13,6 +12,7 @@ import '../../core/sync/sync_queue.dart';
 import '../audit/audit_repository.dart';
 import '../notifications/notifications_repository.dart';
 import 'fee_models.dart';
+import '../../core/storage/data_store.dart';
 
 // ---------------------------------------------------------------------------
 // Offline-first fees store + repository.
@@ -348,7 +348,7 @@ class FeesRepository {
   /// in-memory mirror when SharedPreferences is unavailable or corrupt.
   Future<FeesStore> _read() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await DataStore.instance();
       final raw = prefs.getString(storageKey);
       if (raw == null || raw.isEmpty) {
         final seeded = await _seed();
@@ -390,12 +390,14 @@ class FeesRepository {
   }
 
   Future<void> _persist(FeesStore store) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(storageKey, jsonEncode(store.toJson()));
   }
 
   /// Seeding seeds: fee structures + one invoice per existing seed student.
   Future<FeesStore> _seed() async {
+    // A school connected to its server gets its fees from there.
+    if (!LocalStore.demoData) return FeesStore();
     final students = await _seedStudents();
     final term = await _seedTerm();
     return _buildSeed(students, term);

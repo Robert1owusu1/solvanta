@@ -12,6 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import 'report_card_pdf.dart';
 import 'report_card_source.dart';
+import 'parent_meetings_repository.dart';
 import 'term_reports_repository.dart';
 import '../auth/auth_repository.dart';
 
@@ -117,6 +118,7 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
         report: report,
         studentName: student.fullName,
         draftRemark: card.remark,
+        subjects: card.subjects,
         leader: _leader,
       ),
     );
@@ -136,12 +138,28 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
     );
     if (!ok) return;
     final report = src.reportFor(student);
+    final card = ReportCardSource.withReport(src.liveCardFor(student), report);
     await TermReportsRepository().approve(
-      report,
-      ReportCardSource.withReport(src.liveCardFor(student), report),
-      _me?.name ?? 'Headteacher',
-    );
+        report, card, _me?.name ?? 'Headteacher');
+    if (card.interventionNeeded) await _requestMeeting(student, card);
     _reload();
+  }
+
+  /// Asks the family in about [card] (once per term): from the card's own
+  /// flag when approved, or by hand.
+  Future<void> _requestMeeting(Student student, ReportCardData card) async {
+    final avg = card.year.average;
+    final mark = card.scheme.interventionBelow;
+    await ParentMeetingsRepository().request(
+      studentId: student.id,
+      classId: card.classId,
+      year: card.academicYear,
+      term: card.termName,
+      reason: avg != null && mark != null && avg < mark
+          ? 'Year average ${avg.toStringAsFixed(1)}, below ${mark.toStringAsFixed(0)}'
+          : 'Requested by ${_me?.name ?? 'the school'}',
+      requestedBy: _me?.name ?? '',
+    );
   }
 
   Future<void> _reopen(ReportCardSource src, Student student) async {
@@ -185,11 +203,10 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
     setState(() => _working = true);
     for (final s in todo) {
       final report = src.reportFor(s);
+      final card = ReportCardSource.withReport(src.liveCardFor(s), report);
       await TermReportsRepository().approve(
-        report,
-        ReportCardSource.withReport(src.liveCardFor(s), report),
-        _me?.name ?? 'Headteacher',
-      );
+          report, card, _me?.name ?? 'Headteacher');
+      if (card.interventionNeeded) await _requestMeeting(s, card);
     }
     if (!mounted) return;
     setState(() => _working = false);
@@ -243,7 +260,7 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
   void _reload() {
     _cards.clear();
     _builtAt.clear();
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
   }
 
   /// Re-reads the latest data, rebuilds [studentId]'s card from it, renders
@@ -261,7 +278,7 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
       if (student == null) throw StateError('student $studentId is gone');
       _cards.remove(studentId);
       final card = _cardFor(src, student);
-      if (mounted) setState(() => _data = Future.value(src));
+      if (mounted) setState(() { _data = Future.value(src); });
       final bytes = await buildReportCardPdf(card, _template);
       final safeId = card.studentId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
       final name = 'report_${safeId}_${_template.name}';
@@ -408,6 +425,14 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
                 leader: _leader,
                 busy: _working,
                 onRemarks: () => _editRemarks(src, student, card),
+                onMeeting: () async {
+                  await _requestMeeting(student, card);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('Meeting with ${student.firstName}\'s '
+                            'family requested — book it in Parent Meetings.')));
+                  }
+                },
                 onApprove: () => _approve(src, student),
                 onReopen: () => _reopen(src, student),
               ),
@@ -1195,7 +1220,8 @@ Widget _previewClassic(ReportCardData d) {
         3: FlexColumnWidth(1.15),
         4: FlexColumnWidth(0.8),
         5: FlexColumnWidth(0.8),
-        6: FlexColumnWidth(1.7),
+        6: FlexColumnWidth(0.7),
+        7: FlexColumnWidth(1.7),
       },
       children: [
         TableRow(
@@ -1213,6 +1239,7 @@ Widget _previewClassic(ReportCardData d) {
             _pvGhCell('TOTAL\n(100%)', style: _pvGhTh),
             _pvGhCell('GRADE', style: _pvGhTh),
             _pvGhCell('POS.', style: _pvGhTh),
+            _pvGhCell('INIT.', style: _pvGhTh),
             _pvGhCell('REMARKS', style: _pvGhTh),
           ],
         ),
@@ -1225,6 +1252,7 @@ Widget _previewClassic(ReportCardData d) {
               _pvGhCell(s.totalLabel, style: _pvGhTdBold),
               _pvGhCell(s.termGrade ?? '–', style: _pvGhTdBold),
               _pvGhCell(s.positionLabel),
+              _pvGhCell(s.teacherInitials.isEmpty ? '–' : s.teacherInitials),
               _pvGhCell(s.termRemark.isEmpty ? '–' : s.termRemark),
             ],
           ),
@@ -1519,10 +1547,12 @@ class _ReportStatusBar extends StatelessWidget {
     required this.leader,
     required this.busy,
     required this.onRemarks,
+    required this.onMeeting,
     required this.onApprove,
     required this.onReopen,
   });
 
+  final VoidCallback onMeeting;
   final TermReport report;
   final bool canWrite;
   final bool leader;
@@ -1559,6 +1589,12 @@ class _ReportStatusBar extends StatelessWidget {
               icon: const Icon(Icons.rate_review_outlined, size: 18),
               label: const Text('Remarks'),
             ),
+          if (canWrite || leader)
+            OutlinedButton.icon(
+              onPressed: busy ? null : onMeeting,
+              icon: const Icon(Icons.event_available_outlined, size: 18),
+              label: const Text('Meeting'),
+            ),
           if (leader && !approved)
             FilledButton.icon(
               onPressed: busy ? null : onApprove,
@@ -1585,12 +1621,16 @@ class _RemarksSheet extends StatefulWidget {
     required this.report,
     required this.studentName,
     required this.draftRemark,
+    required this.subjects,
     required this.leader,
   });
 
   final TermReport report;
   final String studentName;
   final String draftRemark;
+
+  /// The card's subject rows, for their remarks.
+  final List<SubjectResult> subjects;
   final bool leader;
 
   @override
@@ -1604,6 +1644,11 @@ class _RemarksSheetState extends State<_RemarksSheet> {
         : widget.draftRemark,
   );
   late final _head = TextEditingController(text: widget.report.headRemark);
+  late final _subject = {
+    for (final s in widget.subjects)
+      s.subjectId: TextEditingController(
+          text: widget.report.subjectRemarks[s.subjectId] ?? s.termRemark),
+  };
   late String _conduct = widget.report.conduct;
   late String _attitude = widget.report.attitude;
   late String _interest = widget.report.interest;
@@ -1612,6 +1657,9 @@ class _RemarksSheetState extends State<_RemarksSheet> {
   void dispose() {
     _remark.dispose();
     _head.dispose();
+    for (final c in _subject.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1674,6 +1722,29 @@ class _RemarksSheetState extends State<_RemarksSheet> {
               _interest,
               (v) => setState(() => _interest = v),
             ),
+            if (widget.subjects.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const Text('Subject remarks',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              for (final s in widget.subjects)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    controller: _subject[s.subjectId],
+                    maxLength: 40,
+                    decoration: InputDecoration(
+                      labelText: s.name,
+                      helperText: s.termGrade == null
+                          ? null
+                          : 'Grade ${s.termGrade}',
+                      counterText: '',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+            ],
             if (widget.leader) ...[
               const SizedBox(height: 14),
               TextField(
@@ -1695,6 +1766,13 @@ class _RemarksSheetState extends State<_RemarksSheet> {
                   attitude: _attitude,
                   interest: _interest,
                   headRemark: widget.leader ? _head.text.trim() : null,
+                  // Only remarks changed from the grade's own are kept.
+                  subjectRemarks: {
+                    for (final s in widget.subjects)
+                      if (_subject[s.subjectId]!.text.trim().isNotEmpty &&
+                          _subject[s.subjectId]!.text.trim() != s.termRemark)
+                        s.subjectId: _subject[s.subjectId]!.text.trim(),
+                  },
                 ),
               ),
               child: const Text('Save remarks'),

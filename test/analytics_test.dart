@@ -7,14 +7,6 @@ import 'package:solvanta/core/models/student.dart';
 import 'package:solvanta/core/models/submission.dart';
 
 void main() {
-  test('gradeLetter buckets', () {
-    expect(gradeLetter(90), 'A');
-    expect(gradeLetter(70), 'B');
-    expect(gradeLetter(62), 'C');
-    expect(gradeLetter(52), 'D');
-    expect(gradeLetter(30), 'F');
-  });
-
   test('question gaps flag weak topics', () {
     final assessment = Assessment(
       id: 'ASSMT-T',

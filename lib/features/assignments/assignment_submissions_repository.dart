@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/models/assignment_submission.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/sync/server_sync.dart';
+import '../../core/storage/data_store.dart';
 
 /// Offline-first store for assignment submissions.
 ///
@@ -161,13 +161,13 @@ class AssignmentSubmissionsRepository {
   }
 
   Future<Map<String, String>> _pending() async {
-    final raw = (await SharedPreferences.getInstance()).getString(_pendingKey);
+    final raw = (await DataStore.instance()).getString(_pendingKey);
     if (raw == null) return {};
     return (jsonDecode(raw) as Map).cast<String, String>();
   }
 
   Future<void> _savePending(Map<String, String> pending) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     if (pending.isEmpty) {
       await prefs.remove(_pendingKey);
     } else {

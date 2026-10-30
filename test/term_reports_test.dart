@@ -106,6 +106,29 @@ void main() {
     expect(src.cardFor(kojo).overall, isNot(before));
   });
 
+  test('subject rows carry the setter\'s initials and their own remark',
+      () async {
+    expect(initialsOf('Ms. Efua Mensah'), 'EM');
+    expect(initialsOf('Dr Kwame  Nkrumah'), 'KN');
+    final store = LocalStore();
+    var src = await ReportCardSource.load(store: store);
+    final kojo = src.students.firstWhere((s) => s.id == 'STU-001');
+    final eng = src.cardFor(kojo).subjects.firstWhere((s) => s.subjectId == 'ENG');
+    expect(eng.teacherInitials, 'EM'); // English was set by Ms. Efua Mensah
+    final graded = eng.termRemark;
+
+    await TermReportsRepository(store: store).save(src
+        .reportFor(kojo)
+        .copyWith(subjectRemarks: {'ENG': 'Reads widely'}));
+    src = await ReportCardSource.load(store: store);
+    final rows = src.cardFor(kojo).subjects;
+    expect(rows.firstWhere((s) => s.subjectId == 'ENG').termRemark,
+        'Reads widely');
+    // Other rows keep their grade's remark.
+    expect(graded, isNotEmpty);
+    expect(rows.where((s) => s.termRemark == 'Reads widely'), hasLength(1));
+  });
+
   test('a whole class prints as one PDF, a page per pupil', () async {
     final src = await ReportCardSource.load();
     final cards = [

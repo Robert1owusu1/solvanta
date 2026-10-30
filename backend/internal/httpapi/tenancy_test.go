@@ -133,3 +133,69 @@ func TestTokenCarriesSchool(t *testing.T) {
 		t.Fatalf("me: %+v", me.User)
 	}
 }
+
+// A suspended school is locked out at once — new sign-ins and tokens already
+// issued — while the platform's super admin can still reach and restore it.
+func TestSuspendedSchoolIsLockedOut(t *testing.T) {
+	r := newTestServer(t, Config{})
+	newSchool(t, r, "SCH-002", "admin@two.school.gh", "SecondAdmin1")
+	two := login(t, r, "admin@two.school.gh", "SecondAdmin1")
+	super := login(t, r, "super@solvanta.app", "super123")
+
+	if rec := do(r, "POST", "/api/schools/SCH-002/suspend", "", bearer(two)); rec.Code != http.StatusForbidden {
+		t.Errorf("school admin suspending: got %d, want 403", rec.Code)
+	}
+	if rec := do(r, "POST", "/api/schools/SCH-002/suspend", "", bearer(super)); rec.Code != http.StatusOK {
+		t.Fatalf("suspend: %d", rec.Code)
+	}
+	if code := getJSON(t, r, two, "/api/school", nil); code != http.StatusForbidden {
+		t.Errorf("token of a suspended school: got %d, want 403", code)
+	}
+	if rec := do(r, "POST", "/auth/login", `{"email":"admin@two.school.gh","password":"SecondAdmin1"}`, nil); rec.Code != http.StatusForbidden {
+		t.Errorf("sign-in to a suspended school: got %d, want 403", rec.Code)
+	}
+	if code := getJSON(t, r, super, "/api/school?schoolId=SCH-002", nil); code != http.StatusOK {
+		t.Errorf("super admin reaching a suspended school: got %d", code)
+	}
+	if rec := do(r, "POST", "/api/schools/SCH-001/suspend", "", bearer(super)); rec.Code != http.StatusConflict {
+		t.Errorf("suspending the platform's school: got %d, want 409", rec.Code)
+	}
+	do(r, "POST", "/api/schools/SCH-002/activate", "", bearer(super))
+	if code := getJSON(t, r, two, "/api/school", nil); code != http.StatusOK {
+		t.Errorf("after reactivation: got %d", code)
+	}
+}
+
+func TestExportAndDeleteASchool(t *testing.T) {
+	r := newTestServer(t, Config{})
+	newSchool(t, r, "SCH-002", "admin@two.school.gh", "SecondAdmin1")
+	super := login(t, r, "super@solvanta.app", "super123")
+	two := login(t, r, "admin@two.school.gh", "SecondAdmin1")
+	do(r, "PUT", "/api/school/classes/JHS1A", `{"id":"JHS1A","name":"JHS1","stream":"A"}`, bearer(two))
+
+	var dump map[string]any
+	if code := getJSON(t, r, super, "/api/schools/SCH-002/export", &dump); code != http.StatusOK {
+		t.Fatalf("export: %d", code)
+	}
+	if classes, _ := dump["classes"].([]any); len(classes) != 1 || dump["schoolId"] != "SCH-002" {
+		t.Fatalf("export: %v", dump)
+	}
+
+	if rec := do(r, "DELETE", "/api/schools/SCH-002?confirm=SCH-002", "", bearer(super)); rec.Code != http.StatusConflict {
+		t.Errorf("deleting an active school: got %d, want 409", rec.Code)
+	}
+	do(r, "POST", "/api/schools/SCH-002/suspend", "", bearer(super))
+	if rec := do(r, "DELETE", "/api/schools/SCH-002", "", bearer(super)); rec.Code != http.StatusBadRequest {
+		t.Errorf("deleting without confirmation: got %d, want 400", rec.Code)
+	}
+	if rec := do(r, "DELETE", "/api/schools/SCH-002?confirm=SCH-002", "", bearer(super)); rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	var schools []map[string]any
+	getJSON(t, r, super, "/api/schools", &schools)
+	if len(schools) != 1 {
+		t.Fatalf("schools after delete: %v", schools)
+	}
+	// Its email is free again.
+	newSchool(t, r, "SCH-003", "admin@two.school.gh", "SecondAdmin1")
+}

@@ -41,7 +41,7 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
   }
 
   void _reload() {
-    setState(() => _data = QuestionGenRepository().requests());
+    setState(() { _data = QuestionGenRepository().requests(); });
   }
 
   Future<void> _submitRequest() async {

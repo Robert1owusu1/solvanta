@@ -71,7 +71,7 @@ class _HomePanelsState extends State<HomePanels> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (mounted) setState(() { _future = _load(); });
   }
 
   static String today() {

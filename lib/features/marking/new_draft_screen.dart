@@ -192,7 +192,7 @@ class _NewDraftScreenState extends State<NewDraftScreen> {
           if (snap.hasError) {
             return SvErrorState(
               message: 'Drafting needs the server, to read the marking schemes. Check the connection.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           final (targets, students, readings) = snap.data!;

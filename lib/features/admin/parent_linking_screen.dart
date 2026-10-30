@@ -31,7 +31,7 @@ class _ParentLinkingScreenState extends State<ParentLinkingScreen> {
     return (parents, students);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _toggleLink(User parent, Student student) async {
     final isLinked = parent.studentIds.contains(student.id);

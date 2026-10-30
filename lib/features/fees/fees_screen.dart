@@ -84,7 +84,7 @@ class _FeesScreenState extends State<FeesScreen> {
       ),
     );
     if (!mounted) return;
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
   }
 
   List<Invoice> _filtered(_AdminFeesData data) {

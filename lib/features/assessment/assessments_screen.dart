@@ -27,7 +27,7 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
     _data = AssessmentRepository().assessments();
   }
 
-  void _reload() => setState(() => _data = AssessmentRepository().assessments());
+  void _reload() => setState(() { _data = AssessmentRepository().assessments(); });
 
   Future<void> _create() async {
     await Navigator.of(context).push(

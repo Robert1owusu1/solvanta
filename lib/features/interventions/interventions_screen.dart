@@ -95,7 +95,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
                 reason: 'Learning support',
               );
               if (ctx.mounted) Navigator.pop(ctx);
-              setState(() => _data = _load());
+              setState(() { _data = _load(); });
             },
             child: const Text('Assign'),
           ),
@@ -114,7 +114,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
       detail: '${i.topic} → ${status.label}',
       reason: 'Intervention tracking',
     );
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   Future<void> _reassess(Intervention i) async {
@@ -153,7 +153,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
       detail: 'Reassessment attached: ${createdAssessment.id}',
       reason: 'Reassess after intervention',
     );
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   @override

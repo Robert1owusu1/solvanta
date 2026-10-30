@@ -60,7 +60,7 @@ class _SafetyTrainingScreenState extends State<SafetyTrainingScreen> {
     final completed = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => _PackRunner(pack: pack),
     ));
-    if (completed == true) setState(() => _data = _load());
+    if (completed == true) setState(() { _data = _load(); });
   }
 
   @override

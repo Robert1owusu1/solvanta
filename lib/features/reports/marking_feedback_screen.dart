@@ -97,7 +97,7 @@ class _StudentFeedbackViewState extends State<StudentFeedbackView> {
           return SvErrorState(
             title: "Couldn't load feedback",
             message: res?.error ?? 'Please try again.',
-            onRetry: () => setState(() => _data = _load()),
+            onRetry: () => setState(() { _data = _load(); }),
           );
         }
         if (f.papers.isEmpty) {
@@ -347,7 +347,7 @@ class _MarkingFeedbackScreenState extends State<MarkingFeedbackScreen> {
                     return SvErrorState(
                       title: "Couldn't load class feedback",
                       message: res?.error ?? 'Please try again.',
-                      onRetry: () => setState(() => _report = _loadReport()),
+                      onRetry: () => setState(() { _report = _loadReport(); }),
                     );
                   }
                   return _ClassReport(res, f);

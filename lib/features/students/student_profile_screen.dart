@@ -339,7 +339,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       builder: (_) =>
           MockTakeScreen(assessment: assessment, studentId: student.id),
     ));
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   Widget _interventionRow(Intervention it) {
@@ -373,7 +373,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 await Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => StudentEditorScreen(initial: s),
                 ));
-                if (mounted) setState(() => _data = _load());
+                if (mounted) setState(() { _data = _load(); });
               },
             ),
             ActionChip(
@@ -433,7 +433,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                 );
               }
               if (ctx.mounted) Navigator.pop(ctx);
-              if (mounted) setState(() => _data = _load());
+              if (mounted) setState(() { _data = _load(); });
             },
             child: const Text('Transfer'),
           ),
@@ -453,7 +453,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       detail: '${s.fullName} promoted to $next',
       reason: 'End of term promotion',
     );
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   Future<void> _graduateStudent(Student s) async {
@@ -465,7 +465,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
       detail: '${s.fullName} graduated',
       reason: 'Graduation',
     );
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   Widget _statusIcon(AttendanceStatus s) => switch (s) {

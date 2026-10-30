@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'data_store.dart';
+import 'local_store.dart';
 
 class Phase6Store {
   static const _lessonsKey = 'solvanta.lessons_v1';
@@ -9,10 +10,10 @@ class Phase6Store {
   static const _safetyCompletionsKey = 'solvanta.safety_completions_v1';
 
   Future<List<Map<String, dynamic>>> loadLessonsJson() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_lessonsKey);
     if (raw == null) {
-      final list = _seedLessonsJson();
+      final list = (LocalStore.demoData ? _seedLessonsJson() : <Map<String, dynamic>>[]);
       await saveLessonsJson(list);
       return list;
     }
@@ -21,15 +22,15 @@ class Phase6Store {
   }
 
   Future<void> saveLessonsJson(List<Map<String, dynamic>> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_lessonsKey, jsonEncode(list));
   }
 
   Future<List<Map<String, dynamic>>> loadResourcesJson() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_resourcesKey);
     if (raw == null) {
-      final list = _seedResourcesJson();
+      final list = (LocalStore.demoData ? _seedResourcesJson() : <Map<String, dynamic>>[]);
       await saveResourcesJson(list);
       return list;
     }
@@ -38,15 +39,15 @@ class Phase6Store {
   }
 
   Future<void> saveResourcesJson(List<Map<String, dynamic>> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_resourcesKey, jsonEncode(list));
   }
 
   Future<List<Map<String, dynamic>>> loadSafetyPacksJson() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_safetyPacksKey);
     if (raw == null) {
-      final list = _seedSafetyPacksJson();
+      final list = (LocalStore.demoData ? _seedSafetyPacksJson() : <Map<String, dynamic>>[]);
       await saveSafetyPacksJson(list);
       return list;
     }
@@ -55,12 +56,12 @@ class Phase6Store {
   }
 
   Future<void> saveSafetyPacksJson(List<Map<String, dynamic>> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_safetyPacksKey, jsonEncode(list));
   }
 
   Future<List<Map<String, dynamic>>> loadSafetyCompletionsJson() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_safetyCompletionsKey);
     if (raw == null) return const [];
     final list = jsonDecode(raw) as List;
@@ -69,7 +70,7 @@ class Phase6Store {
 
   Future<void> saveSafetyCompletionsJson(
       List<Map<String, dynamic>> list) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_safetyCompletionsKey, jsonEncode(list));
   }
 

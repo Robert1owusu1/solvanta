@@ -36,7 +36,7 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
     return (school, classes, rosterCounts);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _editSchool(School school) async {
     final name = TextEditingController(text: school.name);

@@ -42,6 +42,10 @@ func (s *Server) login(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "Invalid email or password")
 		return
 	}
+	if !u.IsSuperAdmin() && s.tenants.Suspended(u.SchoolID) {
+		fail(c, http.StatusForbidden, suspendedMessage)
+		return
+	}
 	c.Set(ctxStoreKey, home)
 	s.audit(c, "auth.login", u.ID, "Signed in as "+u.Name, "")
 	sendJSON(c, gin.H{"token": s.sign(u, tokenTTL), "user": u})
@@ -114,19 +118,19 @@ func (s *Server) updateTerm(c *gin.Context) {
 	sendJSON(c, body)
 }
 
-// userByEmail finds an account in whichever school holds it. Emails are
-// unique across schools (createUser checks), so at most one matches.
+// userByEmail finds an account through the platform's email directory,
+// which names the one school holding it (emails are unique platform-wide).
 func (s *Server) userByEmail(email string) (domain.User, store.Store, bool) {
-	for _, id := range s.tenants.Schools() {
-		st, err := s.tenants.For(id)
-		if err != nil {
-			continue
-		}
-		if u, ok := st.UserByEmail(email); ok {
-			return u, st, true
-		}
+	school, ok := s.tenants.SchoolForEmail(email)
+	if !ok {
+		return domain.User{}, nil, false
 	}
-	return domain.User{}, nil, false
+	st, err := s.tenants.For(school)
+	if err != nil {
+		return domain.User{}, nil, false
+	}
+	u, ok := st.UserByEmail(email)
+	return u, st, ok
 }
 
 func firstNonEmpty(a, b string) string {

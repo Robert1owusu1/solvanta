@@ -110,7 +110,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
       ),
     );
     if (!mounted) return;
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
     if (result == null) return;
     svSnack(
       context,

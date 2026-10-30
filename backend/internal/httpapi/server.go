@@ -21,6 +21,7 @@ import (
 
 	"solvanta/backend/internal/domain"
 	"solvanta/backend/internal/ocr"
+	"solvanta/backend/internal/sms"
 	"solvanta/backend/internal/store"
 )
 
@@ -34,6 +35,10 @@ type Server struct {
 	tenants store.Tenants
 	cfg     Config
 	secret  []byte
+
+	// sms texts parents; smsJobs feeds the background sender.
+	sms     sms.Sender
+	smsJobs chan smsJob
 
 	// ocrs routes a page to Mathpix, Cloud Vision, or the mock. It is built
 	// once at startup from the environment: absent credentials are the normal
@@ -69,19 +74,37 @@ func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 		// per-process random key: safer than a hardcoded default
 		cfg.Secret = randomSecret()
 	}
-	return &Server{
+	sender := cfg.SMS
+	if sender == nil {
+		sender = sms.FromEnv()
+	}
+	srv := &Server{
 		tenants: t,
+		sms:     sender,
 		cfg:     cfg,
 		secret:  []byte(cfg.Secret),
 		ocrs:    ocr.NewRouter(ocr.FromEnv()),
 		revoked: map[string]time.Time{},
-	}, nil
+	}
+	if !cfg.SMSInline {
+		srv.smsJobs = make(chan smsJob, 1000)
+		go srv.smsWorker()
+	}
+	return srv, nil
 }
 
 // OCRStatus is the startup summary of which engine serves which route and
 // why. Printed once at boot so nobody has to guess whether a key took effect,
 // and so a deployment on the mock says so out loud instead of quietly
 // pretending to be a paid engine.
+// SMSStatus says which gateway texts parents, printed once at boot.
+func (s *Server) SMSStatus() string {
+	if s.sms.Name() == "log" {
+		return "SMS: log only — no texts are sent (set SMS_PROVIDER and its keys to send)"
+	}
+	return "SMS: sending through " + s.sms.Name()
+}
+
 func (s *Server) OCRStatus() string {
 	return s.ocrs.Status()
 }
@@ -214,6 +237,13 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// A suspended school's staff and families are signed out everywhere
+		// at once; the platform's super admin can still reach it.
+		if !u.IsSuperAdmin() && s.tenants.Suspended(tc.Sch) {
+			fail(c, http.StatusForbidden, suspendedMessage)
+			c.Abort()
+			return
+		}
 		st := home
 		if id := c.Query("schoolId"); id != "" && u.IsSuperAdmin() {
 			if st, err = s.tenants.For(id); err != nil {
@@ -336,7 +366,7 @@ func (s *Server) Router() *gin.Engine {
 		body := gin.H{"status": "ok"}
 		for _, id := range s.tenants.Schools() {
 			st, _ := s.tenants.For(id)
-			if pg, ok := st.(*store.Postgres); ok {
+			if pg, ok := store.Unwrap(st).(*store.Postgres); ok {
 				if n, last, at := pg.StoreErrors(); n > 0 {
 					body["storageErrors"] = n
 					body["lastStorageError"] = last.Error()
@@ -364,6 +394,21 @@ func (s *Server) Router() *gin.Engine {
 	// The platform's schools: each has a store of its own (store.Tenants).
 	api.GET("/schools", requireRole(domain.RoleSuperAdmin), s.listSchools)
 	api.POST("/schools", requireRole(domain.RoleSuperAdmin), s.createSchool)
+	api.PUT("/schools/:id", requireRole(domain.RoleSuperAdmin), s.updateSchoolProfile)
+	api.POST("/schools/:id/suspend", requireRole(domain.RoleSuperAdmin), s.suspendSchool(true))
+	api.POST("/schools/:id/activate", requireRole(domain.RoleSuperAdmin), s.suspendSchool(false))
+	api.GET("/schools/:id/export", requireRole(domain.RoleSuperAdmin), s.exportSchool)
+	api.DELETE("/schools/:id", requireRole(domain.RoleSuperAdmin), s.deleteSchool)
+
+	// Texts to parents (sms.go): what the school sends, and what went out.
+	leaders := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher)
+	smsGroup := api.Group("/sms", s.schoolScope())
+	{
+		smsGroup.GET("/settings", leaders, s.smsSettingsGet)
+		smsGroup.PUT("/settings", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.smsSettingsPut)
+		smsGroup.GET("/log", leaders, s.smsLog)
+		smsGroup.POST("/fee-reminders", leaders, s.smsFeeReminders)
+	}
 
 	school := api.Group("/school", s.schoolScope())
 	{

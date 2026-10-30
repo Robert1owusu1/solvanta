@@ -55,7 +55,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
     return (user, visible, students);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _markAllRead() async {
     final (user, _, students) = await _data;
@@ -76,6 +76,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
         NotificationKind.announcement => Icons.campaign_outlined,
         NotificationKind.system => Icons.info_outline,
         NotificationKind.reportCard => Icons.workspace_premium_outlined,
+        NotificationKind.meeting => Icons.event_available_outlined,
       };
 
   // Decorative category tints drawn from the single navy ramp, gold accent,
@@ -91,6 +92,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
         NotificationKind.announcement => AppTheme.gold,
         NotificationKind.system => AppColors.notAttempted,
         NotificationKind.reportCard => AppTheme.gold,
+        NotificationKind.meeting => AppTheme.navy700,
       };
 
   @override

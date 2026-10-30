@@ -4,6 +4,7 @@ import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../../core/security/secret_hash.dart';
 import '../../core/storage/local_store.dart';
+import '../../core/sync/sync_queue.dart';
 import '../../core/sync/server_sync.dart';
 
 /// Authenticates against the local seed store by default. When an API endpoint
@@ -30,6 +31,14 @@ class AuthRepository {
     if (remote != null) {
       final res = await remote.login(email: email, password: password);
       final remoteUser = res.user;
+
+      // This device may still hold someone else's school data (the app was
+      // closed without signing out): it goes before this account's arrives.
+      final owner = await _store.dataOwner();
+      if (owner != null && owner != remoteUser.id) {
+        await _store.clearSchoolData();
+      }
+      await _store.setDataOwner(remoteUser.id);
 
       final users = await _store.loadUsers();
       User? existing;
@@ -125,6 +134,20 @@ class AuthRepository {
     return null;
   }
 
+  /// Changes made on this device that haven't reached the school server yet
+  /// — tries to send them first. Signing out would lose what remains.
+  Future<int> unsentChanges() async {
+    if (_remote == null) return 0;
+    try {
+      await SyncQueue.instance
+          .flush(ignoreBackoff: true)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // Offline or slow: count what is still waiting.
+    }
+    return (await SyncQueue.instance.pending()).length;
+  }
+
   Future<void> logout() async {
     ServerSync.instance.stop();
     final remote = _remote;
@@ -141,5 +164,9 @@ class AuthRepository {
     // signs in on this device starts out presenting the previous one's token
     // (401, then a silent local-only write until a fresh login replaces it).
     await _store.setApiToken(null);
+    // With a school server, the server holds the school's data: none of it
+    // stays on a device someone has signed out of. (Offline-only, the device
+    // is the only copy, so nothing is removed.)
+    if (_remote != null) await _store.clearSchoolData();
   }
 }

@@ -28,7 +28,10 @@ void main() {
         modulesFor(role).map((m) => m.label).toList();
 
     test('admin sees the full school-management grid', () {
-      expect(labels(AppRole.superAdmin), labels(AppRole.schoolAdmin));
+      // The platform owner also onboards schools; school leaders don't.
+      expect(labels(AppRole.superAdmin),
+          ['Schools', ...labels(AppRole.schoolAdmin)]);
+      expect(labels(AppRole.schoolAdmin), isNot(contains('Schools')));
       expect(labels(AppRole.schoolAdmin), labels(AppRole.headteacher));
       expect(labels(AppRole.schoolAdmin), containsAll(<String>[
         'Students',

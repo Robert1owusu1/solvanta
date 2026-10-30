@@ -33,7 +33,7 @@ class _StaffScreenState extends State<StaffScreen> {
     return (staff, classes);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _upsert({User? existing}) async {
     final classes = (await _data).$2;

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/api_client.dart';
 import '../models/attendance.dart';
 import '../models/announcement.dart';
 import '../models/assessment.dart';
@@ -17,6 +18,7 @@ import '../models/intervention.dart';
 import '../models/marking_draft.dart';
 import '../models/message.dart';
 import '../models/ocr_job.dart';
+import '../models/parent_meeting.dart';
 import '../models/promotion.dart';
 import '../models/term_report.dart';
 import '../models/question.dart';
@@ -29,9 +31,16 @@ import '../models/student.dart';
 import '../models/submission.dart';
 import '../models/user.dart';
 import '../security/secret_hash.dart';
+import 'data_store.dart';
+import '../sync/sync_queue.dart';
 
 class LocalStore {
   static const _usersKey = 'solvanta.users_v1';
+  /// The demo school fills an empty device only in offline-demo mode. With a
+  /// school server everything comes from the server, so a real school's
+  /// device never shows demo pupils or demo accounts.
+  static bool get demoData => !ApiClient.isConfigured;
+
   static const _sessionKey = 'solvanta.session_user_id';
   static const _apiTokenKey = 'solvanta.api_token';
   static const _classesKey = 'solvanta.classes_v1';
@@ -53,6 +62,7 @@ class LocalStore {
   static const _correctionsKey = 'solvanta.corrections_v1';
   static const _promotionsKey = 'solvanta.promotions_v1';
   static const _termReportsKey = 'solvanta.term_reports_v1';
+  static const _meetingsKey = 'solvanta.parent_meetings_v1';
   static const _announcementsKey = 'solvanta.announcements_v1';
   static const _termKey = 'solvanta.term_v1';
   static const _termHistoryKey = 'solvanta.term_history_v1';
@@ -65,9 +75,9 @@ class LocalStore {
   static const _markingFeedbackKey = 'solvanta.marking_feedback_v1';
 
   Future<List<User>> loadUsers() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_usersKey);
-    if (raw == null) return _seed(prefs);
+    if (raw == null) return demoData ? _seed(prefs) : <User>[];
     final list = jsonDecode(raw) as List;
     final users =
         list.map((e) => User.fromJson(e as Map<String, dynamic>)).toList();
@@ -83,10 +93,10 @@ class LocalStore {
   }
 
   Future<List<ClassRoom>> loadClasses() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_classesKey);
     if (raw == null) {
-      final list = _seedClasses();
+      final list = (demoData ? _seedClasses() : <ClassRoom>[]);
       await saveClasses(list);
       return list;
     }
@@ -95,7 +105,7 @@ class LocalStore {
   }
 
   Future<void> saveClasses(List<ClassRoom> classes) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _classesKey,
       jsonEncode(classes.map((e) => e.toJson()).toList()),
@@ -103,10 +113,10 @@ class LocalStore {
   }
 
   Future<List<Student>> loadStudents() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_studentsKey);
     if (raw == null) {
-      final list = _seedStudents();
+      final list = (demoData ? _seedStudents() : <Student>[]);
       await saveStudents(list);
       return list;
     }
@@ -115,7 +125,7 @@ class LocalStore {
   }
 
   Future<void> saveStudents(List<Student> students) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _studentsKey,
       jsonEncode(students.map((e) => e.toJson()).toList()),
@@ -123,10 +133,10 @@ class LocalStore {
   }
 
   Future<List<AttendanceRecord>> loadAttendance() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_attendanceKey);
     if (raw == null) {
-      final list = _seedAttendance();
+      final list = (demoData ? _seedAttendance() : <AttendanceRecord>[]);
       await saveAttendance(list);
       return list;
     }
@@ -137,7 +147,7 @@ class LocalStore {
   }
 
   Future<void> saveAttendance(List<AttendanceRecord> records) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _attendanceKey,
       jsonEncode(records.map((e) => e.toJson()).toList()),
@@ -145,10 +155,10 @@ class LocalStore {
   }
 
   Future<List<GateEvent>> loadGateEvents() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_gateKey);
     if (raw == null) {
-      final list = _seedGate();
+      final list = (demoData ? _seedGate() : <GateEvent>[]);
       await saveGateEvents(list);
       return list;
     }
@@ -157,7 +167,7 @@ class LocalStore {
   }
 
   Future<void> saveGateEvents(List<GateEvent> events) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _gateKey,
       jsonEncode(events.map((e) => e.toJson()).toList()),
@@ -165,10 +175,10 @@ class LocalStore {
   }
 
   Future<List<Question>> loadQuestionBank() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_bankKey);
     if (raw == null) {
-      final list = _seedQuestionBank();
+      final list = (demoData ? _seedQuestionBank() : <Question>[]);
       await saveQuestionBank(list);
       return list;
     }
@@ -177,7 +187,7 @@ class LocalStore {
   }
 
   Future<void> saveQuestionBank(List<Question> questions) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _bankKey,
       jsonEncode(questions.map((e) => e.toJson()).toList()),
@@ -185,17 +195,17 @@ class LocalStore {
   }
 
   Future<List<Assessment>> loadAssessments() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_assessmentsKey);
     if (raw == null) {
-      final seeded = <Assessment>[..._seedAssessments(), ..._seedMocks()];
+      final seeded = <Assessment>[...(demoData ? _seedAssessments() : <Assessment>[]), ...(demoData ? _seedMocks() : <Assessment>[])];
       await saveAssessments(seeded);
       return seeded;
     }
     final existing = (jsonDecode(raw) as List)
         .map((e) => Assessment.fromJson(e as Map<String, dynamic>))
         .toList();
-    final missing = _seedMocks()
+    final missing = (demoData ? _seedMocks() : <Assessment>[])
         .where((m) => !existing.any((x) => x.id == m.id))
         .toList();
     if (missing.isNotEmpty) {
@@ -207,7 +217,7 @@ class LocalStore {
   }
 
   Future<void> saveAssessments(List<Assessment> assessments) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _assessmentsKey,
       jsonEncode(assessments.map((e) => e.toJson()).toList()),
@@ -215,10 +225,10 @@ class LocalStore {
   }
 
   Future<List<AssessmentSubmission>> loadSubmissions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_submissionsKey);
     if (raw == null) {
-      final list = _seedSubmissions();
+      final list = (demoData ? _seedSubmissions() : <AssessmentSubmission>[]);
       await saveSubmissions(list);
       return list;
     }
@@ -229,7 +239,7 @@ class LocalStore {
   }
 
   Future<void> saveSubmissions(List<AssessmentSubmission> subs) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _submissionsKey,
       jsonEncode(subs.map((e) => e.toJson()).toList()),
@@ -249,7 +259,7 @@ class LocalStore {
       }).toList();
 
   Future<void> saveUsers(List<User> users) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _usersKey,
       jsonEncode(_encodeUsers(users)),
@@ -257,10 +267,10 @@ class LocalStore {
   }
 
   Future<List<Message>> loadMessages() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_messagesKey);
     if (raw == null) {
-      final list = _seedMessages();
+      final list = (demoData ? _seedMessages() : <Message>[]);
       await saveMessages(list);
       return list;
     }
@@ -269,7 +279,7 @@ class LocalStore {
   }
 
   Future<void> saveMessages(List<Message> messages) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _messagesKey,
       jsonEncode(messages.map((e) => e.toJson()).toList()),
@@ -279,22 +289,23 @@ class LocalStore {
   /// Study targets (subject id → grade). With [userId] they are that
   /// user's own, falling back to the device-wide set older versions kept.
   Future<Map<String, String>> loadTargets({String? userId}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = (userId == null ? null : prefs.getString('$_targetsKey.$userId')) ??
         prefs.getString(_targetsKey);
-    if (raw == null) return _seedTargets();
+    if (raw == null) return demoData ? _seedTargets() : <String, String>{};
     return (jsonDecode(raw) as Map).map((k, v) => MapEntry(k as String, v as String));
   }
 
   Future<void> saveTargets(Map<String, String> targets, {String? userId}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
         userId == null ? _targetsKey : '$_targetsKey.$userId', jsonEncode(targets));
   }
 
   Future<School?> loadSchool() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_schoolKey);
+    if (raw == null && !demoData) return null; // the server's arrives on sync
     if (raw == null) {
       const school = School(
         id: 'SCH-001',
@@ -312,15 +323,15 @@ class LocalStore {
   }
 
   Future<void> saveSchool(School school) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_schoolKey, jsonEncode(school.toJson()));
   }
 
   Future<List<AppNotification>> loadNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_notificationsKey);
     if (raw == null) {
-      final list = _seedNotifications();
+      final list = (demoData ? _seedNotifications() : <AppNotification>[]);
       await saveNotifications(list);
       return list;
     }
@@ -331,7 +342,7 @@ class LocalStore {
   }
 
   Future<void> saveNotifications(List<AppNotification> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _notificationsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -339,10 +350,10 @@ class LocalStore {
   }
 
   Future<List<Intervention>> loadInterventions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_interventionsKey);
     if (raw == null) {
-      final list = _seedInterventions();
+      final list = (demoData ? _seedInterventions() : <Intervention>[]);
       await saveInterventions(list);
       return list;
     }
@@ -353,10 +364,10 @@ class LocalStore {
   }
 
   Future<List<Announcement>> loadAnnouncements() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_announcementsKey);
     if (raw == null) {
-      final list = _seedAnnouncements();
+      final list = (demoData ? _seedAnnouncements() : <Announcement>[]);
       await saveAnnouncements(list);
       return list;
     }
@@ -402,7 +413,7 @@ class LocalStore {
       ];
 
   Future<void> saveAnnouncements(List<Announcement> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _announcementsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -410,7 +421,7 @@ class LocalStore {
   }
 
   Future<SchoolTerm> loadTerm() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_termKey);
     if (raw == null) {
       await saveTerm(SchoolTerm.fallback);
@@ -423,7 +434,7 @@ class LocalStore {
   /// old term is a finished one and is archived for transcripts; editing the
   /// current term's dates (or re-syncing it) archives nothing.
   Future<void> saveTerm(SchoolTerm term) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_termKey);
     if (raw != null) {
       final prev =
@@ -443,7 +454,7 @@ class LocalStore {
 
   /// The school's grading set-up, or the GES default until one is saved.
   Future<GradingConfig> loadGradingConfig() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_gradingKey);
     var g = GradingConfig.fallback;
     if (raw != null) {
@@ -457,7 +468,7 @@ class LocalStore {
   }
 
   Future<void> saveGradingConfig(GradingConfig config) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_gradingKey, jsonEncode(config.toJson()));
     if (config.problem() == null) SchoolGrading.current = config;
   }
@@ -465,7 +476,7 @@ class LocalStore {
   /// Finished terms with the grading each ended under, oldest first — the
   /// earlier columns of a transcript and of the year chart.
   Future<List<FinishedTerm>> loadTermHistory() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_termHistoryKey);
     if (raw == null) return [];
     return (jsonDecode(raw) as List)
@@ -475,7 +486,7 @@ class LocalStore {
 
   /// Replaces the finished-term list (the server's copy wins on sync).
   Future<void> saveTermHistory(List<FinishedTerm> terms) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final sorted = [...terms]
       ..sort((a, b) => a.term.start.compareTo(b.term.start));
     await prefs.setString(_termHistoryKey,
@@ -483,7 +494,7 @@ class LocalStore {
   }
 
   Future<void> saveInterventions(List<Intervention> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _interventionsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -491,7 +502,7 @@ class LocalStore {
   }
 
   Future<List<AuditEntry>> loadAudit() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_auditKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -499,7 +510,7 @@ class LocalStore {
   }
 
   Future<void> saveAudit(List<AuditEntry> entries) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _auditKey,
       jsonEncode(entries.map((e) => e.toJson()).toList()),
@@ -507,10 +518,10 @@ class LocalStore {
   }
 
   Future<List<Assignment>> loadAssignments() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_assignmentsKey);
     if (raw == null) {
-      final list = _seedAssignments();
+      final list = (demoData ? _seedAssignments() : <Assignment>[]);
       await saveAssignments(list);
       return list;
     }
@@ -521,7 +532,7 @@ class LocalStore {
   }
 
   Future<void> saveAssignments(List<Assignment> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _assignmentsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -529,7 +540,7 @@ class LocalStore {
   }
 
   Future<List<ScanPage>> loadScans() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_scansKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -539,7 +550,7 @@ class LocalStore {
   }
 
   Future<void> saveScans(List<ScanPage> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _scansKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -547,7 +558,7 @@ class LocalStore {
   }
 
   Future<List<AssignmentSubmission>> loadAssignmentSubmissions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_assignmentSubmissionsKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -558,7 +569,7 @@ class LocalStore {
 
   Future<void> saveAssignmentSubmissions(
       List<AssignmentSubmission> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _assignmentSubmissionsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -571,7 +582,7 @@ class LocalStore {
   /// The parked photo rides along inside the job rather than in a separate
   /// map, because a job that has not been read has nothing without it.
   Future<List<OcrJob>> loadOcrJobs() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_ocrJobsKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -581,7 +592,7 @@ class LocalStore {
   }
 
   Future<void> saveOcrJobs(List<OcrJob> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _ocrJobsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -591,7 +602,7 @@ class LocalStore {
   /// Draft marks received from the server (Phase 5). Drafts, not marks: the
   /// recorded marks stay in the submissions.
   Future<List<MarkingDraft>> loadMarkingDrafts() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_markingDraftsKey);
     if (raw == null) return [];
     return (jsonDecode(raw) as List)
@@ -600,7 +611,7 @@ class LocalStore {
   }
 
   Future<void> saveMarkingDrafts(List<MarkingDraft> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _markingDraftsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -610,7 +621,7 @@ class LocalStore {
   /// A teacher's in-progress review decisions, by draft id, so marks typed
   /// into the review screen survive closing the app or losing the signal.
   Future<Map<String, dynamic>> loadDraftReviews() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_draftReviewsKey);
     if (raw == null) return {};
     return Map<String, dynamic>.from(jsonDecode(raw) as Map);
@@ -619,25 +630,25 @@ class LocalStore {
   /// The last feedback reports fetched, keyed by viewer and report, so a
   /// report read once can still be shown without a signal.
   Future<Map<String, dynamic>> loadMarkingFeedback() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_markingFeedbackKey);
     if (raw == null) return {};
     return Map<String, dynamic>.from(jsonDecode(raw) as Map);
   }
 
   Future<void> saveMarkingFeedback(Map<String, dynamic> reports) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_markingFeedbackKey, jsonEncode(reports));
   }
 
   Future<void> saveDraftReviews(Map<String, dynamic> reviews) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(_draftReviewsKey, jsonEncode(reviews));
   }
 
   /// Draft requests waiting for the server.
   Future<List<MarkingDraftRequest>> loadDraftRequests() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_draftRequestsKey);
     if (raw == null) return [];
     return (jsonDecode(raw) as List)
@@ -646,7 +657,7 @@ class LocalStore {
   }
 
   Future<void> saveDraftRequests(List<MarkingDraftRequest> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _draftRequestsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -654,7 +665,7 @@ class LocalStore {
   }
 
   Future<List<Correction>> loadCorrections() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_correctionsKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -664,16 +675,34 @@ class LocalStore {
   }
 
   Future<void> saveCorrections(List<Correction> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _correctionsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
   }
 
+  /// Meetings with families, every term.
+  Future<List<ParentMeeting>> loadParentMeetings() async {
+    final prefs = await DataStore.instance();
+    final raw = prefs.getString(_meetingsKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => ParentMeeting.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveParentMeetings(List<ParentMeeting> items) async {
+    final prefs = await DataStore.instance();
+    await prefs.setString(
+      _meetingsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
   /// Term reports (remarks, approval, frozen cards), every term.
   Future<List<TermReport>> loadTermReports() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_termReportsKey);
     if (raw == null) return [];
     return (jsonDecode(raw) as List)
@@ -682,7 +711,7 @@ class LocalStore {
   }
 
   Future<void> saveTermReports(List<TermReport> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _termReportsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -691,7 +720,7 @@ class LocalStore {
 
   /// End-of-year decisions applied so far, every year.
   Future<List<PromotionRecord>> loadPromotions() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_promotionsKey);
     if (raw == null) return [];
     return (jsonDecode(raw) as List)
@@ -700,7 +729,7 @@ class LocalStore {
   }
 
   Future<void> savePromotions(List<PromotionRecord> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _promotionsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -708,7 +737,7 @@ class LocalStore {
   }
 
   Future<List<QuestionGenRequest>> loadQuestionGenRequests() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     final raw = prefs.getString(_qgenKey);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
@@ -718,7 +747,7 @@ class LocalStore {
   }
 
   Future<void> saveQuestionGenRequests(List<QuestionGenRequest> items) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     await prefs.setString(
       _qgenKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
@@ -738,6 +767,36 @@ class LocalStore {
   Future<void> clearSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_sessionKey);
+  }
+
+  static const _dataOwnerKey = 'solvanta.data_owner';
+
+  /// The account whose school data this device holds, or null.
+  Future<String?> dataOwner() async =>
+      (await SharedPreferences.getInstance()).getString(_dataOwnerKey);
+
+  Future<void> setDataOwner(String? userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (userId == null) {
+      await prefs.remove(_dataOwnerKey);
+    } else {
+      await prefs.setString(_dataOwnerKey, userId);
+    }
+  }
+
+  /// Removes every school record from this device — students, marks,
+  /// attendance, fees, messages, the outbox — keeping only preferences
+  /// (theme, lock). Used when an account signs out of a device that syncs
+  /// with a school server, so the next person can't see that school's data.
+  Future<void> clearSchoolData() async {
+    // The outbox first: clearing it writes an (empty) copy, removed below.
+    await SyncQueue.instance.clear();
+    final kv = await DataStore.instance();
+    for (final key in kv.dataKeys.toList()) {
+      await kv.remove(key);
+    }
+    SchoolGrading.current = GradingConfig.fallback;
+    await setDataOwner(null);
   }
 
   /// The bearer token the backend issued at login.
@@ -762,7 +821,7 @@ class LocalStore {
     return prefs.getString(_apiTokenKey);
   }
 
-  List<User> _seed(SharedPreferences prefs) {
+  List<User> _seed(DataStore prefs) {
     final users = <User>[
       const User(
         id: 'USR-SUPER',
@@ -1079,7 +1138,7 @@ class LocalStore {
       ];
 
   List<AttendanceRecord> _seedAttendance() {
-    final jhs2a = _seedStudents()
+    final jhs2a = (demoData ? _seedStudents() : <Student>[])
         .where((s) => s.classId == 'JHS2A')
         .map((s) => s.id)
         .toList();
@@ -1307,7 +1366,7 @@ class LocalStore {
       ];
 
   List<Assessment> _seedAssessments() {
-    final bank = _seedQuestionBank();
+    final bank = (demoData ? _seedQuestionBank() : <Question>[]);
     Question byId(String id) =>
         bank.firstWhere((q) => q.id == id);
 
@@ -1391,7 +1450,7 @@ class LocalStore {
   }
 
   List<Assessment> _seedMocks() {
-    final bank = _seedQuestionBank();
+    final bank = (demoData ? _seedQuestionBank() : <Question>[]);
     Question byId(String id) => bank.firstWhere((q) => q.id == id);
     return [
       Assessment(

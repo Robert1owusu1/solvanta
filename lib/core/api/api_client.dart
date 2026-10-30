@@ -100,6 +100,10 @@ class ApiClient {
     }
   }
 
+  /// Points the app at [api] as if `config.json` named it (null: none).
+  @visibleForTesting
+  static set debugRuntimeApi(String? api) => _runtimeApi = api;
+
   /// [api] from `config.json` as a full base URL: `:8080` means [page]'s own
   /// host on that port; blank means none.
   @visibleForTesting

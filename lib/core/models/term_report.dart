@@ -15,6 +15,10 @@ class TermReport {
   final String attitude;
   final String interest;
   final String headRemark;
+
+  /// Remarks for individual subject rows (subject id → remark), written in
+  /// place of the grade's own remark.
+  final Map<String, String> subjectRemarks;
   final bool approved;
   final String approvedBy;
   final String approvedAt;
@@ -32,6 +36,7 @@ class TermReport {
     this.attitude = '',
     this.interest = '',
     this.headRemark = '',
+    this.subjectRemarks = const {},
     this.approved = false,
     this.approvedBy = '',
     this.approvedAt = '',
@@ -64,6 +69,10 @@ class TermReport {
         attitude: (j['attitude'] ?? '') as String,
         interest: (j['interest'] ?? '') as String,
         headRemark: (j['headRemark'] ?? '') as String,
+        subjectRemarks: {
+          for (final e in ((j['subjectRemarks'] ?? const {}) as Map).entries)
+            e.key as String: e.value as String,
+        },
         approved: j['status'] == 'approved',
         approvedBy: (j['approvedBy'] ?? '') as String,
         approvedAt: (j['approvedAt'] ?? '') as String,
@@ -83,6 +92,7 @@ class TermReport {
         'attitude': attitude,
         'interest': interest,
         'headRemark': headRemark,
+        if (subjectRemarks.isNotEmpty) 'subjectRemarks': subjectRemarks,
         'status': approved ? 'approved' : 'draft',
         if (approvedBy.isNotEmpty) 'approvedBy': approvedBy,
         if (approvedAt.isNotEmpty) 'approvedAt': approvedAt,
@@ -95,6 +105,7 @@ class TermReport {
     String? attitude,
     String? interest,
     String? headRemark,
+    Map<String, String>? subjectRemarks,
   }) =>
       TermReport(
         studentId: studentId,
@@ -106,6 +117,7 @@ class TermReport {
         attitude: attitude ?? this.attitude,
         interest: interest ?? this.interest,
         headRemark: headRemark ?? this.headRemark,
+        subjectRemarks: subjectRemarks ?? this.subjectRemarks,
         approved: approved,
         approvedBy: approvedBy,
         approvedAt: approvedAt,
@@ -124,6 +136,7 @@ class TermReport {
         attitude: attitude,
         interest: interest,
         headRemark: headRemark,
+        subjectRemarks: subjectRemarks,
         approved: card != null,
         snapshot: card,
       );

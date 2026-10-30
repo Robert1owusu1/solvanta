@@ -96,7 +96,7 @@ class _StudentFeesScreenState extends State<StudentFeesScreen> {
       ),
     );
     if (!mounted) return;
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
   }
 
   Widget _restricted() => Scaffold(

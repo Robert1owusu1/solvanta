@@ -34,7 +34,7 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
     return (resources, classes.map((c) => (id: c.id, name: c.displayName)).toList(), user?.isSchoolStaff ?? false);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _add() async {
     final classes = (await _data).$2;

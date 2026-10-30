@@ -54,7 +54,7 @@ class _HomeOverviewState extends State<HomeOverview> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (mounted) setState(() { _future = _load(); });
   }
 
   String _today() {

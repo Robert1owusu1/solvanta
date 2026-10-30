@@ -3,14 +3,16 @@ import 'package:flutter/material.dart';
 import '../../core/models/assessment.dart';
 import '../../core/models/question.dart';
 import '../../core/models/submission.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/subjects.dart';
+import '../../core/models/subjects.dart' as app_subjects;
 import '../../core/storage/local_store.dart';
 import '../../core/sync/server_sync.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
-import '../analytics/analytics_service.dart';
 import '../assessment/assessment_repository.dart';
 import '../auth/auth_repository.dart';
+import '../students/students_repository.dart';
 import 'mock_take_screen.dart';
 
 /// Public-exam programmes (doc §45): BECE / WASSCE timed papers built from
@@ -76,12 +78,25 @@ class _PrepScreenState extends State<PrepScreen> {
     final studentId =
         me.role.isStudent ? me.id.replaceFirst('USR-', '') : me.id;
     final repo = AssessmentRepository();
-    final assessments = await repo.assessments();
-    final subs = await repo.submissions();
+    final store = LocalStore();
+    final students = await StudentsRepository().all();
+    final student = students.where((s) => s.id == studentId).firstOrNull;
+    final classId = student?.classId ?? me.classId ?? '';
+    // Only this student's own class's work and their own marks count.
+    final assessments = [
+      for (final a in await repo.assessments())
+        if (classId.isEmpty || a.classId == classId) a,
+    ];
+    final subs = [
+      for (final s in await repo.submissions())
+        if (s.studentId == studentId) s,
+    ];
     final bank = await repo.bank();
     final mocks =
         assessments.where((a) => a.type == AssessmentType.mock).toList();
-    final targets = await LocalStore().loadTargets(userId: me.id);
+    final targets = await store.loadTargets(userId: me.id);
+    final grading = await store.loadGradingConfig();
+    final classes = await store.loadClasses();
     return PrepData(
       studentId: studentId,
       schoolId: schoolId,
@@ -90,6 +105,7 @@ class _PrepScreenState extends State<PrepScreen> {
       assessments: assessments,
       bank: bank,
       targets: targets,
+      scheme: grading.schemeFor(classId, classes),
     );
   }
 
@@ -104,7 +120,7 @@ class _PrepScreenState extends State<PrepScreen> {
             return SvErrorState(
               title: "Couldn't load prep",
               message: 'We couldn\'t load your prep. Please try again.',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           if (snap.connectionState != ConnectionState.done) {
@@ -167,7 +183,7 @@ class _PrepScreenState extends State<PrepScreen> {
                     '${subjectName(a.subjectId)} · ${a.questions.length} '
                     'questions · ${a.totalMarks.toStringAsFixed(0)} marks\n'
                     '${best == null ? 'Not attempted yet' : 'Best: ${best.toStringAsFixed(1)}% — '
-                        'grade ${gradeLetter(best)}'}'),
+                        'grade ${d.scheme.bandFor(best).grade}'}'),
                 isThreeLine: true,
                 trailing: const Icon(Icons.play_circle_fill,
                     color: AppTheme.accent),
@@ -184,7 +200,7 @@ class _PrepScreenState extends State<PrepScreen> {
                           assessment: a, studentId: d.studentId),
                     ),
                   );
-                  setState(() => _data = _load());
+                  setState(() { _data = _load(); });
                 },
               ),
             ),
@@ -277,7 +293,7 @@ class _PrepScreenState extends State<PrepScreen> {
                       ),
                     ),
                   );
-                  setState(() => _data = _load());
+                  setState(() { _data = _load(); });
                 },
               ),
             ),
@@ -357,7 +373,7 @@ class _PrepScreenState extends State<PrepScreen> {
                           assessment: practice, studentId: d.studentId),
                     ),
                   );
-                  setState(() => _data = _load());
+                  setState(() { _data = _load(); });
                 },
               ),
             ),
@@ -368,20 +384,35 @@ class _PrepScreenState extends State<PrepScreen> {
   }
 
   Widget _targets(PrepData d) {
+    final aggregate = d.predictedAggregate();
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         Text('Set your target grade per subject. The app compares your '
-            'current scores.',
+            'current scores, on your school\'s grading.',
             style: TextStyle(fontSize: 12, color: AppColors.muted)),
+        if (d.scheme.showAggregate)
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.emoji_events_outlined, color: AppColors.brand),
+              title: Text(aggregate == null
+                  ? 'Predicted aggregate: not enough scores yet'
+                  : 'Predicted aggregate: $aggregate'),
+              subtitle: Text(
+                  'From your current scores: ${d.scheme.coreSubjects.map(subjectName).join(', ')}'
+                  '${d.scheme.bestOthers > 0 ? ' + your best ${d.scheme.bestOthers}' : ''}. '
+                  'Lower is better.'),
+            ),
+          ),
         const SizedBox(height: 8),
-        for (final (i, sub) in subjects.indexed)
+        for (final (i, sub) in d.subjects.indexed)
           Builder(builder: (context) {
             final current = d.currentPercent(sub.id);
-            final target = d.targets[sub.id] ?? 'C';
-            final grade = current == null ? '–' : gradeLetter(current);
-            final onTrack =
-                current != null && _gradeRank(grade) >= _gradeRank(target);
+            final target = d.targetFor(sub.id);
+            final grade =
+                current == null ? '–' : d.scheme.bandFor(current).grade;
+            final onTrack = current != null &&
+                d.gradeRank(grade) >= d.gradeRank(target);
             return SvEntrance(
               delay: Duration(milliseconds: 40 * i.clamp(0, 10)),
               child: SvPressScale(
@@ -434,11 +465,12 @@ class _PrepScreenState extends State<PrepScreen> {
                             'PUT', '/api/records/targets/${me.id}',
                             body: {'id': me.id, 'targets': targets});
                         if (!mounted) return;
-                        setState(() => _data = _load());
+                        setState(() { _data = _load(); });
                       },
                       items: [
-                        for (final g in ['A', 'B', 'C', 'D', 'F'])
-                          DropdownMenuItem(value: g, child: Text('Target $g')),
+                        for (final b in d.scheme.bands)
+                          DropdownMenuItem(
+                              value: b.grade, child: Text('Target ${b.grade}')),
                       ],
                     ),
                   ],
@@ -458,7 +490,6 @@ class _PrepScreenState extends State<PrepScreen> {
     return '${d.year}-${p(d.month)}-${p(d.day)}';
   }
 
-  int _gradeRank(String g) => ['F', 'D', 'C', 'B', 'A'].indexOf(g);
 }
 
 class PrepData {
@@ -470,6 +501,9 @@ class PrepData {
   final List<Question> bank;
   final Map<String, String> targets;
 
+  /// The school's grading scheme for this student's class.
+  final GradingScheme scheme;
+
   const PrepData({
     required this.studentId,
     required this.schoolId,
@@ -478,11 +512,61 @@ class PrepData {
     required this.assessments,
     required this.bank,
     required this.targets,
+    this.scheme = gesBasicPreset,
   });
+
+  /// Subjects the class is taking, plus the scheme's core subjects.
+  List<Subject> get subjects {
+    final ids = {
+      ...scheme.coreSubjects,
+      for (final a in assessments) a.subjectId,
+    };
+    return [
+      for (final s in app_subjects.subjects)
+        if (ids.contains(s.id)) s,
+    ];
+  }
+
+  /// 0 for the lowest grade upwards; -1 for one not on the scheme.
+  int gradeRank(String grade) {
+    final i = scheme.bands.indexWhere((b) => b.grade == grade);
+    return i < 0 ? -1 : scheme.bands.length - 1 - i;
+  }
+
+  /// The target set for [subjectId] if it is a grade on today's scheme,
+  /// else the pass mark's grade (the band holding 50).
+  String targetFor(String subjectId) {
+    final t = targets[subjectId];
+    if (t != null && gradeRank(t) >= 0) return t;
+    return scheme.bandFor(50).grade;
+  }
+
+  /// BECE-style aggregate from current scores (the scheme's core subjects
+  /// plus its best others), or `null` when the scores aren't all in yet.
+  int? predictedAggregate() {
+    if (!scheme.showAggregate || !scheme.numericGrades) return null;
+    final cores = <int>[];
+    final others = <int>[];
+    for (final s in subjects) {
+      final p = currentPercent(s.id);
+      if (p == null) continue;
+      final g = int.parse(scheme.bandFor(p).grade);
+      (scheme.coreSubjects.contains(s.id) ? cores : others).add(g);
+    }
+    others.sort();
+    if (cores.length < scheme.coreSubjects.length ||
+        others.length < scheme.bestOthers) {
+      return null;
+    }
+    return [...cores, ...others.take(scheme.bestOthers)]
+        .fold<int>(0, (a, b) => a + b);
+  }
 
   /// Best saved score for a published mock.
   double? bestPercent(String assessmentId) {
-    final mine = subs.where((s) => s.assessmentId == assessmentId).toList();
+    final mine = subs
+        .where((s) => s.assessmentId == assessmentId && s.studentId == studentId)
+        .toList();
     if (mine.isEmpty) return null;
     final a = assessments.firstWhere((x) => x.id == assessmentId,
         orElse: () => assessments.first);
@@ -496,7 +580,8 @@ class PrepData {
   double? currentPercent(String subjectId) {
     var earned = 0.0, possible = 0.0;
     for (final a in assessments.where((x) => x.subjectId == subjectId)) {
-      for (final s in subs.where((x) => x.assessmentId == a.id)) {
+      for (final s in subs.where(
+          (x) => x.assessmentId == a.id && x.studentId == studentId)) {
         earned += s.earned;
         possible += a.totalMarks;
       }

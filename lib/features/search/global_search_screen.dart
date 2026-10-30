@@ -94,7 +94,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     return _match(_query.text);
   }
 
-  void _run() => setState(() => _hits = Future.value(_match(_query.text)));
+  void _run() => setState(() { _hits = Future.value(_match(_query.text)); });
 
   List<SearchHit> _match(String raw) {
     final q = raw.trim().toLowerCase();
@@ -187,7 +187,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                   return SvErrorState(
                     title: 'Search is unavailable',
                     message: 'We couldn\'t search just now. Please try again.',
-                    onRetry: () => setState(() => _hits = _load()),
+                    onRetry: () => setState(() { _hits = _load(); }),
                   );
                 }
                 final hits = snap.data ?? const <SearchHit>[];

@@ -103,7 +103,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<void> _saveCorrection(Question q, AssessmentSubmission sub) async {
     final text = _controllers[q.id]?.text.trim() ?? '';

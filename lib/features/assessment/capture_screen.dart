@@ -85,7 +85,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
           if (snap.hasError) {
             return SvErrorState(
               message: 'Could not load the class roster',
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           final (students, subs, scans) = snap.data ??
@@ -182,7 +182,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                                         assessment: a, student: s),
                                   ),
                                 );
-                                if (mounted) setState(() => _data = _load());
+                                if (mounted) setState(() { _data = _load(); });
                               },
                             ),
                             submitted
@@ -198,7 +198,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                                   AnswerEntryScreen(assessment: a, student: s),
                             ),
                           );
-                          setState(() => _data = _load());
+                          setState(() { _data = _load(); });
                         },
                       ),
                     );

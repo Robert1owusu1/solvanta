@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/store"
 )
 
 // listUsers returns the school's accounts (password hashes are never exposed).
@@ -102,7 +104,11 @@ func (s *Server) createUser(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "unknown school")
 		return
 	}
-	if writeFailed(c, target.SaveUser(nu)) {
+	if err := target.SaveUser(nu); errors.Is(err, store.ErrEmailTaken) {
+		// Lost a race with another school creating the same email.
+		fail(c, http.StatusConflict, "A user with this email already exists")
+		return
+	} else if writeFailed(c, err) {
 		return
 	}
 	s.audit(c, "user.create", nu.ID, "Created "+nu.Role+" account "+nu.Name, "")

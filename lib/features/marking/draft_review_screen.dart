@@ -52,7 +52,7 @@ class _DraftReviewQueueScreenState extends State<DraftReviewQueueScreen> {
     return (drafts, names);
   }
 
-  void _reload() => setState(() => _data = _load());
+  void _reload() => setState(() { _data = _load(); });
 
   Future<void> _newDraft() async {
     await Navigator.of(context).push(

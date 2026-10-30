@@ -44,7 +44,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
     return (students, classes, user);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   List<Student> _filtered(List<Student> students) {
     final q = _query.trim().toLowerCase();

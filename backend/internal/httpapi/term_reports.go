@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,17 +22,19 @@ import (
 
 // termReportFields are the parts of the client's JSON the rules look at.
 type termReportFields struct {
-	Status        string          `json:"status"`
-	Year          string          `json:"year"`
-	Term          string          `json:"term"`
-	TeacherRemark string          `json:"teacherRemark"`
-	Conduct       string          `json:"conduct"`
-	Attitude      string          `json:"attitude"`
-	Interest      string          `json:"interest"`
-	HeadRemark    string          `json:"headRemark"`
-	ApprovedBy    string          `json:"approvedBy"`
-	ApprovedAt    string          `json:"approvedAt"`
-	Snapshot      json.RawMessage `json:"snapshot"`
+	Status        string `json:"status"`
+	Year          string `json:"year"`
+	Term          string `json:"term"`
+	TeacherRemark string `json:"teacherRemark"`
+	Conduct       string `json:"conduct"`
+	Attitude      string `json:"attitude"`
+	Interest      string `json:"interest"`
+	HeadRemark    string `json:"headRemark"`
+	// SubjectRemarks: subject id → the remark for that row of the card.
+	SubjectRemarks map[string]string `json:"subjectRemarks"`
+	ApprovedBy     string            `json:"approvedBy"`
+	ApprovedAt     string            `json:"approvedAt"`
+	Snapshot       json.RawMessage   `json:"snapshot"`
 }
 
 const (
@@ -80,6 +83,16 @@ func checkTermReport(s *Server, c *gin.Context, u domain.User, prev *domain.Reco
 			return false
 		}
 	}
+	if len(n.SubjectRemarks) > 30 {
+		fail(c, http.StatusBadRequest, "too many subject remarks")
+		return false
+	}
+	for _, t := range n.SubjectRemarks {
+		if len(t) > 80 {
+			fail(c, http.StatusBadRequest, "a subject remark is limited to 80 characters")
+			return false
+		}
+	}
 	if !isLeader(u) {
 		switch {
 		case p.Status == termReportApproved:
@@ -122,6 +135,11 @@ func checkTermReport(s *Server, c *gin.Context, u domain.User, prev *domain.Reco
 		// Released to the family: tell the parents (student-scoped notice).
 		s.notify(c, "", domain.NotifReportCard, n.Term+" report card is ready",
 			"The "+n.Term+" ("+n.Year+") report card has been approved by the school.", next.StudentID)
+		if student, ok := s.db(c).StudentByID(next.StudentID); ok {
+			s.textFamily(c, student.ID, smsReportCard, fmt.Sprintf(
+				"%s: %s's %s report card is ready. Open the SOLVANTA app to view it.",
+				schoolLabel(s.db(c)), student.FullName(), n.Term))
+		}
 		return true
 	}
 	return restamp(c, next, func(m map[string]any) {
@@ -133,6 +151,14 @@ func checkTermReport(s *Server, c *gin.Context, u domain.User, prev *domain.Reco
 
 // sameReport: the parts a re-sent approval may not change.
 func sameReport(a, b termReportFields) bool {
+	if len(a.SubjectRemarks) != len(b.SubjectRemarks) {
+		return false
+	}
+	for k, v := range a.SubjectRemarks {
+		if b.SubjectRemarks[k] != v {
+			return false
+		}
+	}
 	return a.TeacherRemark == b.TeacherRemark && a.Conduct == b.Conduct &&
 		a.Attitude == b.Attitude && a.Interest == b.Interest &&
 		a.HeadRemark == b.HeadRemark

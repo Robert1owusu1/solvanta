@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	sec "solvanta/backend/internal/security"
+
+	"solvanta/backend/internal/sms"
 )
 
 // defaultBodyLimit caps JSON request bodies at 1 MiB.
@@ -39,6 +41,12 @@ type Config struct {
 	// proxy every visitor then shares the proxy's address, and the login
 	// throttle counts the whole school as one client.
 	TrustedProxies []string
+	// SMS sends texts to parents; nil picks the provider from the
+	// environment (sms.FromEnv: the log-only provider unless configured).
+	SMS sms.Sender
+	// SMSInline sends texts inside the request instead of in the background
+	// — for tests, which read the log straight after.
+	SMSInline bool
 }
 
 // sharedPasswordHashes precomputes bcrypt hashes once per process so repeated

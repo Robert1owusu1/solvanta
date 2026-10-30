@@ -95,7 +95,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
         studentId: student.id,
       ),
     ));
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   Future<void> _quiz(List<Question> bank, Student student, String subjectId) async {
@@ -118,7 +118,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
         studentId: student.id,
       ),
     ));
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 
   @override
@@ -373,7 +373,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
                   builder: (_) => MockTakeScreen(
                       assessment: a, studentId: d.student!.id),
                 ));
-                if (mounted) setState(() => _data = _load());
+                if (mounted) setState(() { _data = _load(); });
               },
             ),
           ),
@@ -445,7 +445,7 @@ class _StudyHubScreenState extends State<StudyHubScreen> {
         studentId: d.student!.id,
       ),
     ));
-    if (mounted) setState(() => _data = _load());
+    if (mounted) setState(() { _data = _load(); });
   }
 }
 

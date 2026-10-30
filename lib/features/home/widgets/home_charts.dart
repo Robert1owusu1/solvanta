@@ -52,7 +52,7 @@ class _HomeChartsState extends State<HomeCharts> {
   }
 
   void _reload() {
-    if (mounted) setState(() => _future = _load());
+    if (mounted) setState(() { _future = _load(); });
   }
 
   Future<_ChartData> _load() async {

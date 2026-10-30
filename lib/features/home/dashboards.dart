@@ -4,6 +4,8 @@ import '../../core/models/role.dart';
 import '../../core/models/user.dart';
 import '../admin/parent_linking_screen.dart';
 import '../admin/school_admin_screen.dart';
+import '../admin/schools_screen.dart';
+import '../admin/sms_screen.dart';
 import '../admin/staff_screen.dart';
 import '../assessment/assessments_screen.dart';
 import '../assessment/question_bank_screen.dart';
@@ -25,6 +27,7 @@ import '../prep/prep_screen.dart';
 import '../prep/study_hub_screen.dart';
 import '../questions/question_gen_screen.dart';
 import '../reports/marking_feedback_screen.dart';
+import '../reports/parent_meetings_screen.dart';
 import '../reports/report_card_screen.dart';
 import '../reports/reports_screen.dart';
 import '../resources/resources_screen.dart';
@@ -103,6 +106,12 @@ final _adminModules = [
   Module(Icons.palette, 'Report Card Designer', NavSection.records,
       subtitle: 'Terminal report, modern & transcript PDFs',
       builder: (_) => const ReportCardScreen()),
+  Module(Icons.event_available_outlined, 'Parent Meetings', NavSection.comms,
+      subtitle: 'Follow up with families',
+      builder: (_) => const ParentMeetingsScreen()),
+  Module(Icons.sms_outlined, 'SMS to Parents', NavSection.comms,
+      subtitle: 'Texts for families without the app',
+      builder: (_) => const SmsScreen()),
   Module(Icons.history, 'Audit Log', NavSection.records,
       subtitle: 'Changes, corrections & access trail',
       builder: (_) => const AuditScreen()),
@@ -115,6 +124,14 @@ final _adminModules = [
   Module(Icons.account_balance_wallet, FeesModule.adminLabel, NavSection.finance,
       subtitle: 'Bills, payments & receipts',
       builder: FeesModule.adminBuilder),
+];
+
+/// The platform owner: onboarding schools, then any school's management.
+final _superAdminModules = [
+  Module(Icons.domain_add_outlined, 'Schools', NavSection.people,
+      subtitle: 'Onboard schools & their admins',
+      builder: (_) => const SchoolsScreen()),
+  ..._adminModules,
 ];
 
 final _teacherModules = [
@@ -154,6 +171,9 @@ final _teacherModules = [
   Module(Icons.workspace_premium_outlined, 'Report Cards', NavSection.marking,
       subtitle: "Your class's remarks & terminal reports",
       builder: (_) => const ReportCardScreen()),
+  Module(Icons.event_available_outlined, 'Parent Meetings', NavSection.comms,
+      subtitle: 'Follow up with families',
+      builder: (_) => const ParentMeetingsScreen()),
   Module(Icons.data_exploration, 'Learning Gaps', NavSection.marking,
       subtitle: 'Class weaknesses & interventions',
       builder: (_) => const AnalyticsScreen()),
@@ -201,9 +221,9 @@ final _parentModules = [
       builder: FeesModule.parentBuilder),
 ];
 
-/// BECE / WASSCE prep is paused: hidden from every menu until it is reworked
-/// on the school's own grading. Flip to true to bring it back.
-const kBecePrepEnabled = false;
+/// BECE / WASSCE prep: on the school's own grading for the student's class.
+/// Set false to pause it (hidden from every menu).
+const kBecePrepEnabled = true;
 
 final _studentModules = [
   Module(Icons.person, 'My Profile', NavSection.people,
@@ -270,7 +290,7 @@ class AdminDashboard extends StatelessWidget {
     return DashboardScaffold(
       user: user,
       listTitle: 'School Management',
-      modules: _adminModules,
+      modules: modulesFor(user.role),
     );
   }
 }
@@ -338,10 +358,8 @@ class StaffDashboard extends StatelessWidget {
 /// The module set a role may reach — the single source of truth that
 /// [`dashboardFor`] uses. Mirrors the backend's per-route role gates.
 List<Module> modulesFor(AppRole role) => switch (role) {
-      AppRole.superAdmin ||
-      AppRole.schoolAdmin ||
-      AppRole.headteacher =>
-        _adminModules,
+      AppRole.superAdmin => _superAdminModules,
+      AppRole.schoolAdmin || AppRole.headteacher => _adminModules,
       AppRole.teacher => _teacherModules,
       AppRole.parent => _parentModules,
       AppRole.student => _studentModules,

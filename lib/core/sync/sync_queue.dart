@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../storage/data_store.dart';
 
 /// Lifecycle of one outbox entry.
 ///
@@ -275,7 +275,7 @@ class SyncQueue extends ChangeNotifier {
 
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await DataStore.instance();
       final raw = prefs.getString(storageKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw) as List<dynamic>;
@@ -302,7 +302,7 @@ class SyncQueue extends ChangeNotifier {
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await DataStore.instance();
       await prefs.setString(
         storageKey,
         jsonEncode(_items.map((e) => e.toJson()).toList()),

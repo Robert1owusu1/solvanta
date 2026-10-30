@@ -65,6 +65,7 @@ var recordKinds = map[string]recordKind{
 	domain.RecordTermReports: {scope: scopeStudent, writers: []string{
 		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher},
 		readable: termReportReadable, check: checkTermReport},
+	domain.RecordParentMeetings: {scope: scopeStudent, writers: staffRoles, check: checkParentMeeting},
 }
 
 // recordFields are the fields lifted out of a record's JSON.

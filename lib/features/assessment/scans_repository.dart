@@ -1,12 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/models/scan_page.dart';
 import '../../core/storage/local_store.dart';
 import '../../core/sync/server_sync.dart';
+import '../../core/storage/data_store.dart';
 
 class ScansRepository {
   ScansRepository({LocalStore? store}) : _store = store ?? LocalStore();
@@ -123,13 +123,13 @@ class ScansRepository {
   }
 
   Future<Map<String, String>> _pending() async {
-    final raw = (await SharedPreferences.getInstance()).getString(_pendingKey);
+    final raw = (await DataStore.instance()).getString(_pendingKey);
     if (raw == null) return {};
     return (jsonDecode(raw) as Map).cast<String, String>();
   }
 
   Future<void> _savePending(Map<String, String> pending) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await DataStore.instance();
     if (pending.isEmpty) {
       await prefs.remove(_pendingKey);
     } else {

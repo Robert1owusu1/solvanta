@@ -76,6 +76,7 @@ func main() {
 	// deployment that meant to buy a key can run for weeks on the mock with
 	// nothing in the logs to say so.
 	log.Println(server.OCRStatus())
+	log.Println(server.SMSStatus())
 	if err := r.Run(addr); err != nil {
 		log.Fatal(err)
 	}

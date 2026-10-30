@@ -116,3 +116,19 @@ func TestApprovalNotifiesTheFamily(t *testing.T) {
 	}
 	t.Fatalf("no report-card notice for the parent: %v", notes)
 }
+
+func TestSubjectRemarksAreBounded(t *testing.T) {
+	r := newTestServer(t, Config{})
+	teacher := login(t, r, "efua.mensah@school.gh", "teacher123")
+	long := strings.Repeat("x", 81)
+	body := strings.Replace(reportBody("draft", "ok", ""), `"status"`,
+		`"subjectRemarks":{"ENG":"`+long+`"},"status"`, 1)
+	if rec := do(r, "PUT", reportPath, body, bearer(teacher)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an 81-character subject remark: got %d, want 400", rec.Code)
+	}
+	ok := strings.Replace(reportBody("draft", "ok", ""), `"status"`,
+		`"subjectRemarks":{"ENG":"Reads widely"},"status"`, 1)
+	if rec := do(r, "PUT", reportPath, ok, bearer(teacher)); rec.Code != http.StatusOK {
+		t.Fatalf("a subject remark from the class teacher: %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -60,7 +60,7 @@ class _AcademicCalendarScreenState extends State<AcademicCalendarScreen> {
     _selected = _dateStr(now);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<_CalData> _load() async {
     final term = await TermRepository().current();

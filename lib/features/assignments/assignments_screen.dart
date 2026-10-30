@@ -36,7 +36,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     return (assignments, classes, user);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   List<Assignment> _visible(List<Assignment> all, User? user) {
     if (user == null) return all;

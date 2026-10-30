@@ -25,7 +25,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     _data = _load();
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   Future<AnnouncementsData> _load() async {
     final user = await AuthRepository().currentUser();

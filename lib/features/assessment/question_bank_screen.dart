@@ -39,7 +39,7 @@ class _QuestionBankScreenState extends State<QuestionBankScreen> {
   }
 
   Future<void> _reload() async {
-    setState(() => _data = _load());
+    setState(() { _data = _load(); });
   }
 
   Future<void> _addQuestion() async {

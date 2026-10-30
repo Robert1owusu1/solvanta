@@ -8,6 +8,7 @@ import '../../features/marking/marking_drafts_repository.dart';
 import '../../features/ocr/ocr_repository.dart';
 import '../api/api_client.dart';
 import '../api/remote_data_source.dart';
+import '../models/parent_meeting.dart';
 import '../models/promotion.dart';
 import '../models/term_report.dart';
 import '../models/correction.dart';
@@ -165,6 +166,9 @@ class ServerSync extends ChangeNotifier {
       mirror('corrections', () => remote.records('corrections'),
           (r) => _store.saveCorrections(r.map(Correction.fromJson).toList())),
       mirror('targets', () => remote.records('targets'), _saveTargets),
+      mirror('parent meetings', () => remote.records('parent_meetings'),
+          (r) => _store.saveParentMeetings(
+              r.map(ParentMeeting.fromJson).toList())),
       mirror('term reports', () => remote.records('term_reports'),
           (r) => _store.saveTermReports(r.map(TermReport.fromJson).toList())),
       mirror('promotions', () => remote.records('promotions'),

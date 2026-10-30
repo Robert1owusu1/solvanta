@@ -80,6 +80,7 @@ const (
 	NotifAnnouncement = "announcement"
 	NotifSystem       = "system"
 	NotifReportCard   = "reportCard"
+	NotifMeeting      = "meeting"
 )
 
 // AnnouncementAudience mirrors AnnouncementAudience.name values.
@@ -603,6 +604,11 @@ const (
 	// remark, and — once approved — a frozen copy of the whole card. See
 	// httpapi/term_reports.go for who may write which part.
 	RecordTermReports = "term_reports"
+	// RecordParentMeetings follows up a report card's "parent meeting
+	// requested": requested → scheduled (date, place; the family is told) →
+	// held (what was agreed) or cancelled. Staff write; families read their
+	// own child's.
+	RecordParentMeetings = "parent_meetings"
 )
 
 // Record is one entry of a collection the server stores on the client's

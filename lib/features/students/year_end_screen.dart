@@ -135,7 +135,7 @@ class _YearEndPromotionsScreenState extends State<YearEndPromotionsScreen> {
           if (snap.hasError) {
             return SvErrorState(
               title: "Couldn't work out the year",
-              onRetry: () => setState(() => _data = _load()),
+              onRetry: () => setState(() { _data = _load(); }),
             );
           }
           final data = snap.data;

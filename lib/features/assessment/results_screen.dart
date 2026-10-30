@@ -8,7 +8,9 @@ import '../reports/marking_feedback_screen.dart';
 import '../reports/report_card_pdf.dart';
 import '../reports/report_card_screen.dart' show YearProgressChart;
 import '../reports/report_card_source.dart';
+import '../reports/parent_meetings_repository.dart';
 import '../reports/term_reports_repository.dart';
+import '../../core/models/parent_meeting.dart';
 import '../../core/models/term_report.dart';
 import '../../core/platform/file_share.dart';
 import 'assessment_repository.dart';
@@ -103,6 +105,49 @@ class _ResultsScreenState extends State<ResultsScreen> {
         },
       );
 
+  /// Meetings the school has booked (or held) with this family.
+  late final Future<List<ParentMeeting>> _meetings =
+      ParentMeetingsRepository().forStudent(widget.studentId);
+
+  Widget _meetingsCard() => FutureBuilder<List<ParentMeeting>>(
+        future: _meetings,
+        builder: (context, snap) {
+          final shown = [
+            for (final m in snap.data ?? const <ParentMeeting>[])
+              if (m.status == MeetingStatus.scheduled ||
+                  m.status == MeetingStatus.held)
+                m,
+          ];
+          if (shown.isEmpty) return const SizedBox.shrink();
+          return Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
+                  child: Text('Meetings with the school',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                ),
+                for (final m in shown)
+                  ListTile(
+                    leading: Icon(Icons.event_available_outlined,
+                        color: AppColors.brand),
+                    title: Text(m.status == MeetingStatus.held
+                        ? 'Held · ${m.scheduledFor}'
+                        : '${m.scheduledFor}${m.place.isEmpty ? '' : ' · ${m.place}'}'),
+                    subtitle: Text(m.status == MeetingStatus.held &&
+                            m.outcome.isNotEmpty
+                        ? 'Agreed: ${m.outcome}'
+                        : m.reason),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+
   /// "This year so far": the term averages, how the year average is worked
   /// out, and — on Term 3 — the promotion decision. Hidden on Term 1.
   Widget _yearCard() => FutureBuilder<ReportCardData?>(
@@ -158,7 +203,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
             itemCount: rows.length + 1,
             itemBuilder: (context, index) {
               if (index == 0) {
-                return Column(children: [_reportCards(), _yearCard()]);
+                return Column(
+                    children: [_meetingsCard(), _reportCards(), _yearCard()]);
               }
               final i = index - 1;
               final a = rows[i].assessment;

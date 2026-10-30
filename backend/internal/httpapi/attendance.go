@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 
 	"solvanta/backend/internal/domain"
 )
@@ -35,9 +36,11 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 		Records []domain.AttendanceRecord `json:"records"`
 	}
 	var raw []domain.AttendanceRecord
-	if err := c.ShouldBindJSON(&wrapper); err == nil && wrapper.Records != nil {
+	// Either {"records": [...]} or a bare list. ShouldBindBodyWith keeps the
+	// body for the second attempt (ShouldBindJSON would have consumed it).
+	if err := c.ShouldBindBodyWith(&wrapper, binding.JSON); err == nil && wrapper.Records != nil {
 		raw = wrapper.Records
-	} else if err := c.ShouldBindJSON(&raw); err != nil {
+	} else if err := c.ShouldBindBodyWith(&raw, binding.JSON); err != nil {
 		fail(c, http.StatusBadRequest, "Invalid attendance body")
 		return
 	}
@@ -73,6 +76,15 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 		}
 		s.notify(c, st.ParentUserID, domain.NotifAttendance, st.FullName()+" "+word,
 			st.FullName()+" was marked "+word+" on "+date+".", st.ID)
+	}
+	// Absences (not late arrivals) by SMS too, where the school has it on.
+	for _, r := range raw {
+		if r.Status == domain.AttAbsent && before[r.StudentID] != r.Status {
+			if st, ok := s.db(c).StudentByID(r.StudentID); ok {
+				s.textFamily(c, st.ID, smsAbsence, schoolLabel(s.db(c))+": "+st.FullName()+
+					" was marked absent on "+date+". Please contact the school if this is unexpected.")
+			}
+		}
 	}
 	s.audit(c, "attendance.save", classID+"/"+date, "Saved "+itoa(len(raw))+" attendance records", "")
 	sendJSON(c, raw)

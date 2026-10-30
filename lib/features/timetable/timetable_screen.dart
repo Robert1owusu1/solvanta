@@ -35,7 +35,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
     return (slots, classes, editable);
   }
 
-  void _refresh() => setState(() => _data = _load());
+  void _refresh() => setState(() { _data = _load(); });
 
   String _initialsFor(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));

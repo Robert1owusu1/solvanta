@@ -181,7 +181,7 @@ class _GradingSettingsScreenState extends State<GradingSettingsScreen> {
             if (snap.hasError) {
               return SvErrorState(
                 title: "Couldn't load the grading set-up",
-                onRetry: () => setState(() => _loading = _load()),
+                onRetry: () => setState(() { _loading = _load(); }),
               );
             }
             final problem = _config.problem();

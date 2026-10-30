@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/models/assessment.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/question.dart';
 import '../../core/models/submission.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
-import '../analytics/analytics_service.dart';
 import '../assessment/assessment_repository.dart';
 
 class MockTakeScreen extends StatefulWidget {
@@ -304,7 +304,7 @@ class _ResultView extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '${earned.toStringAsFixed(1)} / ${assessment.totalMarks.toStringAsFixed(1)} '
-          '  ·  ${pct.toStringAsFixed(1)}%  ·  Grade ${gradeLetter(pct)}',
+          '  ·  ${pct.toStringAsFixed(1)}%  ·  Grade ${schoolGrade(pct, assessment.classId)}',
           style: TextStyle(
               fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.brand),
         ),

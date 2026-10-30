@@ -194,6 +194,7 @@ class SubjectResult {
     this.positionOf = 0,
     this.termGrade,
     this.termRemark = '',
+    this.teacherInitials = '',
   });
 
   /// Curriculum code (`MATH`, `ENG`, …).
@@ -236,6 +237,9 @@ class SubjectResult {
   final String? termGrade;
   final String termRemark;
 
+  /// Initials of the teacher who set this subject's work this term (`EM`).
+  final String teacherInitials;
+
   /// Print-safe label for [average] — `78.5%`, or `–` when unmarked.
   String get averageLabel =>
       average == null ? '–' : '${average!.toStringAsFixed(1)}%';
@@ -267,6 +271,7 @@ class SubjectResult {
         'positionOf': positionOf,
         'termGrade': termGrade,
         'termRemark': termRemark,
+        'teacherInitials': teacherInitials,
       };
 
   factory SubjectResult.fromJson(Map<String, dynamic> j) => SubjectResult(
@@ -284,7 +289,17 @@ class SubjectResult {
         positionOf: ((j['positionOf'] ?? 0) as num).toInt(),
         termGrade: j['termGrade'] as String?,
         termRemark: (j['termRemark'] ?? '') as String,
+        teacherInitials: (j['teacherInitials'] ?? '') as String,
       );
+}
+
+/// `Ms. Efua Mensah` → `EM`; titles are skipped.
+String initialsOf(String name) {
+  const titles = {'MR', 'MRS', 'MS', 'MISS', 'DR', 'MADAM', 'REV', 'PROF', 'SIR'};
+  return [
+    for (final w in name.split(RegExp(r'[\s.]+')))
+      if (w.isNotEmpty && !titles.contains(w.toUpperCase())) w[0].toUpperCase(),
+  ].take(3).join();
 }
 
 double? _d(Object? v) => (v as num?)?.toDouble();
@@ -955,6 +970,9 @@ class ReportCardDataBuilder {
               ? null
               : (subjectAhead[s.subjectId] ?? 0) + 1,
           positionOf: subjectRanked[s.subjectId] ?? 0,
+          teacherInitials: initialsOf(
+            _setterOf(assessments, classId, s.subjectId),
+          ),
           termGrade: _band(scheme, scores[s.subjectId]?.total)?.grade,
           termRemark: _band(scheme, scores[s.subjectId]?.total)?.remark ?? '',
         ),
@@ -970,6 +988,24 @@ class ReportCardDataBuilder {
       ranked: ranked,
       aggregate: schemeAggregate(scheme, subjects),
     );
+  }
+
+  /// Who set most of [subjectId]'s work for [classId] in [assessments]
+  /// (their name as recorded), or `''`.
+  static String _setterOf(
+    List<Assessment> assessments,
+    String classId,
+    String subjectId,
+  ) {
+    final counts = <String, int>{};
+    for (final a in assessments) {
+      if (a.classId != classId || a.subjectId != subjectId) continue;
+      final who = a.createdBy.trim();
+      if (who.isEmpty) continue;
+      counts.update(who, (n) => n + 1, ifAbsent: () => 1);
+    }
+    if (counts.isEmpty) return '';
+    return counts.entries.reduce((x, y) => y.value > x.value ? y : x).key;
   }
 
   /// [scheme]'s band for [total], or `null` when there is no total.
@@ -1947,7 +1983,8 @@ pw.Widget _terminalPage(ReportCardData d) => _ghFrame(
   ),
 );
 
-/// Subject | Class score | Exam score | Total | Grade | Pos. | Remarks.
+/// Subject | Class score | Exam score | Total | Grade | Pos. | Init. |
+/// Remarks.
 pw.Widget _terminalTable(ReportCardData d) => pw.Table(
   border: _ghGrid,
   columnWidths: const {
@@ -1957,7 +1994,8 @@ pw.Widget _terminalTable(ReportCardData d) => pw.Table(
     3: pw.FlexColumnWidth(1.15),
     4: pw.FlexColumnWidth(0.8),
     5: pw.FlexColumnWidth(0.8),
-    6: pw.FlexColumnWidth(1.7),
+    6: pw.FlexColumnWidth(0.7),
+    7: pw.FlexColumnWidth(1.7),
   },
   defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
   children: [
@@ -1976,6 +2014,7 @@ pw.Widget _terminalTable(ReportCardData d) => pw.Table(
         _ghCell('TOTAL\n(100%)', style: _ghTh),
         _ghCell('GRADE', style: _ghTh),
         _ghCell('POS.', style: _ghTh),
+        _ghCell('INIT.', style: _ghTh),
         _ghCell('REMARKS', style: _ghTh),
       ],
     ),
@@ -1988,6 +2027,7 @@ pw.Widget _terminalTable(ReportCardData d) => pw.Table(
           _ghCell(s.totalLabel, style: _ghTdBold),
           _ghCell(s.termGrade ?? '–', style: _ghTdBold),
           _ghCell(s.positionLabel),
+          _ghCell(s.teacherInitials.isEmpty ? '–' : s.teacherInitials),
           _ghCell(s.termRemark.isEmpty ? '–' : s.termRemark),
         ],
       ),

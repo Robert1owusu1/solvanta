@@ -3,14 +3,6 @@ import '../../core/models/grading.dart';
 import '../../core/models/student.dart';
 import '../../core/models/submission.dart';
 
-String gradeLetter(double percent) {
-  if (percent >= 85) return 'A';
-  if (percent >= 70) return 'B';
-  if (percent >= 60) return 'C';
-  if (percent >= 50) return 'D';
-  return 'F';
-}
-
 class QuestionPerformance {
   final Assessment assessment;
   final String questionId;

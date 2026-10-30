@@ -136,6 +136,15 @@ class ReportCardSource {
         'attitude': report.attitude,
         'interest': report.interest,
         'headRemark': report.headRemark,
+        if (report.subjectRemarks.isNotEmpty)
+          'subjects': [
+            for (final s in card.subjects)
+              {
+                ...s.toJson(),
+                if ((report.subjectRemarks[s.subjectId] ?? '').trim().isNotEmpty)
+                  'termRemark': report.subjectRemarks[s.subjectId]!.trim(),
+              },
+          ],
       });
 
   /// [student]'s card from the latest marks, ignoring any approval.
