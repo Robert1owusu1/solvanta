@@ -83,6 +83,7 @@ func (s *Server) updateTerm(c *gin.Context) {
 		return
 	}
 	old := s.store.Term()
+	u := currentUser(c)
 	body = domain.SchoolTerm{
 		Year:  firstNonEmpty(body.Year, old.Year),
 		Name:  firstNonEmpty(body.Name, old.Name),
@@ -91,6 +92,19 @@ func (s *Server) updateTerm(c *gin.Context) {
 	}
 	if writeFailed(c, s.store.SaveTerm(body)) {
 		return
+	}
+	// A new term that starts after the old one ended closes the old one:
+	// keep it with the grading it was awarded under. Correcting the current
+	// term's dates closes nothing.
+	if old.End != "" && old.End < body.Start {
+		school := s.userSchool(u)
+		grading, ok := s.store.GradingConfig(school)
+		if !ok {
+			grading = domain.DefaultGradingConfig(school)
+		}
+		if writeFailed(c, s.store.SaveFinishedTerm(school, domain.FinishedTerm{SchoolTerm: old, Grading: grading})) {
+			return
+		}
 	}
 	s.audit(c, "term.update", body.Label(), "Academic term updated", "")
 	sendJSON(c, body)

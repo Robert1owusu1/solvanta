@@ -425,6 +425,14 @@ var Subjects = []struct {
 	{"SOC", "Social Studies"},
 	{"ICT", "Information & Communication Technology"},
 	{"RME", "Religious & Moral Education"},
+	// The rest of the Ghanaian basic-school (KG–JHS) curriculum.
+	{"FRE", "French"},
+	{"GHL", "Ghanaian Language"},
+	{"CAD", "Creative Arts & Design"},
+	{"CTE", "Career Technology"},
+	{"PHE", "Physical & Health Education"},
+	{"OWOP", "Our World Our People"},
+	{"HIS", "History"},
 }
 
 // SubjectName resolves a subject id to its display name, mirroring subjectName().
@@ -582,6 +590,11 @@ const (
 	// cannot claim another teacher's reading, and the same teacher picks the
 	// job up on any device they sign in from.
 	RecordOcrJobs = "ocr_jobs"
+	// RecordPromotions holds the end-of-year decision applied to one student
+	// for one academic year (promoted / repeated / completed), keyed by year
+	// and student so a year can never be applied twice. Student-scoped so
+	// parents see their own child's; only school leaders write it.
+	RecordPromotions = "promotions"
 )
 
 // Record is one entry of a collection the server stores on the client's

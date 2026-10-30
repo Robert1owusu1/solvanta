@@ -12,6 +12,7 @@ import '../audit/audit_repository.dart';
 import 'student_editor_screen.dart';
 import 'student_profile_screen.dart';
 import 'students_repository.dart';
+import 'year_end_screen.dart';
 
 class StudentsScreen extends StatefulWidget {
   const StudentsScreen({super.key});
@@ -113,7 +114,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
   }
 
   Future<void> _promote(Student s) async {
-    final next = s.promotedToClass();
+    final next = s.promotedToClass(await StudentsRepository().classes());
+    if (!mounted) return;
     if (next == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('This student is already in the highest class'),
@@ -146,7 +148,21 @@ class _StudentsScreenState extends State<StudentsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: SvScreenHeader(title: 'Students'),
+      appBar: SvScreenHeader(
+        title: 'Students',
+        actions: [
+          if (_canManage)
+            IconButton(
+              tooltip: 'End-of-year promotions',
+              icon: const Icon(Icons.upgrade, color: Colors.white),
+              onPressed: () async {
+                await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const YearEndPromotionsScreen()));
+                _refresh();
+              },
+            ),
+        ],
+      ),
       floatingActionButton: _canManage
           ? FloatingActionButton.extended(
               onPressed: _enroll,

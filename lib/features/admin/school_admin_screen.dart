@@ -7,6 +7,7 @@ import '../../core/ui/ui_kit.dart';
 import '../audit/audit_repository.dart';
 import '../students/students_repository.dart';
 import 'admin_repository.dart';
+import 'grading_settings_screen.dart';
 
 class SchoolAdminScreen extends StatefulWidget {
   const SchoolAdminScreen({super.key});
@@ -239,6 +240,18 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
                           ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: Icon(Icons.grading, color: AppColors.brand),
+                  title: const Text('Grading & scoring'),
+                  subtitle: const Text(
+                      'Class score / exam split and grades for each class range'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const GradingSettingsScreen())),
                 ),
               ),
               const SizedBox(height: 8),

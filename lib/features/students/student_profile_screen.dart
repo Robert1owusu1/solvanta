@@ -384,7 +384,9 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             ActionChip(
               avatar: const Icon(Icons.trending_up, size: 16),
               label: const Text('Promote'),
-              onPressed: s.promotedToClass() == null ? null : () => _promoteStudent(s),
+              onPressed: s.promotedToClass() == null
+                  ? null
+                  : () => _promoteStudent(s),
             ),
             ActionChip(
               avatar: const Icon(Icons.school, size: 16),
@@ -441,7 +443,7 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
   }
 
   Future<void> _promoteStudent(Student s) async {
-    final next = s.promotedToClass();
+    final next = s.promotedToClass(await StudentsRepository().classes());
     if (next == null) return;
     await StudentsRepository().saveStudent(s.copyWith(classId: next));
     await AuditRepository().log(

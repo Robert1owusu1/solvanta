@@ -31,6 +31,11 @@ enum AppRole {
   // backend/internal/httpapi/server.go so the client never offers an action
   // the API would refuse (and never hides one it would allow).
 
+  /// The school admin only (not the headteacher): the school's grading and
+  /// scoring set-up — PUT /api/school/grading.
+  bool get canManageGrading =>
+      this == AppRole.superAdmin || this == AppRole.schoolAdmin;
+
   /// School administrators (not teachers/staff): student lifecycle —
   /// enroll, edit, transfer, promote, graduate.
   bool get canAdministerStudents =>

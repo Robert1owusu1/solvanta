@@ -49,6 +49,8 @@ class _SolvantaAppState extends State<SolvantaApp> with WidgetsBindingObserver {
     // Fire-and-forget: defaults render first, then persisted preferences
     // arrive and the ListenableBuilder below rebuilds with them.
     _settings.load();
+    // Charts and exports grade with the school's own scheme; load it early.
+    LocalStore().loadGradingConfig().ignore();
     // The bearer token is persisted at login, but `ApiClient.sharedToken` is
     // a plain static that dies with the process — republish it before
     // ConnectivityMonitor can start, because it flushes a non-empty outbox on

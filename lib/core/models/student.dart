@@ -1,3 +1,6 @@
+import 'class_ladder.dart';
+import 'class_room.dart';
+
 class Person {
   final String name;
   final String phone;
@@ -53,16 +56,11 @@ class Student {
       ? '${firstName[0]}${lastName.isNotEmpty ? lastName[0] : ''}'
       : '?';
 
-  static const _classOrder = [
-    'JHS1A', 'JHS1B', 'JHS2A', 'JHS2B', 'JHS3A', 'JHS3B',
-  ];
-
-  /// Next class in the Junior High ladder, or null if already in JHS3.
-  String? promotedToClass() {
-    final i = _classOrder.indexOf(classId);
-    if (i < 0 || i >= _classOrder.length - 1) return null;
-    return _classOrder[i + 1];
-  }
+  /// The class this student moves up to (same stream: JHS1A → JHS2A), or
+  /// null in the final class. Pass the school's [classes] to land on a class
+  /// that exists — see [nextClassId].
+  String? promotedToClass([List<ClassRoom> classes = const []]) =>
+      nextClassId(classId, classes);
 
   factory Student.fromJson(Map<String, dynamic> json) => Student(
         id: json['id'] as String,

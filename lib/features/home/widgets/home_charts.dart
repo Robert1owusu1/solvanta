@@ -3,13 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/models/attendance.dart';
+import '../../../core/models/grading.dart';
 import '../../../core/models/user.dart';
 import '../../../core/responsive.dart';
 import '../../../core/storage/local_store.dart';
 import '../../../core/sync/server_sync.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/ui_kit.dart';
-import '../../analytics/analytics_service.dart';
 import '../../assessment/assessment_repository.dart';
 import 'home_panels.dart';
 
@@ -102,12 +102,20 @@ class _HomeChartsState extends State<HomeCharts> {
         }(),
     ];
 
-    // Grade spread over every marked paper in view.
-    const grades = ['A', 'B', 'C', 'D', 'E', 'F'];
+    // Grade spread over every marked paper in view, on the school's scheme:
+    // the one these papers' classes share, else the school default.
+    final schemes = {
+      for (final id in scored.keys)
+        SchoolGrading.current.schemeFor(byId[id]!.classId),
+    };
+    final scheme = schemes.length == 1
+        ? schemes.single
+        : SchoolGrading.current.defaultScheme;
+    final grades = [for (final b in scheme.bands) b.grade];
     final counts = {for (final g in grades) g: 0};
-    for (final pcts in scored.values) {
-      for (final p in pcts) {
-        final g = gradeLetter(p);
+    for (final e in scored.entries) {
+      for (final p in e.value) {
+        final g = schoolGrade(p, byId[e.key]!.classId);
         if (counts.containsKey(g)) counts[g] = counts[g]! + 1;
       }
     }

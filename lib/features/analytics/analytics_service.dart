@@ -1,4 +1,5 @@
 import '../../core/models/assessment.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/student.dart';
 import '../../core/models/submission.dart';
 
@@ -113,11 +114,15 @@ class ClassPerformance {
     return possible > 0 ? earned / possible : 0;
   }
 
+  /// Papers per grade, best grade first, on the school's scheme for the
+  /// assessment's class (1–9, A–F…).
   Map<String, int> distributionFor(Assessment a) {
-    final out = {for (final g in const ['A', 'B', 'C', 'D', 'F']) g: 0};
+    final scheme = SchoolGrading.current.schemeFor(a.classId);
+    final out = {for (final b in scheme.bands) b.grade: 0};
     for (final s in _for(a.id)) {
       final pct = a.totalMarks > 0 ? 100 * s.earned / a.totalMarks : 0.0;
-      out[gradeLetter(pct)] = out[gradeLetter(pct)]! + 1;
+      final g = scheme.bandFor(pct).grade;
+      out[g] = out[g]! + 1;
     }
     return out;
   }
@@ -173,7 +178,7 @@ class ClassPerformance {
         out.add(StudentAlert(
           student: s,
           average: pct,
-          grade: gradeLetter(pct),
+          grade: schoolGrade(pct, s.classId),
           suggestedIntervention: 'Re-teach & practice on '
               '${_weakTopic(s) ?? 'core topics'}; reassess in 2 weeks',
         ));

@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,9 +42,12 @@ func (s *Server) studentReportCard(c *gin.Context) {
 		Grade       string          `json:"grade"`
 	}
 
+	// Only this term's work and days count; undated assessments are taken as
+	// this term's, matching the app's report card.
+	term := s.store.Term()
 	perSubject := map[string][]assessmentRow{}
 	for _, a := range s.store.Assessments() {
-		if a.ClassID != st.ClassID {
+		if a.ClassID != st.ClassID || (a.Date != "" && !term.Contains(a.Date)) {
 			continue
 		}
 		sub, found := s.store.SubmissionFor(a.ID, st.ID)
@@ -86,7 +91,7 @@ func (s *Server) studentReportCard(c *gin.Context) {
 	counts := map[string]int{}
 	var totalDays int
 	for _, r := range s.store.Attendance() {
-		if r.StudentID == st.ID {
+		if r.StudentID == st.ID && term.Contains(r.Date) {
 			counts[r.Status]++
 			totalDays++
 		}
@@ -98,7 +103,7 @@ func (s *Server) studentReportCard(c *gin.Context) {
 
 	sendJSON(c, gin.H{
 		"student":    st,
-		"term":       s.store.Term(),
+		"term":       term,
 		"subjects":   subjects,
 		"overall":    gin.H{"average": overallAvg, "grade": marking.GradeLetter(overallAvg)},
 		"attendance": gin.H{"present": counts[domain.AttPresent], "late": counts[domain.AttLate], "absent": counts[domain.AttAbsent], "excused": counts[domain.AttExcused], "totalDays": totalDays, "percentage": attPct},
@@ -122,6 +127,10 @@ func (s *Server) classResultsReport(c *gin.Context) {
 	a, ok := s.store.AssessmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
+		return
+	}
+	if !teacherCoversClass(currentUser(c), a.ClassID) {
+		fail(c, http.StatusForbidden, "You may only view your own class's results")
 		return
 	}
 	total := a.TotalMarks()
@@ -159,6 +168,14 @@ func renderCSV(a domain.Assessment, rows []classResultRow) string {
 	return b
 }
 
+// csvField quotes s for CSV, doubling embedded quotes. Text a spreadsheet
+// would run as a formula (=, +, -, @, tab or CR first — e.g. a student named
+// =HYPERLINK(...)) gets a leading ' so it opens as plain text.
 func csvField(s string) string {
-	return `"` + s + `"`
+	if len(s) > 1 && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
+		if _, err := strconv.ParseFloat(s, 64); err != nil {
+			s = "'" + s
+		}
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }

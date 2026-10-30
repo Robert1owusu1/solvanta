@@ -191,6 +191,79 @@ func (p *Postgres) SaveSchool(s domain.School) error {
 	return nil
 }
 
+func (p *Postgres) GradingConfig(schoolID string) (domain.GradingConfig, bool) {
+	var g domain.GradingConfig
+	var data string
+	err := p.db.QueryRowContext(contextTODO(),
+		`SELECT data::text FROM grading_configs WHERE school_id = $1`, schoolID).Scan(&data)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			p.errLog("GradingConfig", err)
+		}
+		return g, false
+	}
+	if err := json.Unmarshal([]byte(data), &g); err != nil {
+		p.errLog("GradingConfig decode", err)
+		return g, false
+	}
+	return g, true
+}
+
+func (p *Postgres) SaveGradingConfig(g domain.GradingConfig) error {
+	data, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	_, err = p.db.ExecContext(contextTODO(), `
+		INSERT INTO grading_configs (school_id, data, updated_at)
+		VALUES ($1, $2::jsonb, $3)
+		ON CONFLICT (school_id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+		g.SchoolID, string(data), g.UpdatedAt)
+	if err != nil {
+		p.errLog("SaveGradingConfig", err)
+		return err
+	}
+	return nil
+}
+
+func (p *Postgres) FinishedTerms(schoolID string) []domain.FinishedTerm {
+	rows, err := p.db.QueryContext(contextTODO(),
+		`SELECT data::text FROM finished_terms WHERE school_id = $1 ORDER BY start_date`, schoolID)
+	if err != nil {
+		p.errLog("FinishedTerms", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []domain.FinishedTerm
+	for rows.Next() {
+		var data string
+		var t domain.FinishedTerm
+		if err := rows.Scan(&data); err != nil || json.Unmarshal([]byte(data), &t) != nil {
+			p.errLog("FinishedTerms scan", err)
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func (p *Postgres) SaveFinishedTerm(schoolID string, t domain.FinishedTerm) error {
+	data, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	_, err = p.db.ExecContext(contextTODO(), `
+		INSERT INTO finished_terms (school_id, start_date, data)
+		VALUES ($1, $2, $3::jsonb)
+		ON CONFLICT (school_id, start_date) DO UPDATE SET data = EXCLUDED.data`,
+		schoolID, t.Start, string(data))
+	if err != nil {
+		p.errLog("SaveFinishedTerm", err)
+		return err
+	}
+	return nil
+}
+
 func (p *Postgres) Term() domain.SchoolTerm {
 	var t domain.SchoolTerm
 	row := p.db.QueryRowContext(contextTODO(),

@@ -330,6 +330,9 @@ func (s *Server) Router() *gin.Engine {
 	{
 		school.GET("", func(c *gin.Context) { sendJSON(c, s.store.School()) })
 		school.PUT("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.updateSchool)
+		school.GET("/grading", s.gradingConfig)
+		school.GET("/terms", func(c *gin.Context) { sendJSON(c, s.store.FinishedTerms(s.gradingSchool(c))) })
+		school.PUT("/grading", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.saveGradingConfig)
 		school.GET("/term", func(c *gin.Context) { sendJSON(c, s.store.Term()) })
 		school.PUT("/term", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateTerm)
 		school.GET("/classes", func(c *gin.Context) { sendJSON(c, s.store.Classes()) })

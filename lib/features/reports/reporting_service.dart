@@ -5,12 +5,20 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/models/assessment.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/student.dart';
 import '../../core/models/subjects.dart';
 import '../../core/models/submission.dart';
-import '../analytics/analytics_service.dart';
 
-String _q(String v) => '"${v.replaceAll('"', '""')}"';
+/// Quotes a CSV field. Text a spreadsheet would run as a formula (`=`, `+`,
+/// `-`, `@`, tab or CR first — e.g. a student named `=HYPERLINK(…)`) gets a
+/// leading `'` so it opens as plain text; numbers are left alone.
+String _q(String v) {
+  final formula = v.length > 1 &&
+      '=+-@\t\r'.contains(v[0]) &&
+      double.tryParse(v) == null;
+  return '"${formula ? "'" : ''}${v.replaceAll('"', '""')}"';
+}
 
 /// One assessed row in a report card: a single assessment and the student's
 /// outcome (or an unmarked placeholder).
@@ -21,17 +29,26 @@ class ReportCardRow {
   final double total;
   final double? earned; // null → pending
 
+  /// What kind of work this was — the terminal report splits class work from
+  /// the end-of-term examination.
+  final AssessmentType type;
+
+  /// The assessment's class — whose grading scheme grades this row.
+  final String classId;
+
   const ReportCardRow({
     required this.subjectId,
     required this.title,
     required this.date,
     required this.total,
     this.earned,
+    this.type = AssessmentType.exercise,
+    this.classId = '',
   });
 
   double? get pct => total > 0 && earned != null ? 100 * earned! / total : null;
 
-  String get grade => pct == null ? '–' : gradeLetter(pct!);
+  String get grade => pct == null ? '–' : schoolGrade(pct!, classId);
 
   String get marksLabel => earned == null ? '–' : earned!.toStringAsFixed(1);
 }
@@ -45,9 +62,9 @@ class ReportingService {
     required List<AssessmentSubmission> subs,
   }) {
     final buf = StringBuffer();
-    buf.writeln('Assessment,${assessment.title}');
+    buf.writeln('Assessment,${_q(assessment.title)}');
     buf.writeln(
-        'Subject,${assessment.subjectId} · Total marks,'
+        'Subject,${_q(assessment.subjectId)} · Total marks,'
         '${assessment.totalMarks.toStringAsFixed(2)}');
     buf.writeln(
         'Student ID,Name,Class,Total,Earned,Percent,Grade');
@@ -80,7 +97,7 @@ class ReportingService {
         _q(assessment.totalMarks.toStringAsFixed(2)),
         marked ? _q(sub.earned.toStringAsFixed(1)) : _q('pending'),
         marked ? _q('${pct.toStringAsFixed(1)}%') : _q('–'),
-        marked ? _q(gradeLetter(pct)) : _q('–'),
+        marked ? _q(schoolGrade(pct, assessment.classId)) : _q('–'),
       ].join(','));
     }
     buf.writeln(
@@ -96,7 +113,8 @@ class ReportingService {
   }) {
     final buf = StringBuffer();
     buf.writeln('SOLVANTA — Student Report Card');
-    buf.writeln('Student,${student.fullName} (${student.classId}, ${student.id})');
+    buf.writeln(
+        'Student,${_q('${student.fullName} (${student.classId}, ${student.id})')}');
     buf.writeln('Generated,SOLVANTA offline report');
     buf.writeln('Subject,Assessment,Date,Total,Marks,Percent,Grade');
     for (final r in rowsFor(
@@ -114,15 +132,17 @@ class ReportingService {
     return buf.toString();
   }
 
-  /// All assessments for the student's class, each paired with their outcome.
+  /// All assessments for the student's class ([classId] when given — e.g.
+  /// the class they were in last year), each paired with their outcome.
   List<ReportCardRow> rowsFor({
     required Student student,
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
+    String? classId,
   }) {
     final rows = <ReportCardRow>[];
     for (final a in assessments) {
-      if (a.classId != student.classId) continue;
+      if (a.classId != (classId ?? student.classId)) continue;
       final sub = subs.firstWhere(
         (x) => x.assessmentId == a.id && x.studentId == student.id,
         orElse: () => AssessmentSubmission.empty,
@@ -133,6 +153,8 @@ class ReportingService {
         date: a.date,
         total: a.totalMarks,
         earned: sub.id.isNotEmpty ? sub.earned : null,
+        type: a.type,
+        classId: a.classId,
       ));
     }
     return rows;
@@ -221,7 +243,7 @@ class ReportingService {
         TextCellValue(assessment.totalMarks.toStringAsFixed(1)),
         TextCellValue(marked ? sub.earned.toStringAsFixed(1) : 'pending'),
         TextCellValue(marked ? '${pct.toStringAsFixed(1)}%' : '–'),
-        TextCellValue(marked ? gradeLetter(pct) : '–'),
+        TextCellValue(marked ? schoolGrade(pct, assessment.classId) : '–'),
       ]);
     }
     sheet.appendRow([
@@ -292,7 +314,9 @@ class ReportingService {
         TextCellValue(subjectName(s.subjectId)),
         TextCellValue('${s.attempts}/${s.of}'),
         TextCellValue(s.average == null ? '–' : '${s.average!.toStringAsFixed(1)}%'),
-        TextCellValue(s.average == null ? '–' : gradeLetter(s.average!)),
+        TextCellValue(s.average == null
+            ? '–'
+            : schoolGrade(s.average!, student.classId)),
       ]);
     }
     final overall = overallFor(rows: rows);
@@ -300,7 +324,7 @@ class ReportingService {
       TextCellValue('Overall'),
       TextCellValue(''),
       TextCellValue(overall == null ? '–' : '${overall.toStringAsFixed(1)}%'),
-      TextCellValue(overall == null ? '–' : gradeLetter(overall)),
+      TextCellValue(overall == null ? '–' : schoolGrade(overall, student.classId)),
     ]);
     return Uint8List.fromList(excel.encode() ?? const []);
   }
@@ -369,13 +393,13 @@ class ReportingService {
             subjectName(s.subjectId),
             '${s.attempts}/${s.of}',
             s.average == null ? '–' : '${s.average!.toStringAsFixed(1)}%',
-            s.average == null ? '–' : gradeLetter(s.average!),
+            s.average == null ? '–' : schoolGrade(s.average!, student.classId),
           ],
         [
           'Overall',
           '',
           overall == null ? '–' : '${overall.toStringAsFixed(1)}%',
-          overall == null ? '–' : gradeLetter(overall),
+          overall == null ? '–' : schoolGrade(overall, student.classId),
         ],
       ],
       headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
@@ -450,7 +474,7 @@ class ReportingService {
         TextCellValue(
             '${rows.where((r) => r.pct != null).length}/${rows.length}'),
         TextCellValue(overall == null ? '–' : '${overall.toStringAsFixed(1)}%'),
-        TextCellValue(overall == null ? '–' : gradeLetter(overall)),
+        TextCellValue(overall == null ? '–' : schoolGrade(overall, s.classId)),
       ]);
     }
     return Uint8List.fromList(excel.encode() ?? const []);

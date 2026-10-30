@@ -287,13 +287,17 @@ class _DistributionBar extends StatelessWidget {
 
   // Single navy ramp (deepest = strongest grade), per the brand rule that
   // learning/grades views use the navy ramp — never traffic-light colors.
-  static const _colors = {
-    'A': AppTheme.navy900,
-    'B': AppTheme.navy700,
-    'C': AppTheme.navy500,
-    'D': AppTheme.navy400,
-    'F': AppTheme.navy200,
-  };
+  // [dist] lists the school's grades best first, however many there are.
+  static const _ramp = [
+    AppTheme.navy900,
+    AppTheme.navy700,
+    AppTheme.navy500,
+    AppTheme.navy400,
+    AppTheme.navy200,
+  ];
+
+  static Color _colorAt(int i, int n) =>
+      _ramp[n <= 1 ? 0 : (i * (_ramp.length - 1) / (n - 1)).round()];
 
   @override
   Widget build(BuildContext context) {
@@ -311,11 +315,11 @@ class _DistributionBar extends StatelessWidget {
           height: 10,
           child: Row(
             children: [
-              for (final g in ['A', 'B', 'C', 'D', 'F'])
+              for (final (i, g) in dist.keys.indexed)
                 if ((dist[g] ?? 0) > 0)
                   Expanded(
                     flex: dist[g]!,
-                    child: Container(color: _colors[g]),
+                    child: Container(color: _colorAt(i, dist.length)),
                   ),
             ],
           ),

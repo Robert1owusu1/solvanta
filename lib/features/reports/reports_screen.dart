@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../core/models/assessment.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/student.dart';
 import '../../core/models/school_term.dart';
 import '../../core/models/submission.dart';
@@ -11,7 +12,6 @@ import '../../core/models/subjects.dart';
 import '../../core/platform/file_share.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
-import '../analytics/analytics_service.dart';
 import '../assessment/assessment_repository.dart';
 import '../attendance/attendance_repository.dart';
 import '../calendar/term_repository.dart';
@@ -126,7 +126,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               const SizedBox(height: 12),
               _StudentReportCard(d, student),
               const SizedBox(height: 8),
-              // Branded templates (Classic / Modern / Transcript) with a live
+              // Branded templates (Terminal report / Modern / Transcript) with a live
               // preview and a shareable A4 PDF.
               OutlinedButton.icon(
                 onPressed: () => Navigator.of(context).push(
@@ -375,7 +375,9 @@ class _StudentReportCard extends StatelessWidget {
                     SizedBox(
                       width: 20,
                       child: Text(
-                        s.average == null ? '–' : gradeLetter(s.average!),
+                        s.average == null
+                            ? '–'
+                            : schoolGrade(s.average!, student.classId),
                         style: const TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 15),
                       ),
@@ -400,7 +402,7 @@ class _StudentReportCard extends StatelessWidget {
                 ),
                 if (overall != null) ...[
                   const SizedBox(width: 8),
-                  Text(gradeLetter(overall),
+                  Text(schoolGrade(overall, student.classId),
                       style: const TextStyle(
                           fontWeight: FontWeight.w800, fontSize: 15)),
                 ],
@@ -452,8 +454,8 @@ class _SchoolSummary extends StatelessWidget {
                             fontWeight: FontWeight.w700, fontSize: 13)),
                     const SizedBox(width: 8),
                     SizedBox(
-                      width: 18,
-                      child: Text(gradeLetter(overall),
+                      width: 26,
+                      child: Text(schoolGrade(overall, s.classId),
                           style: const TextStyle(
                               fontWeight: FontWeight.w800, fontSize: 14)),
                     ),

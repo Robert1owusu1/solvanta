@@ -51,6 +51,9 @@ var recordKinds = map[string]recordKind{
 	// the body) and checked again against the stored row before an overwrite,
 	// so one teacher cannot read or amend another's confirmation.
 	domain.RecordOcrJobs: {scope: scopeOwner, writers: staffRoles},
+	// The same leaders who may promote a student one at a time.
+	domain.RecordPromotions: {scope: scopeStudent, writers: []string{
+		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher}},
 }
 
 // recordFields are the fields lifted out of a record's JSON.

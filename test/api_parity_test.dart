@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:solvanta/core/models/subjects.dart' as app_subjects;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:solvanta/core/api/api_client.dart';
@@ -126,7 +127,7 @@ void main() {
 
       final subjects = await admin.subjects();
       expect(subjects.map((s) => s.id).toList(),
-          ['MATH', 'ENG', 'SCI', 'SOC', 'ICT', 'RME']);
+          app_subjects.subjects.map((s) => s.id).toList());
       expect(subjects.every((s) => s.name.isNotEmpty), isTrue);
 
       final term = await admin.term();

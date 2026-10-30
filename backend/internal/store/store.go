@@ -6,6 +6,8 @@
 package store
 
 import (
+	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,15 @@ type Store interface {
 	SaveSchool(s domain.School) error
 	Term() domain.SchoolTerm
 	SaveTerm(t domain.SchoolTerm) error
+
+	// Grading: one config per school; ok is false until its admin saves one.
+	GradingConfig(schoolID string) (cfg domain.GradingConfig, ok bool)
+	SaveGradingConfig(g domain.GradingConfig) error
+
+	// Finished terms per school, oldest first; saving one with the same start
+	// date replaces it.
+	FinishedTerms(schoolID string) []domain.FinishedTerm
+	SaveFinishedTerm(schoolID string, t domain.FinishedTerm) error
 
 	// Users (doc §9)
 	Users() []domain.User
@@ -190,6 +201,8 @@ type Memory struct {
 
 	school          domain.School
 	term            domain.SchoolTerm
+	grading         map[string][]byte // schoolID → JSON, so callers get a copy
+	finished        map[string][]byte // schoolID → JSON list, oldest first
 	users           []domain.User
 	classes         []domain.ClassRoom
 	students        []domain.Student
@@ -244,6 +257,68 @@ func NewUnseeded() *Memory {
 	return &Memory{}
 }
 
+func (m *Memory) GradingConfig(schoolID string) (domain.GradingConfig, bool) {
+	m.mu.RLock()
+	raw, ok := m.grading[schoolID]
+	m.mu.RUnlock()
+	var g domain.GradingConfig
+	if !ok || json.Unmarshal(raw, &g) != nil {
+		return g, false
+	}
+	return g, true
+}
+
+func (m *Memory) SaveGradingConfig(g domain.GradingConfig) error {
+	raw, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.grading == nil {
+		m.grading = map[string][]byte{}
+	}
+	m.grading[g.SchoolID] = raw
+	return nil
+}
+
+func (m *Memory) FinishedTerms(schoolID string) []domain.FinishedTerm {
+	m.mu.RLock()
+	raw, ok := m.finished[schoolID]
+	m.mu.RUnlock()
+	var out []domain.FinishedTerm
+	if ok {
+		_ = json.Unmarshal(raw, &out)
+	}
+	return out
+}
+
+func (m *Memory) SaveFinishedTerm(schoolID string, t domain.FinishedTerm) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var list []domain.FinishedTerm
+	if raw, ok := m.finished[schoolID]; ok {
+		_ = json.Unmarshal(raw, &list)
+	}
+	kept := list[:0]
+	for _, x := range list {
+		if x.Start != t.Start {
+			kept = append(kept, x)
+		}
+	}
+	kept = append(kept, t)
+	sort.Slice(kept, func(i, j int) bool { return kept[i].Start < kept[j].Start })
+	raw, err := json.Marshal(kept)
+	if err != nil {
+		return err
+	}
+	if m.finished == nil {
+		m.finished = map[string][]byte{}
+	}
+	m.finished[schoolID] = raw
+	return nil
+}
+
 func (m *Memory) School() domain.School {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -275,7 +350,7 @@ func (m *Memory) SaveTerm(t domain.SchoolTerm) error {
 func (m *Memory) Users() []domain.User {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.users
+	return slices.Clone(m.users)
 }
 
 func (m *Memory) UserByID(id string) (domain.User, bool) {
@@ -311,7 +386,7 @@ func (m *Memory) SaveUser(u domain.User) error {
 func (m *Memory) Classes() []domain.ClassRoom {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.classes
+	return slices.Clone(m.classes)
 }
 
 func (m *Memory) ClassByID(id string) (domain.ClassRoom, bool) {
@@ -336,7 +411,7 @@ func (m *Memory) SaveClass(c domain.ClassRoom) error {
 func (m *Memory) Students() []domain.Student {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.students
+	return slices.Clone(m.students)
 }
 
 func (m *Memory) StudentByID(id string) (domain.Student, bool) {
@@ -373,7 +448,7 @@ func (m *Memory) SaveStudent(s domain.Student) error {
 func (m *Memory) Attendance() []domain.AttendanceRecord {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.attendance
+	return slices.Clone(m.attendance)
 }
 
 func (m *Memory) AttendanceForClassDate(classID, date string) []domain.AttendanceRecord {
@@ -430,7 +505,7 @@ func (m *Memory) SaveDay(classID, date string, records []domain.AttendanceRecord
 func (m *Memory) GateEvents() []domain.GateEvent {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.gate
+	return slices.Clone(m.gate)
 }
 
 func (m *Memory) GateForStudent(id string) []domain.GateEvent {
@@ -467,7 +542,7 @@ func (m *Memory) AddGateEvent(e domain.GateEvent) error {
 func (m *Memory) Questions() []domain.Question {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.questions
+	return slices.Clone(m.questions)
 }
 
 func (m *Memory) QuestionByID(id string) (domain.Question, bool) {
@@ -500,7 +575,7 @@ func (m *Memory) DeleteQuestion(id string) error {
 func (m *Memory) AIRequests() []domain.GenRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.aiRequests
+	return slices.Clone(m.aiRequests)
 }
 
 func (m *Memory) AIRequestByID(id string) (domain.GenRequest, bool) {
@@ -525,7 +600,7 @@ func (m *Memory) SaveAIRequest(r domain.GenRequest) error {
 func (m *Memory) Assessments() []domain.Assessment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.assessments
+	return slices.Clone(m.assessments)
 }
 
 func (m *Memory) AssessmentByID(id string) (domain.Assessment, bool) {
@@ -550,7 +625,7 @@ func (m *Memory) SaveAssessment(a domain.Assessment) error {
 func (m *Memory) Submissions() []domain.Submission {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.submissions
+	return slices.Clone(m.submissions)
 }
 
 func (m *Memory) SubmissionFor(assessmentID, studentID string) (domain.Submission, bool) {
@@ -585,7 +660,7 @@ func (m *Memory) SaveSubmission(s domain.Submission) error {
 func (m *Memory) Interventions() []domain.Intervention {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.interventions
+	return slices.Clone(m.interventions)
 }
 
 func (m *Memory) InterventionByID(id string) (domain.Intervention, bool) {
@@ -623,7 +698,7 @@ func (m *Memory) SaveIntervention(i domain.Intervention) error {
 func (m *Memory) Messages() []domain.Message {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.messages
+	return slices.Clone(m.messages)
 }
 
 func (m *Memory) SaveMessage(msg domain.Message) error {
@@ -637,7 +712,7 @@ func (m *Memory) SaveMessage(msg domain.Message) error {
 func (m *Memory) Announcements() []domain.Announcement {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.announcements
+	return slices.Clone(m.announcements)
 }
 
 func (m *Memory) AddAnnouncement(a domain.Announcement) error {
@@ -679,7 +754,7 @@ func (m *Memory) DeleteAnnouncement(id string) error {
 func (m *Memory) Notifications() []domain.Notification {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.notifications
+	return slices.Clone(m.notifications)
 }
 
 func (m *Memory) SetNotificationRead(id string) error {
@@ -827,7 +902,7 @@ func (m *Memory) AddNotification(n domain.Notification) {
 func (m *Memory) Assignments() []domain.Assignment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.assignments
+	return slices.Clone(m.assignments)
 }
 
 func (m *Memory) AssignmentByID(id string) (domain.Assignment, bool) {
@@ -905,7 +980,7 @@ func (m *Memory) SaveInvoice(inv domain.Invoice) error {
 func (m *Memory) Payments() []domain.Payment {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.payments
+	return slices.Clone(m.payments)
 }
 
 // SavePayment skips a payment whose id is already recorded, mirroring
@@ -930,7 +1005,7 @@ func (m *Memory) SavePayment(p domain.Payment) error {
 func (m *Memory) AuditLogs() []domain.AuditEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.audit
+	return slices.Clone(m.audit)
 }
 
 func (m *Memory) AddAudit(e domain.AuditEntry) {

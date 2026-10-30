@@ -101,7 +101,7 @@ final _adminModules = [
       subtitle: 'Questions each class struggled with',
       builder: (_) => const MarkingFeedbackScreen()),
   Module(Icons.palette, 'Report Card Designer', NavSection.records,
-      subtitle: 'Classic, modern & transcript PDF layouts',
+      subtitle: 'Terminal report, modern & transcript PDFs',
       builder: (_) => const ReportCardScreen()),
   Module(Icons.history, 'Audit Log', NavSection.records,
       subtitle: 'Changes, corrections & access trail',
@@ -198,6 +198,10 @@ final _parentModules = [
       builder: FeesModule.parentBuilder),
 ];
 
+/// BECE / WASSCE prep is paused: hidden from every menu until it is reworked
+/// on the school's own grading. Flip to true to bring it back.
+const kBecePrepEnabled = false;
+
 final _studentModules = [
   Module(Icons.person, 'My Profile', NavSection.people,
       subtitle: 'My records, attendance & pickup list',
@@ -217,9 +221,10 @@ final _studentModules = [
   Module(Icons.auto_stories, 'Study Hub', NavSection.teaching,
       subtitle: 'Corrections, practice, quizzes & vacation',
       builder: (_) => const StudyHubScreen()),
-  Module(Icons.menu_book, 'BECE / WASSCE', NavSection.teaching,
-      subtitle: 'Prep & mocks',
-      builder: (_) => const PrepScreen()),
+  if (kBecePrepEnabled)
+    Module(Icons.menu_book, 'BECE / WASSCE', NavSection.teaching,
+        subtitle: 'Prep & mocks',
+        builder: (_) => const PrepScreen()),
   Module(Icons.account_balance_wallet, 'My Fees', NavSection.finance,
       subtitle: 'Charges, balances & receipts',
       builder: FeesModule.studentBuilder),

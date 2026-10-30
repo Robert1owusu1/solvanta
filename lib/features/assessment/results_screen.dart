@@ -5,6 +5,9 @@ import '../../core/models/submission.dart';
 import '../../core/models/subjects.dart';
 import '../../core/theme/app_theme.dart';
 import '../reports/marking_feedback_screen.dart';
+import '../reports/report_card_pdf.dart';
+import '../reports/report_card_screen.dart' show YearProgressChart;
+import '../reports/report_card_source.dart';
 import 'assessment_repository.dart';
 import 'feedback_screen.dart';
 
@@ -28,11 +31,40 @@ class _ResultsScreenState extends State<ResultsScreen> {
   late Future<List<({Assessment assessment, AssessmentSubmission? submission})>>
       _data;
 
+  /// This term's card — its year chart shows from Term 2 on.
+  late final Future<ReportCardData?> _card = ReportCardSource.load()
+      .then((s) => s.cardForId(widget.studentId))
+      .catchError((_) => null);
+
   @override
   void initState() {
     super.initState();
     _data = AssessmentRepository().resultsForStudent(widget.studentId);
   }
+
+  /// "This year so far": the term averages, how the year average is worked
+  /// out, and — on Term 3 — the promotion decision. Hidden on Term 1.
+  Widget _yearCard() => FutureBuilder<ReportCardData?>(
+        future: _card,
+        builder: (context, snap) {
+          final card = snap.data;
+          if (card == null ||
+              card.termNumber < 2 ||
+              card.year.average == null) {
+            return const SizedBox.shrink();
+          }
+          // The chart is drawn in print colours, so it sits on paper white
+          // in dark mode too.
+          return Card(
+            color: AppPalette.light.surface,
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: YearProgressChart(card, scale: 1.8),
+            ),
+          );
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -62,8 +94,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
           return ListView.builder(
             // Room at the bottom so the last card clears the button.
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
-            itemCount: rows.length,
-            itemBuilder: (context, i) {
+            itemCount: rows.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) return _yearCard();
+              final i = index - 1;
               final a = rows[i].assessment;
               final s = rows[i].submission;
               final total = a.totalMarks;

@@ -6,6 +6,7 @@ import '../../core/models/attendance.dart';
 import '../../core/models/audit.dart';
 import '../../core/models/class_room.dart';
 import '../../core/models/gate_event.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/intervention.dart';
 import '../../core/models/message.dart';
 import '../../core/models/qgen_request.dart';
@@ -169,6 +170,14 @@ class RemoteDataSource {
 
   Future<School> school() async =>
       School.fromJson(await client.get('/api/school') as JsonMap);
+
+  Future<GradingConfig> grading() async => GradingConfig.fromJson(
+      await client.get('/api/school/grading') as JsonMap);
+
+  Future<List<FinishedTerm>> finishedTerms() async =>
+      ((await client.get('/api/school/terms')) as List)
+          .map((e) => FinishedTerm.fromJson(e as JsonMap))
+          .toList();
 
   Future<SchoolTerm> term() async =>
       SchoolTerm.fromJson(await client.get('/api/school/term') as JsonMap);

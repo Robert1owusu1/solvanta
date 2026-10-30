@@ -92,7 +92,8 @@ void main() {
     test('student only sees their own learning surfaces', () {
       final student = labels(AppRole.student);
       expect(student, ['My Profile', 'My Results', 'Announcements',
-        'Academic Calendar', 'Assignments', 'Study Hub', 'BECE / WASSCE',
+        'Academic Calendar', 'Assignments', 'Study Hub',
+        if (kBecePrepEnabled) 'BECE / WASSCE',
         'My Fees', 'My ID']);
       expect(student, isNot(contains('Audit Log')));
       expect(student, isNot(contains('Question Bank')));

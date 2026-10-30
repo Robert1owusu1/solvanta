@@ -200,7 +200,9 @@ void main() {
         password: 'student123',
         labels: const <String>[
           'My Profile', 'My Results', 'Announcements', 'Academic Calendar',
-          'Assignments', 'Study Hub', 'BECE / WASSCE', 'My Fees', 'My ID',
+          'Assignments', 'Study Hub',
+          if (kBecePrepEnabled) 'BECE / WASSCE',
+          'My Fees', 'My ID',
         ],
         absentRendered: const <String>[
           'Students', 'Staff & Teachers', 'Question Bank',

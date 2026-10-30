@@ -8,6 +8,7 @@ import '../../features/marking/marking_drafts_repository.dart';
 import '../../features/ocr/ocr_repository.dart';
 import '../api/api_client.dart';
 import '../api/remote_data_source.dart';
+import '../models/promotion.dart';
 import '../models/correction.dart';
 import '../models/message.dart';
 import '../models/ocr_job.dart';
@@ -136,6 +137,8 @@ class ServerSync extends ChangeNotifier {
     await Future.wait([
       mirror('school', remote.school, _store.saveSchool),
       mirror('term', remote.term, _store.saveTerm),
+      mirror('grading', remote.grading, _store.saveGradingConfig),
+      mirror('finished terms', remote.finishedTerms, _store.saveTermHistory),
       mirror('classes', remote.classes, _store.saveClasses),
       mirror('users', remote.users, _mergeUsers),
       mirror('students', remote.students, _store.saveStudents),
@@ -161,6 +164,8 @@ class ServerSync extends ChangeNotifier {
       mirror('corrections', () => remote.records('corrections'),
           (r) => _store.saveCorrections(r.map(Correction.fromJson).toList())),
       mirror('targets', () => remote.records('targets'), _saveTargets),
+      mirror('promotions', () => remote.records('promotions'),
+          (r) => _store.savePromotions(r.map(PromotionRecord.fromJson).toList())),
       mirror('scans', () => remote.records('scans'), _mergeScans),
       mirror('ocr jobs', () => remote.records('ocr_jobs'), _mergeOcrJobs),
     ]);

@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/assessment.dart';
 import '../../core/models/correction.dart';
+import '../../core/models/grading.dart';
 import '../../core/models/question.dart';
 import '../../core/models/submission.dart';
 import '../../core/models/subjects.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
-import '../analytics/analytics_service.dart';
 import '../analytics/error_pattern_engine.dart';
 import 'assessment_repository.dart';
 import 'corrections_repository.dart';
@@ -246,7 +246,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text('${pct.toStringAsFixed(1)}% · '
-                      'Grade ${gradeLetter(pct)}',
+                      'Grade ${schoolGrade(pct, a.classId)}',
                       style: TextStyle(
                           fontSize: 13, color: AppColors.body)),
                 ),

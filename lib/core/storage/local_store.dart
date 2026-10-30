@@ -12,10 +12,12 @@ import '../models/app_notification.dart';
 import '../models/class_room.dart';
 import '../models/correction.dart';
 import '../models/gate_event.dart';
+import '../models/grading.dart';
 import '../models/intervention.dart';
 import '../models/marking_draft.dart';
 import '../models/message.dart';
 import '../models/ocr_job.dart';
+import '../models/promotion.dart';
 import '../models/question.dart';
 import '../models/qgen_request.dart';
 import '../models/role.dart';
@@ -48,8 +50,11 @@ class LocalStore {
   static const _scansKey = 'solvanta.scans_v1';
   static const _assignmentSubmissionsKey = 'solvanta.assignment_submissions_v1';
   static const _correctionsKey = 'solvanta.corrections_v1';
+  static const _promotionsKey = 'solvanta.promotions_v1';
   static const _announcementsKey = 'solvanta.announcements_v1';
   static const _termKey = 'solvanta.term_v1';
+  static const _termHistoryKey = 'solvanta.term_history_v1';
+  static const _gradingKey = 'solvanta.grading_v1';
   static const _qgenKey = 'solvanta.qgen_v1';
   static const _ocrJobsKey = 'solvanta.ocr_jobs_v1';
   static const _markingDraftsKey = 'solvanta.marking_drafts_v1';
@@ -412,9 +417,67 @@ class LocalStore {
     return SchoolTerm.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
+  /// Saves [term] as current. When it starts after the stored term ended, the
+  /// old term is a finished one and is archived for transcripts; editing the
+  /// current term's dates (or re-syncing it) archives nothing.
   Future<void> saveTerm(SchoolTerm term) async {
     final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_termKey);
+    if (raw != null) {
+      final prev =
+          SchoolTerm.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      // The server closes the term too (and its list replaces this one on
+      // the next sync); this keeps an offline device's year chart whole.
+      if (prev.end.compareTo(term.start) < 0) {
+        final history = await loadTermHistory();
+        if (!history.any((t) => t.term.start == prev.start)) {
+          await saveTermHistory(
+              [...history, FinishedTerm(prev, await loadGradingConfig())]);
+        }
+      }
+    }
     await prefs.setString(_termKey, jsonEncode(term.toJson()));
+  }
+
+  /// The school's grading set-up, or the GES default until one is saved.
+  Future<GradingConfig> loadGradingConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_gradingKey);
+    var g = GradingConfig.fallback;
+    if (raw != null) {
+      try {
+        final saved =
+            GradingConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        if (saved.problem() == null) g = saved;
+      } catch (_) {}
+    }
+    return SchoolGrading.current = g;
+  }
+
+  Future<void> saveGradingConfig(GradingConfig config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_gradingKey, jsonEncode(config.toJson()));
+    if (config.problem() == null) SchoolGrading.current = config;
+  }
+
+  /// Finished terms with the grading each ended under, oldest first — the
+  /// earlier columns of a transcript and of the year chart.
+  Future<List<FinishedTerm>> loadTermHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_termHistoryKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => FinishedTerm.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Replaces the finished-term list (the server's copy wins on sync).
+  Future<void> saveTermHistory(List<FinishedTerm> terms) async {
+    final prefs = await SharedPreferences.getInstance();
+    final sorted = [...terms]
+      ..sort((a, b) => a.term.start.compareTo(b.term.start));
+    await prefs.setString(_termHistoryKey,
+        jsonEncode(sorted.map((t) => t.toJson()).toList()));
   }
 
   Future<void> saveInterventions(List<Intervention> items) async {
@@ -602,6 +665,24 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _correctionsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  /// End-of-year decisions applied so far, every year.
+  Future<List<PromotionRecord>> loadPromotions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_promotionsKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => PromotionRecord.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> savePromotions(List<PromotionRecord> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _promotionsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
   }

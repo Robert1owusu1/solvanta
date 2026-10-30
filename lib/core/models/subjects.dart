@@ -12,6 +12,14 @@ const subjects = [
   Subject('SOC', 'Social Studies'),
   Subject('ICT', 'Information & Communication Technology'),
   Subject('RME', 'Religious & Moral Education'),
+  // The rest of the Ghanaian basic-school (KG–JHS) curriculum.
+  Subject('FRE', 'French'),
+  Subject('GHL', 'Ghanaian Language'),
+  Subject('CAD', 'Creative Arts & Design'),
+  Subject('CTE', 'Career Technology'),
+  Subject('PHE', 'Physical & Health Education'),
+  Subject('OWOP', 'Our World Our People'),
+  Subject('HIS', 'History'),
 ];
 
 const cognitiveLevels = [
