@@ -8,6 +8,9 @@ import '../reports/marking_feedback_screen.dart';
 import '../reports/report_card_pdf.dart';
 import '../reports/report_card_screen.dart' show YearProgressChart;
 import '../reports/report_card_source.dart';
+import '../reports/term_reports_repository.dart';
+import '../../core/models/term_report.dart';
+import '../../core/platform/file_share.dart';
 import 'assessment_repository.dart';
 import 'feedback_screen.dart';
 
@@ -41,6 +44,64 @@ class _ResultsScreenState extends State<ResultsScreen> {
     super.initState();
     _data = AssessmentRepository().resultsForStudent(widget.studentId);
   }
+
+  /// Report cards the school has approved — released to the family.
+  late final Future<List<TermReport>> _released =
+      TermReportsRepository().approvedFor(widget.studentId);
+
+  Future<void> _openReport(TermReport r) async {
+    try {
+      final card = ReportCardData.fromJson(r.snapshot!).copyWithJson({
+        'approvedBy': r.approvedBy.isEmpty ? 'the school' : r.approvedBy,
+        'approvedAt': r.approvedAt,
+      });
+      final bytes =
+          await buildReportCardPdf(card, ReportCardTemplate.classic);
+      await saveAndShareFile(
+        bytes,
+        'report_${r.id}.pdf',
+        'application/pdf',
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Couldn't open the report card.")));
+      }
+    }
+  }
+
+  Widget _reportCards() => FutureBuilder<List<TermReport>>(
+        future: _released,
+        builder: (context, snap) {
+          final reports = snap.data ?? const <TermReport>[];
+          if (reports.isEmpty) return const SizedBox.shrink();
+          return Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
+                  child: Text('Report cards',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                ),
+                for (final r in reports)
+                  ListTile(
+                    leading: Icon(Icons.workspace_premium_outlined,
+                        color: AppColors.brand),
+                    title: Text('${r.term} · ${r.year}'),
+                    subtitle: Text(r.approvedBy.isEmpty
+                        ? 'Approved by the school'
+                        : 'Approved by ${r.approvedBy}'),
+                    trailing: const Icon(Icons.picture_as_pdf_outlined),
+                    onTap: () => _openReport(r),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
 
   /// "This year so far": the term averages, how the year average is worked
   /// out, and — on Term 3 — the promotion decision. Hidden on Term 1.
@@ -96,7 +157,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
             itemCount: rows.length + 1,
             itemBuilder: (context, index) {
-              if (index == 0) return _yearCard();
+              if (index == 0) {
+                return Column(children: [_reportCards(), _yearCard()]);
+              }
               final i = index - 1;
               final a = rows[i].assessment;
               final s = rows[i].submission;

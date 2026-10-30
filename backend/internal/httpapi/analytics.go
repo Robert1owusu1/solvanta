@@ -13,7 +13,7 @@ import (
 // studentResults returns each assessment's result for a student, mirroring
 // reporting_service.subjectPerformance (doc §28).
 func (s *Server) studentResults(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -31,11 +31,11 @@ func (s *Server) studentResults(c *gin.Context) {
 		Grade      string            `json:"grade"`
 	}
 	var out []result
-	for _, a := range s.store.Assessments() {
+	for _, a := range s.db(c).Assessments() {
 		if a.ClassID != st.ClassID {
 			continue
 		}
-		sub, found := s.store.SubmissionFor(a.ID, st.ID)
+		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found || sub.ClassID != st.ClassID {
 			continue
 		}
@@ -55,7 +55,7 @@ func (s *Server) studentResults(c *gin.Context) {
 // studentWeakTopics returns topic-level accuracy (<100% listed) for prep and
 // vacation features (doc §44–45).
 func (s *Server) studentWeakTopics(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -64,8 +64,8 @@ func (s *Server) studentWeakTopics(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own records")
 		return
 	}
-	subs := s.store.Submissions()
-	topics := marking.WeakTopics(st.ID, s.store.Assessments(), subs)
+	subs := s.db(c).Submissions()
+	topics := marking.WeakTopics(st.ID, s.db(c).Assessments(), subs)
 	out := make([]map[string]any, 0, len(topics))
 	for _, t := range topics {
 		out = append(out, map[string]any{
@@ -87,12 +87,12 @@ func (s *Server) classGaps(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "assessmentId query required")
 		return
 	}
-	a, ok := s.store.AssessmentByID(assessmentID)
+	a, ok := s.db(c).AssessmentByID(assessmentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
 	}
-	cp := marking.ClassPerformance{Assessments: s.store.Assessments(), Subs: s.store.Submissions(), Students: s.store.Students()}
+	cp := marking.ClassPerformance{Assessments: s.db(c).Assessments(), Subs: s.db(c).Submissions(), Students: s.db(c).Students()}
 	gaps := cp.Gaps(a)
 	sendJSON(c, gin.H{"assessmentId": a.ID, "subjectId": a.SubjectID, "gaps": gaps})
 }
@@ -106,6 +106,6 @@ func (s *Server) atRisk(c *gin.Context) {
 			threshold = f
 		}
 	}
-	cp := marking.ClassPerformance{Assessments: s.store.Assessments(), Subs: s.store.Submissions(), Students: s.store.Students()}
+	cp := marking.ClassPerformance{Assessments: s.db(c).Assessments(), Subs: s.db(c).Submissions(), Students: s.db(c).Students()}
 	sendJSON(c, cp.AtRisk(threshold))
 }

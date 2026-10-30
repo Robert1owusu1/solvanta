@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"solvanta/backend/internal/domain"
-	"solvanta/backend/internal/security"
 )
 
 // fortySixty is a school that grades JHS 40/60 on the 1–9 scale and its
@@ -99,17 +98,8 @@ func TestGradingRejectsBrokenSchemes(t *testing.T) {
 // One school's admin can neither change nor see another school's grading,
 // and a saved config never leaks across schools.
 func TestGradingIsPerSchool(t *testing.T) {
-	r, st := newTestServerWithStore(t, Config{})
-	hash, err := security.HashPassword("OtherAdmin1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SaveUser(domain.User{
-		ID: "USR-ADM-002", Name: "Other Admin", Email: "admin@other.school.gh",
-		Password: hash, Role: domain.RoleSchoolAdmin, SchoolID: "SCH-002",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	r := newTestServer(t, Config{})
+	newSchool(t, r, "SCH-002", "admin@other.school.gh", "OtherAdmin1")
 	other := login(t, r, "admin@other.school.gh", "OtherAdmin1")
 	ours := login(t, r, "admin@solvanta.app", "admin123")
 

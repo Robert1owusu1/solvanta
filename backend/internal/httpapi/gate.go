@@ -12,7 +12,7 @@ import (
 func (s *Server) gateEvents(c *gin.Context) {
 	date := c.Query("date")
 	var out []domain.GateEvent
-	for _, e := range s.store.GateEvents() {
+	for _, e := range s.db(c).GateEvents() {
 		if date == "" || e.Date == date {
 			out = append(out, e)
 		}
@@ -43,7 +43,7 @@ func (s *Server) createGateEvent(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	st, ok := s.store.StudentByID(body.StudentID)
+	st, ok := s.db(c).StudentByID(body.StudentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -63,21 +63,21 @@ func (s *Server) createGateEvent(c *gin.Context) {
 		Person:    body.Person,
 		Detail:    body.Detail,
 	}
-	if writeFailed(c, s.store.AddGateEvent(ev)) {
+	if writeFailed(c, s.db(c).AddGateEvent(ev)) {
 		return
 	}
 	s.audit(c, "gate.update", ev.ID, "Gate event "+ev.Type+" for "+st.FullName(), body.Detail)
 
-	if p := userForStudent(s, st); p.ID != "" {
+	if p := userForStudent(c, s, st); p.ID != "" {
 		switch ev.Type {
 		case domain.GateUnauthorizedPickup:
-			s.notify(p.ID, domain.NotifGate, "Unverified pickup attempt for "+st.FullName(),
+			s.notify(c, p.ID, domain.NotifGate, "Unverified pickup attempt for "+st.FullName(),
 				"Someone not on the authorized list attempted pickup at "+ev.Time+". Please verify. Contact the school immediately.", st.ID)
 		case domain.GateEarlyDeparture:
-			s.notify(p.ID, domain.NotifGate, st.FullName()+" left school early",
+			s.notify(c, p.ID, domain.NotifGate, st.FullName()+" left school early",
 				"Early departure recorded at "+ev.Time+": "+ev.Detail, st.ID)
 		case domain.GateDeparture:
-			s.notify(p.ID, domain.NotifGate, st.FullName()+" left school",
+			s.notify(c, p.ID, domain.NotifGate, st.FullName()+" left school",
 				st.FullName()+" departed at "+ev.Time+".", st.ID)
 		}
 	}
@@ -86,7 +86,7 @@ func (s *Server) createGateEvent(c *gin.Context) {
 
 // gateForStudent returns that student's events newest first.
 func (s *Server) gateForStudent(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -95,7 +95,7 @@ func (s *Server) gateForStudent(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own records")
 		return
 	}
-	events := s.store.GateForStudent(st.ID)
+	events := s.db(c).GateForStudent(st.ID)
 	if events == nil {
 		events = []domain.GateEvent{}
 	}

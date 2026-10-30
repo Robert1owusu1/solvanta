@@ -304,6 +304,8 @@ func randomSecret() string {
 // dependency; HMAC-SHA256 over the compact JSON is transport-agnostic).
 type tokenClaims struct {
 	Sub string `json:"sub"`
+	// Sch is the user's school: which school's store holds their account.
+	Sch string `json:"sch,omitempty"`
 	Exp int64  `json:"exp"`
 	Iat int64  `json:"iat"`
 	Jti string `json:"jti"`

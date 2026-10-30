@@ -82,18 +82,18 @@ type paperTarget struct {
 	topics    map[int]string
 }
 
-func (s *Server) paperTargetFor(schemeID string, cache map[string]paperTarget) paperTarget {
+func (s *Server) paperTargetFor(c *gin.Context, schemeID string, cache map[string]paperTarget) paperTarget {
 	if t, ok := cache[schemeID]; ok {
 		return t
 	}
 	t := paperTarget{title: "Marked work", topics: map[int]string{}}
-	if ms, ok := s.store.MarkingSchemeByID(schemeID); ok {
-		if a, ok := s.store.AssessmentByID(ms.AssessmentID); ok && ms.AssessmentID != "" {
+	if ms, ok := s.db(c).MarkingSchemeByID(schemeID); ok {
+		if a, ok := s.db(c).AssessmentByID(ms.AssessmentID); ok && ms.AssessmentID != "" {
 			t.title, t.subjectID = a.Title, a.SubjectID
 			for i, q := range a.Questions {
 				t.topics[i+1] = strings.TrimSpace(q.Topic)
 			}
-		} else if asg, ok := s.store.AssignmentByID(ms.AssignmentID); ok && ms.AssignmentID != "" {
+		} else if asg, ok := s.db(c).AssignmentByID(ms.AssignmentID); ok && ms.AssignmentID != "" {
 			t.title, t.subjectID = asg.Title, asg.SubjectID
 		}
 	}
@@ -102,13 +102,13 @@ func (s *Server) paperTargetFor(schemeID string, cache map[string]paperTarget) p
 }
 
 // finalizedDrafts returns the full finalized drafts that pass keep.
-func (s *Server) finalizedDrafts(keep func(domain.MarkingDraft) bool) []domain.MarkingDraft {
+func (s *Server) finalizedDrafts(c *gin.Context, keep func(domain.MarkingDraft) bool) []domain.MarkingDraft {
 	var out []domain.MarkingDraft
-	for _, h := range s.store.MarkingDraftsWithStatus(domain.DraftStatusFinalized) {
+	for _, h := range s.db(c).MarkingDraftsWithStatus(domain.DraftStatusFinalized) {
 		if !keep(h) {
 			continue
 		}
-		if d, ok := s.store.MarkingDraftByID(h.ID); ok && d.Status == domain.DraftStatusFinalized {
+		if d, ok := s.db(c).MarkingDraftByID(h.ID); ok && d.Status == domain.DraftStatusFinalized {
 			out = append(out, d)
 		}
 	}
@@ -147,7 +147,7 @@ func nextStep(a domain.MarkingDraftAnswer, topic string) (string, string) {
 // where the scheme names one, and a suggested next step.
 func (s *Server) studentMarkingFeedback(c *gin.Context) {
 	u := currentUser(c)
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -158,7 +158,7 @@ func (s *Server) studentMarkingFeedback(c *gin.Context) {
 	}
 	staff := u.IsSchoolStaff()
 
-	drafts := s.finalizedDrafts(func(d domain.MarkingDraft) bool { return d.StudentID == st.ID })
+	drafts := s.finalizedDrafts(c, func(d domain.MarkingDraft) bool { return d.StudentID == st.ID })
 	sort.SliceStable(drafts, func(i, j int) bool { return drafts[i].FinalizedAt > drafts[j].FinalizedAt })
 
 	targets := map[string]paperTarget{}
@@ -166,7 +166,7 @@ func (s *Server) studentMarkingFeedback(c *gin.Context) {
 	papers := []feedbackPaper{}
 	wrongTotal := 0
 	for _, d := range drafts {
-		t := s.paperTargetFor(d.SchemeID, targets)
+		t := s.paperTargetFor(c, d.SchemeID, targets)
 		marks := d.FinalTotal()
 		pct := 0.0
 		if d.MaxTotal > 0 {
@@ -263,9 +263,9 @@ func (s *Server) classMarkingFeedback(c *gin.Context) {
 		return
 	}
 
-	drafts := s.finalizedDrafts(func(d domain.MarkingDraft) bool { return d.ClassID == classID })
+	drafts := s.finalizedDrafts(c, func(d domain.MarkingDraft) bool { return d.ClassID == classID })
 	waiting := map[string]int{}
-	for _, d := range s.store.MarkingDraftsWithStatus(domain.DraftStatusDraft) {
+	for _, d := range s.db(c).MarkingDraftsWithStatus(domain.DraftStatusDraft) {
 		if d.ClassID == classID {
 			waiting[d.SchemeID]++
 		}
@@ -286,7 +286,7 @@ func (s *Server) classMarkingFeedback(c *gin.Context) {
 			return n
 		}
 		n := id
-		if st, ok := s.store.StudentByID(id); ok {
+		if st, ok := s.db(c).StudentByID(id); ok {
 			n = st.FullName()
 		}
 		names[id] = n
@@ -297,7 +297,7 @@ func (s *Server) classMarkingFeedback(c *gin.Context) {
 	reports := []classPaperReport{}
 	for _, schemeID := range order {
 		ds := byScheme[schemeID]
-		t := s.paperTargetFor(schemeID, targets)
+		t := s.paperTargetFor(c, schemeID, targets)
 		r := classPaperReport{
 			SchemeID: schemeID, SchemeVersion: ds[0].SchemeVersion, TargetKind: ds[0].TargetKind,
 			Title: t.title, SubjectID: t.subjectID, Papers: len(ds), AwaitingReview: waiting[schemeID],

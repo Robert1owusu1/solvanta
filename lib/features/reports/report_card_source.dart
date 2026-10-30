@@ -10,8 +10,12 @@ import '../../core/models/user.dart';
 import '../../core/storage/local_store.dart';
 import '../assessment/assessment_repository.dart';
 import '../calendar/term_repository.dart';
+import '../fees/fee_models.dart';
+import '../fees/fees_repository.dart';
 import '../students/students_repository.dart';
+import '../../core/models/term_report.dart';
 import 'report_card_pdf.dart';
+import 'term_reports_repository.dart';
 
 /// Everything a report card is built from, read from the local store so it
 /// works offline: marks, the class roster (for positions), this term and the
@@ -29,6 +33,9 @@ class ReportCardSource {
     required this.school,
     required this.users,
     required this.attendance,
+    this.invoices = const [],
+    this.feeStructures = const [],
+    this.reports = const {},
   });
 
   final List<Student> students;
@@ -48,9 +55,18 @@ class ReportCardSource {
   /// This term's attendance records, bucketed by student id.
   final Map<String, List<AttendanceRecord>> attendance;
 
+  /// The Fees module's invoices and fee structures, for "Fees owing" and
+  /// "Next term's fees".
+  final List<Invoice> invoices;
+  final List<FeeStructure> feeStructures;
+
+  /// This term's reports (remarks, approval), by student id.
+  final Map<String, TermReport> reports;
+
   static Future<ReportCardSource> load({LocalStore? store}) async {
     final s = store ?? LocalStore();
     final repo = AssessmentRepository();
+    final fees = FeesRepository(store: s);
     final term = await TermRepository(store: s).current();
     final attendance = <String, List<AttendanceRecord>>{};
     for (final r in await s.loadAttendance()) {
@@ -69,6 +85,10 @@ class ReportCardSource {
           const School(id: 'SCH-001', name: 'SOLVANTA School'),
       users: await s.loadUsers(),
       attendance: attendance,
+      invoices: await fees.invoices(),
+      feeStructures: await fees.structures(),
+      reports: await TermReportsRepository(store: s)
+          .forTerm(term.year, term.name),
     );
   }
 
@@ -80,8 +100,46 @@ class ReportCardSource {
           ?.name ??
       '';
 
-  /// [student]'s card for this term.
+  /// [student]'s report for this term — the saved one, or a fresh draft.
+  TermReport reportFor(Student student) =>
+      reports[student.id] ??
+      TermReport(
+        studentId: student.id,
+        classId: student.classId,
+        year: term.year,
+        term: term.name,
+      );
+
+  /// [student]'s card for this term: exactly as approved once the
+  /// headteacher has approved it, otherwise built from the latest marks
+  /// with the term report's remarks on it.
   ReportCardData cardFor(Student student) {
+    final report = reports[student.id];
+    final frozen = report?.snapshot;
+    if (report != null && report.approved && frozen != null) {
+      return ReportCardData.fromJson(frozen).copyWithJson({
+        'approvedBy': report.approvedBy.isEmpty ? 'the school' : report.approvedBy,
+        'approvedAt': report.approvedAt,
+      });
+    }
+    final live = liveCardFor(student);
+    return report == null ? live : withReport(live, report);
+  }
+
+  /// [card] with [report]'s remarks on it: the teacher's own remark replaces
+  /// the generated one.
+  static ReportCardData withReport(ReportCardData card, TermReport report) =>
+      card.copyWithJson({
+        if (report.teacherRemark.trim().isNotEmpty)
+          'remark': report.teacherRemark.trim(),
+        'conduct': report.conduct,
+        'attitude': report.attitude,
+        'interest': report.interest,
+        'headRemark': report.headRemark,
+      });
+
+  /// [student]'s card from the latest marks, ignoring any approval.
+  ReportCardData liveCardFor(Student student) {
     final records = attendance[student.id] ?? const <AttendanceRecord>[];
     return ReportCardDataBuilder.build(
       student: student,
@@ -94,6 +152,8 @@ class ReportCardSource {
       grading: grading,
       classes: classes,
       teacherName: teacherNameFor(student),
+      feesOwing: feesOwingFor(student.id),
+      nextTermFeesFor: nextTermFeesFor,
       attendance: records.isEmpty
           ? null
           : (
@@ -105,6 +165,25 @@ class ReportCardSource {
                   .length,
             ),
     );
+  }
+
+  /// Unpaid balance across [studentId]'s invoices, or `null` when the Fees
+  /// module has billed them nothing.
+  int? feesOwingFor(String studentId) {
+    final mine = invoices.where((i) => i.studentId == studentId).toList();
+    if (mine.isEmpty) return null;
+    return mine.fold<int>(0, (sum, i) => sum + i.balance);
+  }
+
+  /// Fees set for [classId] for the term after this one (its own and the
+  /// school-wide ones), or `null` when none are set yet.
+  int? nextTermFeesFor(String classId) {
+    final next = term.nextLabel;
+    final due = feeStructures.where((f) =>
+        f.term == next &&
+        (f.classId == classId || f.classId == FeeStructure.allClasses));
+    if (due.isEmpty) return null;
+    return due.fold<int>(0, (sum, f) => sum + f.amount);
   }
 
   /// [studentId]'s card, or `null` when that student isn't on this device.

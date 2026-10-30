@@ -49,7 +49,7 @@ func canCreateAssessmentType(role string, typ string) bool {
 // own class and for teachers to their class (doc §16).
 func (s *Server) listAssessments(c *gin.Context) {
 	u := currentUser(c)
-	all := s.store.Assessments()
+	all := s.db(c).Assessments()
 	if u.IsSchoolStaff() {
 		if subj := c.Query("subject"); subj != "" {
 			var filtered []domain.Assessment
@@ -70,7 +70,7 @@ func (s *Server) listAssessments(c *gin.Context) {
 		if subj != "" && a.SubjectID != subj {
 			continue
 		}
-		if s.viewsClass(u, a.ClassID) {
+		if s.viewsClass(c, u, a.ClassID) {
 			// Learner roles get the paper without its answer key.
 			mine = append(mine, assessmentFor(a, u))
 		}
@@ -80,18 +80,18 @@ func (s *Server) listAssessments(c *gin.Context) {
 
 // viewsClass reports whether a non-staff viewer follows classID: a pupil
 // their own class, a parent the class of any of their children.
-func (s *Server) viewsClass(u domain.User, classID string) bool {
+func (s *Server) viewsClass(c *gin.Context, u domain.User, classID string) bool {
 	if classID == "" {
 		return false
 	}
 	switch u.Role {
 	case domain.RoleStudent:
-		if st, ok := s.store.StudentByID(stringToStudentID(u.ID)); ok {
+		if st, ok := s.db(c).StudentByID(stringToStudentID(u.ID)); ok {
 			return st.ClassID == classID
 		}
 	case domain.RoleParent:
 		for _, id := range u.StudentIDs {
-			if st, ok := s.store.StudentByID(id); ok && st.ClassID == classID {
+			if st, ok := s.db(c).StudentByID(id); ok && st.ClassID == classID {
 				return true
 			}
 		}
@@ -127,7 +127,7 @@ func (s *Server) createAssessment(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "classId is required")
 		return
 	}
-	if _, ok := s.store.ClassByID(body.ClassID); !ok {
+	if _, ok := s.db(c).ClassByID(body.ClassID); !ok {
 		fail(c, http.StatusBadRequest, "classId does not exist")
 		return
 	}
@@ -138,7 +138,7 @@ func (s *Server) createAssessment(c *gin.Context) {
 	// An offline client names its own assessment so screens can refer to it
 	// before it syncs; never let that id overwrite an existing one.
 	if body.ID != "" {
-		if _, exists := s.store.AssessmentByID(body.ID); exists {
+		if _, exists := s.db(c).AssessmentByID(body.ID); exists {
 			fail(c, http.StatusConflict, "An assessment with this id already exists")
 			return
 		}
@@ -153,7 +153,7 @@ func (s *Server) createAssessment(c *gin.Context) {
 		CreatedBy: firstNonEmpty(body.CreatedBy, u.Name),
 		Questions: body.Questions,
 	}
-	if writeFailed(c, s.store.SaveAssessment(a)) {
+	if writeFailed(c, s.db(c).SaveAssessment(a)) {
 		return
 	}
 	s.audit(c, "assessment.create", a.ID, "Created "+a.Type+" assessment "+a.Title, "")
@@ -190,13 +190,13 @@ func assessmentFor(a domain.Assessment, u domain.User) domain.Assessment {
 // assessmentDetail returns the assessment and the current user's submission if
 // one exists.
 func (s *Server) assessmentDetail(c *gin.Context) {
-	a, ok := s.store.AssessmentByID(c.Param("id"))
+	a, ok := s.db(c).AssessmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
 	}
 	u := currentUser(c)
-	if !u.IsSchoolStaff() && !s.viewsClass(u, a.ClassID) {
+	if !u.IsSchoolStaff() && !s.viewsClass(c, u, a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view your own class assessments")
 		return
 	}
@@ -208,14 +208,14 @@ func (s *Server) assessmentDetail(c *gin.Context) {
 			sid = stringToStudentID(u.ID)
 		case domain.RoleParent:
 			for _, id := range u.StudentIDs {
-				if st, ok := s.store.StudentByID(id); ok && st.ClassID == a.ClassID {
+				if st, ok := s.db(c).StudentByID(id); ok && st.ClassID == a.ClassID {
 					sid = st.ID
 					break
 				}
 			}
 		}
 		if sid != "" {
-			if sub, found := s.store.SubmissionFor(a.ID, sid); found {
+			if sub, found := s.db(c).SubmissionFor(a.ID, sid); found {
 				view["submission"] = sub
 			}
 		}
@@ -236,7 +236,7 @@ type blueprintRequest struct {
 // (doc §18).
 func (s *Server) blueprintGenerate(c *gin.Context) {
 	id := c.Param("id")
-	a, ok := s.store.AssessmentByID(id)
+	a, ok := s.db(c).AssessmentByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -245,7 +245,7 @@ func (s *Server) blueprintGenerate(c *gin.Context) {
 	if !bind(c, &req) {
 		return
 	}
-	from := s.store.Questions()
+	from := s.db(c).Questions()
 	req.Topic = firstNonEmpty(req.Topic, a.SubjectID)
 	if req.SubjectID == "" {
 		req.SubjectID = a.SubjectID
@@ -275,7 +275,7 @@ type submitRequest struct {
 // (doc §26, §54).
 func (s *Server) submitAssessment(c *gin.Context) {
 	id := c.Param("id")
-	a, ok := s.store.AssessmentByID(id)
+	a, ok := s.db(c).AssessmentByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -305,7 +305,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may not submit assessments")
 		return
 	}
-	st, ok := s.store.StudentByID(studentID)
+	st, ok := s.db(c).StudentByID(studentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -323,7 +323,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 	// straight after); a pupil re-sending — or their outbox replaying an old
 	// submit — must not wipe a result that has already been marked.
 	if u.Role == domain.RoleStudent {
-		if _, exists := s.store.SubmissionFor(a.ID, st.ID); exists {
+		if _, exists := s.db(c).SubmissionFor(a.ID, st.ID); exists {
 			fail(c, http.StatusConflict, "You have already submitted this assessment")
 			return
 		}
@@ -341,7 +341,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 		TeacherMarks: map[string]float64{},
 		Earned:       earned,
 	}
-	if writeFailed(c, s.store.SaveSubmission(sub)) {
+	if writeFailed(c, s.db(c).SaveSubmission(sub)) {
 		return
 	}
 
@@ -349,7 +349,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 	if hasSubjective {
 		s.notifySubjective(c, a, st, sub)
 	} else {
-		s.notifyAssessmentComplete(a, st, sub)
+		s.notifyAssessmentComplete(c, a, st, sub)
 	}
 	s.audit(c, "submission.submit", sub.ID, "Submitted "+a.Title+" by "+st.FullName(), "")
 
@@ -364,7 +364,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 // (doc §26 "mark paper", §54 verdicts).
 func (s *Server) markVerdicts(c *gin.Context) {
 	id := c.Param("id")
-	a, ok := s.store.AssessmentByID(id)
+	a, ok := s.db(c).AssessmentByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -379,7 +379,7 @@ func (s *Server) markVerdicts(c *gin.Context) {
 	if body.TeacherMarks == nil {
 		body.TeacherMarks = map[string]float64{}
 	}
-	sub, ok := s.store.SubmissionFor(a.ID, body.StudentID)
+	sub, ok := s.db(c).SubmissionFor(a.ID, body.StudentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "No submission for this assessment/student")
 		return
@@ -392,24 +392,24 @@ func (s *Server) markVerdicts(c *gin.Context) {
 	remaining := subjectiveNeedingVerdict(a.Questions, sub)
 	if len(remaining) > 0 {
 		sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
-		if writeFailed(c, s.store.SaveSubmission(sub)) {
+		if writeFailed(c, s.db(c).SaveSubmission(sub)) {
 			return
 		}
 		fail(c, http.StatusUnprocessableEntity, "Still "+itoa(len(remaining))+" questions lacking verdicts")
 		return
 	}
 	sub.Earned = marking.ComputeEarned(a.Questions, sub.Answers, sub.TeacherMarks)
-	if writeFailed(c, s.store.SaveSubmission(sub)) {
+	if writeFailed(c, s.db(c).SaveSubmission(sub)) {
 		return
 	}
 
-	st, _ := s.store.StudentByID(sub.StudentID)
+	st, _ := s.db(c).StudentByID(sub.StudentID)
 	var pct float64
 	if tm := a.TotalMarks(); tm > 0 {
 		pct = 100 * sub.Earned / tm
 	}
 	if st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifMarking, a.Title+" marked",
+		s.notify(c, st.ParentUserID, domain.NotifMarking, a.Title+" marked",
 			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
@@ -419,7 +419,7 @@ func (s *Server) markVerdicts(c *gin.Context) {
 
 // assessmentResults groups per-student results with distribution (doc §26).
 func (s *Server) assessmentResults(c *gin.Context) {
-	a, ok := s.store.AssessmentByID(c.Param("id"))
+	a, ok := s.db(c).AssessmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -434,8 +434,8 @@ func (s *Server) assessmentResults(c *gin.Context) {
 	total := a.TotalMarks()
 	var rows []row
 	dist := map[string]int{}
-	for _, st := range s.store.Students() {
-		sub, found := s.store.SubmissionFor(a.ID, st.ID)
+	for _, st := range s.db(c).Students() {
+		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found {
 			continue
 		}
@@ -527,13 +527,13 @@ func clampMarks(qs []domain.Question, marks map[string]float64) map[string]float
 
 // notifyAssessmentComplete pushes the result notification to the student's
 // parent (doc §36).
-func (s *Server) notifyAssessmentComplete(a domain.Assessment, st domain.Student, sub domain.Submission) {
+func (s *Server) notifyAssessmentComplete(c *gin.Context, a domain.Assessment, st domain.Student, sub domain.Submission) {
 	pct := 0.0
 	if tm := a.TotalMarks(); tm > 0 {
 		pct = 100 * sub.Earned / tm
 	}
 	if st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifAssessment, a.Title+" — result available",
+		s.notify(c, st.ParentUserID, domain.NotifAssessment, a.Title+" — result available",
 			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
@@ -543,7 +543,7 @@ func (s *Server) notifySubjective(c *gin.Context, a domain.Assessment, st domain
 	_ = c
 	_ = sub
 	if st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifMarking, a.Title+" awaiting marking",
+		s.notify(c, st.ParentUserID, domain.NotifMarking, a.Title+" awaiting marking",
 			st.FullName()+" has submitted "+a.Title+". Subjective answers will be reviewed shortly.", st.ID)
 	}
 }

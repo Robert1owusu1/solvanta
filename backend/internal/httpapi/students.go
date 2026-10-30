@@ -13,7 +13,7 @@ import (
 // parent → their children; student → themselves.
 func (s *Server) listStudents(c *gin.Context) {
 	u := currentUser(c)
-	all := s.store.Students()
+	all := s.db(c).Students()
 	if u.IsSuperAdmin() || u.Role == domain.RoleSchoolAdmin || u.Role == domain.RoleHeadteacher || u.Role == domain.RoleStaff {
 		sendJSON(c, all)
 		return
@@ -30,13 +30,13 @@ func (s *Server) listStudents(c *gin.Context) {
 	case domain.RoleParent:
 		var out []domain.Student
 		for _, id := range u.StudentIDs {
-			if st, found := s.store.StudentByID(id); found {
+			if st, found := s.db(c).StudentByID(id); found {
 				out = append(out, st)
 			}
 		}
 		sendJSON(c, out)
 	case domain.RoleStudent:
-		if st, found := s.store.StudentByID(stringToStudentID(u.ID)); found {
+		if st, found := s.db(c).StudentByID(stringToStudentID(u.ID)); found {
 			sendJSON(c, []domain.Student{st})
 			return
 		}
@@ -109,7 +109,7 @@ func (s *Server) createStudent(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "classId is required")
 		return
 	}
-	if _, ok := s.store.ClassByID(body.ClassID); !ok {
+	if _, ok := s.db(c).ClassByID(body.ClassID); !ok {
 		fail(c, http.StatusBadRequest, "classId does not exist")
 		return
 	}
@@ -129,7 +129,7 @@ func (s *Server) createStudent(c *gin.Context) {
 		EmergencyContacts: body.EmergencyContacts,
 		AuthorizedPickup:  body.AuthorizedPickup,
 	}
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "student.create", st.ID, "Created student "+st.FullName(), "")
@@ -138,7 +138,7 @@ func (s *Server) createStudent(c *gin.Context) {
 
 // studentDetail returns a student with related guardian/pickup info (doc §80).
 func (s *Server) studentDetail(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -149,7 +149,7 @@ func (s *Server) studentDetail(c *gin.Context) {
 	}
 	var parent *domain.User
 	if st.ParentUserID != "" {
-		if p, found := s.store.UserByID(st.ParentUserID); found {
+		if p, found := s.db(c).UserByID(st.ParentUserID); found {
 			parent = &p
 		}
 	}
@@ -170,7 +170,7 @@ func structuralDetail(st domain.Student) map[string]any {
 
 // updateStudent edits profile fields.
 func (s *Server) updateStudent(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -206,7 +206,7 @@ func (s *Server) updateStudent(c *gin.Context) {
 	// Present-but-empty unlinks the parent; absent leaves the link alone.
 	if body.ParentUserID != nil {
 		if id := *body.ParentUserID; id != "" {
-			if p, ok := s.store.UserByID(id); !ok || p.Role != domain.RoleParent {
+			if p, ok := s.db(c).UserByID(id); !ok || p.Role != domain.RoleParent {
 				fail(c, http.StatusBadRequest, "parentUserId must be a parent account")
 				return
 			}
@@ -222,7 +222,7 @@ func (s *Server) updateStudent(c *gin.Context) {
 	if body.AuthorizedPickup != nil {
 		st.AuthorizedPickup = body.AuthorizedPickup
 	}
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "student.update", st.ID, "Updated student "+st.FullName(), "")
@@ -231,7 +231,7 @@ func (s *Server) updateStudent(c *gin.Context) {
 
 // promoteStudent moves a student to the next class (doc §78).
 func (s *Server) promoteStudent(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -242,7 +242,7 @@ func (s *Server) promoteStudent(c *gin.Context) {
 		return
 	}
 	st.ClassID = next
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "student.promote", st.ID, "Promoted "+st.FullName()+" to "+next, "")
@@ -251,13 +251,13 @@ func (s *Server) promoteStudent(c *gin.Context) {
 
 // graduateStudent marks a student as graduated (doc §78).
 func (s *Server) graduateStudent(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
 	}
 	st.Status = "graduated"
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "student.graduate", st.ID, "Graduated "+st.FullName(), "")
@@ -266,7 +266,7 @@ func (s *Server) graduateStudent(c *gin.Context) {
 
 // authorizePickup appends a person to the authorized pickup list (doc §13).
 func (s *Server) authorizePickup(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -276,18 +276,18 @@ func (s *Server) authorizePickup(c *gin.Context) {
 		return
 	}
 	st.AuthorizedPickup = append(st.AuthorizedPickup, domain.Person{Name: p.Name, Phone: p.Phone, Relation: p.Relation})
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "pickup.authorize", st.ID, p.Name+" authorized for "+st.FullName(), "")
-	s.notify(userForStudent(s, st).ID, domain.NotifGate, "Pickup authorization updated",
+	s.notify(c, userForStudent(c, s, st).ID, domain.NotifGate, "Pickup authorization updated",
 		p.Name+" is now on the authorized pickup list for "+st.FullName()+".", st.ID)
 	sendJSON(c, st.AuthorizedPickup)
 }
 
 // revokePickup removes a person by name/phone from the authorized list.
 func (s *Server) revokePickup(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("id"))
+	st, ok := s.db(c).StudentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -304,7 +304,7 @@ func (s *Server) revokePickup(c *gin.Context) {
 		kept = append(kept, existing)
 	}
 	st.AuthorizedPickup = kept
-	if writeFailed(c, s.store.SaveStudent(st)) {
+	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return
 	}
 	s.audit(c, "pickup.revoke", st.ID, p.Name+" removed for "+st.FullName(), "")
@@ -312,11 +312,11 @@ func (s *Server) revokePickup(c *gin.Context) {
 }
 
 // userForStudent returns the parent account linked to a student, if any.
-func userForStudent(s *Server, st domain.Student) domain.User {
+func userForStudent(c *gin.Context, s *Server, st domain.Student) domain.User {
 	if st.ParentUserID == "" {
 		return domain.User{}
 	}
-	u, _ := s.store.UserByID(st.ParentUserID)
+	u, _ := s.db(c).UserByID(st.ParentUserID)
 	return u
 }
 

@@ -75,6 +75,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
         NotificationKind.assignment => Icons.assignment_outlined,
         NotificationKind.announcement => Icons.campaign_outlined,
         NotificationKind.system => Icons.info_outline,
+        NotificationKind.reportCard => Icons.workspace_premium_outlined,
       };
 
   // Decorative category tints drawn from the single navy ramp, gold accent,
@@ -89,6 +90,7 @@ class _NotificationsInboxBodyState extends State<NotificationsInboxBody> {
         NotificationKind.assignment => AppTheme.navy500,
         NotificationKind.announcement => AppTheme.gold,
         NotificationKind.system => AppColors.notAttempted,
+        NotificationKind.reportCard => AppTheme.gold,
       };
 
   @override

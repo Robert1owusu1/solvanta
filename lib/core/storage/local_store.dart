@@ -18,6 +18,7 @@ import '../models/marking_draft.dart';
 import '../models/message.dart';
 import '../models/ocr_job.dart';
 import '../models/promotion.dart';
+import '../models/term_report.dart';
 import '../models/question.dart';
 import '../models/qgen_request.dart';
 import '../models/role.dart';
@@ -51,6 +52,7 @@ class LocalStore {
   static const _assignmentSubmissionsKey = 'solvanta.assignment_submissions_v1';
   static const _correctionsKey = 'solvanta.corrections_v1';
   static const _promotionsKey = 'solvanta.promotions_v1';
+  static const _termReportsKey = 'solvanta.term_reports_v1';
   static const _announcementsKey = 'solvanta.announcements_v1';
   static const _termKey = 'solvanta.term_v1';
   static const _termHistoryKey = 'solvanta.term_history_v1';
@@ -665,6 +667,24 @@ class LocalStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _correctionsKey,
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  /// Term reports (remarks, approval, frozen cards), every term.
+  Future<List<TermReport>> loadTermReports() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_termReportsKey);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List)
+        .map((e) => TermReport.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> saveTermReports(List<TermReport> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _termReportsKey,
       jsonEncode(items.map((e) => e.toJson()).toList()),
     );
   }

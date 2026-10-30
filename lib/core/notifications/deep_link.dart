@@ -21,6 +21,13 @@ String? notificationDestination(NotificationKind kind, AppRole role) {
       if (role.isSchoolStaff) return 'Attendance';
       if (role.isParent) return 'Attendance';
       return null;
+    case NotificationKind.reportCard:
+      // An approved card is released to the family's results screen.
+      if (role.isParent) return 'Results & Reports';
+      if (role.isStudent) return 'My Results';
+      if (role.isTeacher) return 'Report Cards';
+      if (role.isSchoolStaff) return 'Report Card Designer';
+      return null;
     case NotificationKind.assessment:
     case NotificationKind.marking:
       if (role.isSchoolStaff) return 'Assessments';

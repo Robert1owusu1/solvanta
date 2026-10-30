@@ -87,7 +87,7 @@ func isISODate(s string) bool {
 // audit records an action against the audit log (doc §49).
 func (s *Server) audit(c *gin.Context, action, target, detail, reason string) {
 	u := currentUser(c)
-	s.store.AddAudit(domain.AuditEntry{
+	s.db(c).AddAudit(domain.AuditEntry{
 		ID:        newID("AUD"),
 		Action:    action,
 		Actor:     u.Name,
@@ -100,8 +100,8 @@ func (s *Server) audit(c *gin.Context, action, target, detail, reason string) {
 
 // notify fans out a notification to the given user id (prepended, newest
 // first, matching the app's notification ordering).
-func (s *Server) notify(userID, kind, title, body, studentID string) {
-	s.store.AddNotification(domain.Notification{
+func (s *Server) notify(c *gin.Context, userID, kind, title, body, studentID string) {
+	s.db(c).AddNotification(domain.Notification{
 		ID:        newID("NOTIF"),
 		Kind:      kind,
 		Title:     title,

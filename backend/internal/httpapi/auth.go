@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/store"
 )
 
 type loginRequest struct {
@@ -30,7 +31,7 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 
-	u, ok := s.store.UserByEmail(req.Email)
+	u, home, ok := s.userByEmail(req.Email)
 	if !ok {
 		// burn a bcrypt compare so account existence isn't timing-visible
 		burnCandidate(req.Password)
@@ -41,6 +42,7 @@ func (s *Server) login(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "Invalid email or password")
 		return
 	}
+	c.Set(ctxStoreKey, home)
 	s.audit(c, "auth.login", u.ID, "Signed in as "+u.Name, "")
 	sendJSON(c, gin.H{"token": s.sign(u, tokenTTL), "user": u})
 }
@@ -62,14 +64,14 @@ func (s *Server) updateSchool(c *gin.Context) {
 	if body.ID == "" {
 		body.ID = domain.DefaultSchoolID()
 	}
-	old := s.store.School()
+	old := s.db(c).School()
 	if old.ID != "" && body.ID == old.ID {
 		body.Name, body.Motto, body.Address, body.Phone, body.Email, body.Region =
 			firstNonEmpty(body.Name, old.Name), firstNonEmpty(body.Motto, old.Motto),
 			firstNonEmpty(body.Address, old.Address), firstNonEmpty(body.Phone, old.Phone),
 			firstNonEmpty(body.Email, old.Email), firstNonEmpty(body.Region, old.Region)
 	}
-	if writeFailed(c, s.store.SaveSchool(body)) {
+	if writeFailed(c, s.db(c).SaveSchool(body)) {
 		return
 	}
 	s.audit(c, "school.update", body.ID, "School profile updated", "")
@@ -82,15 +84,17 @@ func (s *Server) updateTerm(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	old := s.store.Term()
+	old := s.db(c).Term()
 	u := currentUser(c)
 	body = domain.SchoolTerm{
 		Year:  firstNonEmpty(body.Year, old.Year),
 		Name:  firstNonEmpty(body.Name, old.Name),
 		Start: firstNonEmpty(body.Start, old.Start),
 		End:   firstNonEmpty(body.End, old.End),
+		// The reopening date belongs to this term: a new term starts blank.
+		NextStart: body.NextStart,
 	}
-	if writeFailed(c, s.store.SaveTerm(body)) {
+	if writeFailed(c, s.db(c).SaveTerm(body)) {
 		return
 	}
 	// A new term that starts after the old one ended closes the old one:
@@ -98,16 +102,31 @@ func (s *Server) updateTerm(c *gin.Context) {
 	// term's dates closes nothing.
 	if old.End != "" && old.End < body.Start {
 		school := s.userSchool(u)
-		grading, ok := s.store.GradingConfig(school)
+		grading, ok := s.db(c).GradingConfig(school)
 		if !ok {
 			grading = domain.DefaultGradingConfig(school)
 		}
-		if writeFailed(c, s.store.SaveFinishedTerm(school, domain.FinishedTerm{SchoolTerm: old, Grading: grading})) {
+		if writeFailed(c, s.db(c).SaveFinishedTerm(school, domain.FinishedTerm{SchoolTerm: old, Grading: grading})) {
 			return
 		}
 	}
 	s.audit(c, "term.update", body.Label(), "Academic term updated", "")
 	sendJSON(c, body)
+}
+
+// userByEmail finds an account in whichever school holds it. Emails are
+// unique across schools (createUser checks), so at most one matches.
+func (s *Server) userByEmail(email string) (domain.User, store.Store, bool) {
+	for _, id := range s.tenants.Schools() {
+		st, err := s.tenants.For(id)
+		if err != nil {
+			continue
+		}
+		if u, ok := st.UserByEmail(email); ok {
+			return u, st, true
+		}
+	}
+	return domain.User{}, nil, false
 }
 
 func firstNonEmpty(a, b string) string {

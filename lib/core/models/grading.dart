@@ -196,7 +196,7 @@ class GradingScheme {
   String rangeOf(int i) {
     final lo = _fmt(bands[i].min);
     final hi = i == 0 ? '100' : _fmt(bands[i - 1].min - 1);
-    return '$lo-$hi';
+    return '$lo–$hi';
   }
 
   /// True when every grade is a whole number, so grades can be summed.

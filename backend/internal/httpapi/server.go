@@ -27,11 +27,13 @@ import (
 // tokenTTL is how long a bearer token stays valid.
 const tokenTTL = 24 * time.Hour
 
-// Server bundles the store, signer, and session blacklist for the API.
+// Server bundles the schools' stores, signer, and session blacklist.
 type Server struct {
-	store  store.Store
-	cfg    Config
-	secret []byte
+	// tenants holds one store per school. Handlers never see it: they get
+	// the request's own school store from db(c).
+	tenants store.Tenants
+	cfg     Config
+	secret  []byte
 
 	// ocrs routes a page to Mathpix, Cloud Vision, or the mock. It is built
 	// once at startup from the environment: absent credentials are the normal
@@ -48,6 +50,11 @@ type Server struct {
 // fresh random key (invalidating old tokens on restart); in Production that is
 // a boot error instead.
 func NewServer(s store.Store, cfg Config) (*Server, error) {
+	return NewTenantServer(store.SingleSchool(s), cfg)
+}
+
+// NewTenantServer builds the API server over every school's store.
+func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 	for _, p := range cfg.TrustedProxies {
 		if net.ParseIP(p) == nil {
 			if _, _, err := net.ParseCIDR(p); err != nil {
@@ -63,7 +70,7 @@ func NewServer(s store.Store, cfg Config) (*Server, error) {
 		cfg.Secret = randomSecret()
 	}
 	return &Server{
-		store:   s,
+		tenants: t,
 		cfg:     cfg,
 		secret:  []byte(cfg.Secret),
 		ocrs:    ocr.NewRouter(ocr.FromEnv()),
@@ -83,7 +90,7 @@ func (s *Server) OCRStatus() string {
 func (s *Server) sign(u domain.User, ttl time.Duration) string {
 	now := time.Now()
 	claims, _ := json.Marshal(tokenClaims{
-		Sub: u.ID, Exp: now.Add(ttl).Unix(), Iat: now.Unix(), Jti: randomHex(16),
+		Sub: u.ID, Sch: u.SchoolID, Exp: now.Add(ttl).Unix(), Iat: now.Unix(), Jti: randomHex(16),
 	})
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write(claims)
@@ -165,6 +172,16 @@ func currentUser(c *gin.Context) domain.User {
 	return u
 }
 
+const ctxStoreKey = "solvanta.store"
+
+// db is the store of the school this request acts on — the caller's own, or
+// for the super admin the school ?schoolId= names (else the default one).
+// requireAuth sets it; every handler reads and writes through it, so one
+// school's request cannot reach another school's data.
+func (s *Server) db(c *gin.Context) store.Store {
+	return c.MustGet(ctxStoreKey).(store.Store)
+}
+
 // requireAuth binds the bearer token to the request context and rejects
 // revoked or malformed tokens.
 func (s *Server) requireAuth() gin.HandlerFunc {
@@ -185,13 +202,28 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		u, ok := s.store.UserByID(tc.Sub)
-		if !ok {
+		home, err := s.tenants.For(tc.Sch)
+		if err != nil {
+			fail(c, http.StatusUnauthorized, "Unknown school")
+			c.Abort()
+			return
+		}
+		u, ok := home.UserByID(tc.Sub)
+		if !ok || u.SchoolID != tc.Sch {
 			fail(c, http.StatusUnauthorized, "Unknown user")
 			c.Abort()
 			return
 		}
+		st := home
+		if id := c.Query("schoolId"); id != "" && u.IsSuperAdmin() {
+			if st, err = s.tenants.For(id); err != nil {
+				fail(c, http.StatusNotFound, "School not found")
+				c.Abort()
+				return
+			}
+		}
 		c.Set(ctxUserKey, u)
+		c.Set(ctxStoreKey, st)
 		c.Next()
 	}
 }
@@ -302,11 +334,14 @@ func (s *Server) Router() *gin.Engine {
 	// syncing. Failures are therefore reported alongside, not instead.
 	r.GET("/health", func(c *gin.Context) {
 		body := gin.H{"status": "ok"}
-		if pg, ok := s.store.(*store.Postgres); ok {
-			if n, last, at := pg.StoreErrors(); n > 0 {
-				body["storageErrors"] = n
-				body["lastStorageError"] = last.Error()
-				body["lastStorageErrorAt"] = at.UTC().Format(time.RFC3339)
+		for _, id := range s.tenants.Schools() {
+			st, _ := s.tenants.For(id)
+			if pg, ok := st.(*store.Postgres); ok {
+				if n, last, at := pg.StoreErrors(); n > 0 {
+					body["storageErrors"] = n
+					body["lastStorageError"] = last.Error()
+					body["lastStorageErrorAt"] = at.UTC().Format(time.RFC3339)
+				}
 			}
 		}
 		sendJSON(c, body)
@@ -326,16 +361,20 @@ func (s *Server) Router() *gin.Engine {
 
 	api.GET("/subjects", func(c *gin.Context) { sendJSON(c, domain.Subjects) })
 
+	// The platform's schools: each has a store of its own (store.Tenants).
+	api.GET("/schools", requireRole(domain.RoleSuperAdmin), s.listSchools)
+	api.POST("/schools", requireRole(domain.RoleSuperAdmin), s.createSchool)
+
 	school := api.Group("/school", s.schoolScope())
 	{
-		school.GET("", func(c *gin.Context) { sendJSON(c, s.store.School()) })
+		school.GET("", func(c *gin.Context) { sendJSON(c, s.db(c).School()) })
 		school.PUT("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.updateSchool)
 		school.GET("/grading", s.gradingConfig)
-		school.GET("/terms", func(c *gin.Context) { sendJSON(c, s.store.FinishedTerms(s.gradingSchool(c))) })
+		school.GET("/terms", func(c *gin.Context) { sendJSON(c, s.db(c).FinishedTerms(s.gradingSchool(c))) })
 		school.PUT("/grading", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.saveGradingConfig)
-		school.GET("/term", func(c *gin.Context) { sendJSON(c, s.store.Term()) })
+		school.GET("/term", func(c *gin.Context) { sendJSON(c, s.db(c).Term()) })
 		school.PUT("/term", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateTerm)
-		school.GET("/classes", func(c *gin.Context) { sendJSON(c, s.store.Classes()) })
+		school.GET("/classes", func(c *gin.Context) { sendJSON(c, s.db(c).Classes()) })
 		school.PUT("/classes/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.saveClass)
 		school.DELETE("/classes/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteClass)
 	}
@@ -382,7 +421,7 @@ func (s *Server) Router() *gin.Engine {
 	questions := api.Group("/questions", s.schoolScope())
 	{
 		questions.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff),
-			func(c *gin.Context) { sendJSON(c, s.store.Questions()) })
+			func(c *gin.Context) { sendJSON(c, s.db(c).Questions()) })
 		questions.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createQuestion)
 		questions.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateQuestion)
 		questions.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteQuestion)
@@ -535,7 +574,7 @@ func (s *Server) Router() *gin.Engine {
 
 	audit := api.Group("/audit", s.schoolScope())
 	audit.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher),
-		func(c *gin.Context) { sendJSON(c, s.store.AuditLogs()) })
+		func(c *gin.Context) { sendJSON(c, s.db(c).AuditLogs()) })
 
 	return r
 }

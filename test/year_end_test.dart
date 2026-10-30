@@ -102,6 +102,8 @@ Student _student(String classId) => Student(
 ReportCardData _card(SchoolTerm term, Map<SchoolTerm, double> marks,
     {String classId = 'JHS2A',
     String? nowIn,
+    int? feesOwing,
+    int? Function(String classId)? nextTermFeesFor,
     GradingConfig? grading,
     GradingConfig? pastGrading}) {
   final s = _student(classId);
@@ -121,10 +123,15 @@ ReportCardData _card(SchoolTerm term, Map<SchoolTerm, double> marks,
     teacherName: 'Ms. Efua Mensah',
     grading: grading ?? _grading,
     classes: _classes,
+    feesOwing: feesOwing,
+    nextTermFeesFor: nextTermFeesFor,
   );
 }
 
 void main() {
+  // Report-card PDFs load their bundled font through the asset bundle.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('class ladder', () {
     test('keeps the stream and moves up a level', () {
       expect(nextClassId('JHS1A'), 'JHS2A');
@@ -190,6 +197,36 @@ void main() {
     expect(card.year.average, closeTo(70, 1e-9));
   });
 
+  test('next term is named the way fee structures name it', () {
+    expect(_t1.nextLabel, 'Term 2 · 2026/2027');
+    expect(_t3.nextLabel, 'Term 1 · 2027/2028');
+  });
+
+  test('fees and reopening date fill in; next term\'s fees follow promotion',
+      () {
+    final fees = {'JHS2A': 900, 'JHS3A': 1100};
+    final promoted = _card(
+      SchoolTerm(
+          year: _t3.year,
+          name: _t3.name,
+          start: _t3.start,
+          end: _t3.end,
+          nextStart: '2027-09-06'),
+      {_t1: 60, _t2: 70, _t3: 80},
+      feesOwing: 250,
+      nextTermFeesFor: (c) => fees[c],
+    );
+    expect(promoted.feesOwing, 250);
+    expect(promoted.nextTermFees, 1100); // JHS3A's fees: they move up
+    expect(promoted.nextTermBegins, '2027-09-06');
+    expect(cedis(1100), 'GH₵ 1,100');
+
+    final repeating = _card(_t3, {_t1: 30, _t2: 30, _t3: 30},
+        nextTermFeesFor: (c) => fees[c]);
+    expect(repeating.nextTermFees, 900); // stays in JHS2A
+    expect(repeating.feesOwing, isNull); // nothing billed: left blank
+  });
+
   group('end of year', () {
     test('50+ is promoted to the next class, same stream', () {
       final card = _card(_t3, {_t1: 60, _t2: 70, _t3: 80});
@@ -204,7 +241,7 @@ void main() {
       final card = _card(_t3, {_t1: 30, _t2: 35, _t3: 38});
       expect(card.outcome, YearOutcome.repeated);
       expect(card.promotedTo, isNull);
-      expect(endOfYearLabel(card), 'Repeated - stays in JHS2');
+      expect(endOfYearLabel(card), 'Repeated – stays in JHS2');
       expect(card.remark, contains('To repeat JHS2 next year.'));
       expect(card.interventionNeeded, isTrue);
       expect(card.remark, contains("meet Kofi's parents"));

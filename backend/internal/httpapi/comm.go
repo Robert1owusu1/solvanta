@@ -11,7 +11,7 @@ import (
 
 func (s *Server) listAnnouncements(c *gin.Context) {
 	u := currentUser(c)
-	all := s.store.Announcements()
+	all := s.db(c).Announcements()
 	if u.IsSchoolStaff() {
 		sendJSON(c, all)
 		return
@@ -22,7 +22,7 @@ func (s *Server) listAnnouncements(c *gin.Context) {
 			visible = append(visible, a)
 			continue
 		}
-		if a.Audience == domain.AudClasses && s.viewsClass(u, a.TargetClassID) {
+		if a.Audience == domain.AudClasses && s.viewsClass(c, u, a.TargetClassID) {
 			visible = append(visible, a)
 		}
 	}
@@ -56,12 +56,12 @@ func (s *Server) createAnnouncement(c *gin.Context) {
 		AuthorName:    u.Name,
 		Timestamp:     now(),
 	}
-	if writeFailed(c, s.store.AddAnnouncement(a)) {
+	if writeFailed(c, s.db(c).AddAnnouncement(a)) {
 		return
 	}
 	// fan out to parents of the target class
 	targets := map[string]bool{}
-	for _, st := range s.store.Students() {
+	for _, st := range s.db(c).Students() {
 		if body.TargetClassID != "" && st.ClassID != body.TargetClassID {
 			continue
 		}
@@ -70,7 +70,7 @@ func (s *Server) createAnnouncement(c *gin.Context) {
 		}
 	}
 	for pid := range targets {
-		s.notify(pid, domain.NotifAnnouncement, a.Title, a.Body, "")
+		s.notify(c, pid, domain.NotifAnnouncement, a.Title, a.Body, "")
 	}
 	s.audit(c, "announcement.create", a.ID, "Announced to "+aud+": "+a.Title, "")
 	sendCreated(c, a)
@@ -81,7 +81,7 @@ func (s *Server) createAnnouncement(c *gin.Context) {
 func (s *Server) listMessages(c *gin.Context) {
 	u := currentUser(c)
 	var out []domain.Message
-	for _, m := range s.store.Messages() {
+	for _, m := range s.db(c).Messages() {
 		if m.FromID == u.ID || m.ToID == u.ID {
 			out = append(out, m)
 		}
@@ -118,7 +118,7 @@ func (s *Server) messageReceipt(c *gin.Context) {
 		return
 	}
 	var found *domain.Message
-	for _, m := range s.store.Messages() {
+	for _, m := range s.db(c).Messages() {
 		if m.ID == c.Param("id") {
 			m := m
 			found = &m
@@ -136,11 +136,11 @@ func (s *Server) messageReceipt(c *gin.Context) {
 	at := now()
 	switch body.State {
 	case "delivered":
-		if writeFailed(c, s.store.SetMessageReceipt(found.ID, at, "")) {
+		if writeFailed(c, s.db(c).SetMessageReceipt(found.ID, at, "")) {
 			return
 		}
 	case "read":
-		if writeFailed(c, s.store.SetMessageReceipt(found.ID, at, at)) {
+		if writeFailed(c, s.db(c).SetMessageReceipt(found.ID, at, at)) {
 			return
 		}
 	default:
@@ -163,12 +163,12 @@ func (s *Server) sendMessage(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	if _, ok := s.store.UserByID(body.ToID); !ok {
+	if _, ok := s.db(c).UserByID(body.ToID); !ok {
 		fail(c, http.StatusNotFound, "Recipient not found")
 		return
 	}
 	if body.RelatedStudentID != "" {
-		if _, ok := s.store.StudentByID(body.RelatedStudentID); !ok {
+		if _, ok := s.db(c).StudentByID(body.RelatedStudentID); !ok {
 			fail(c, http.StatusNotFound, "Related student not found")
 			return
 		}
@@ -178,10 +178,10 @@ func (s *Server) sendMessage(c *gin.Context) {
 		RelatedStudentID: body.RelatedStudentID,
 		Subject:          body.Subject, Body: body.Body, Timestamp: now(),
 	}
-	if writeFailed(c, s.store.SaveMessage(m)) {
+	if writeFailed(c, s.db(c).SaveMessage(m)) {
 		return
 	}
-	s.notify(body.ToID, domain.NotifMessage, body.Subject, body.Body, body.RelatedStudentID)
+	s.notify(c, body.ToID, domain.NotifMessage, body.Subject, body.Body, body.RelatedStudentID)
 	s.audit(c, "message.send", m.ID, "Message from "+u.Name, "")
 	sendCreated(c, m)
 }
@@ -222,10 +222,10 @@ func notificationAllowed(u domain.User, n domain.Notification) bool {
 // notificationsFor returns the notifications u may see, with Read reporting
 // u's own read state: an addressed notification has one reader, so its row
 // flag is theirs; a student-scoped one is read per reader.
-func (s *Server) notificationsFor(u domain.User) []domain.Notification {
-	reads := s.store.NotificationReadsBy(u.ID)
+func (s *Server) notificationsFor(c *gin.Context, u domain.User) []domain.Notification {
+	reads := s.db(c).NotificationReadsBy(u.ID)
 	out := []domain.Notification{}
-	for _, n := range s.store.Notifications() {
+	for _, n := range s.db(c).Notifications() {
 		if !notificationAllowed(u, n) {
 			continue
 		}
@@ -238,18 +238,18 @@ func (s *Server) notificationsFor(u domain.User) []domain.Notification {
 }
 
 // markRead records that u read n (see notificationsFor).
-func (s *Server) markRead(u domain.User, n domain.Notification) error {
+func (s *Server) markRead(c *gin.Context, u domain.User, n domain.Notification) error {
 	if n.UserID != "" {
-		return s.store.SetNotificationRead(n.ID)
+		return s.db(c).SetNotificationRead(n.ID)
 	}
-	return s.store.MarkNotificationReadBy(n.ID, u.ID)
+	return s.db(c).MarkNotificationReadBy(n.ID, u.ID)
 }
 
 // unreadNotifications returns notifications visible to the user that haven't
 // been read yet.
 func (s *Server) unreadNotifications(c *gin.Context) {
 	out := []domain.Notification{}
-	for _, n := range s.notificationsFor(currentUser(c)) {
+	for _, n := range s.notificationsFor(c, currentUser(c)) {
 		if !n.Read {
 			out = append(out, n)
 		}
@@ -261,7 +261,7 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 	u := currentUser(c)
 	id := c.Param("id")
 	var found *domain.Notification
-	for _, n := range s.store.Notifications() {
+	for _, n := range s.db(c).Notifications() {
 		if n.ID == id {
 			if !notificationAllowed(u, n) {
 				fail(c, http.StatusForbidden, "Not your notification")
@@ -276,7 +276,7 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Notification not found")
 		return
 	}
-	if writeFailed(c, s.markRead(u, *found)) {
+	if writeFailed(c, s.markRead(c, u, *found)) {
 		return
 	}
 	sendJSON(c, gin.H{"read": id})
@@ -285,11 +285,11 @@ func (s *Server) markNotificationRead(c *gin.Context) {
 func (s *Server) markAllNotificationsRead(c *gin.Context) {
 	u := currentUser(c)
 	count := 0
-	for _, n := range s.notificationsFor(u) {
+	for _, n := range s.notificationsFor(c, u) {
 		if n.Read {
 			continue
 		}
-		if writeFailed(c, s.markRead(u, n)) {
+		if writeFailed(c, s.markRead(c, u, n)) {
 			return
 		}
 		count++

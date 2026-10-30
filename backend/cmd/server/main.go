@@ -33,22 +33,29 @@ func main() {
 	cfg.AllowedOrigins = splitList(os.Getenv("ALLOWED_ORIGINS"))
 	cfg.TrustedProxies = splitList(os.Getenv("TRUSTED_PROXIES"))
 
-	var st store.Store
+	// Every school gets a store of its own (store.Tenants): a PostgreSQL
+	// schema each in production, or an in-memory store each for development.
+	var tenants store.Tenants
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
-		log.Println("using PostgreSQL store")
-		pg, err := store.NewPostgres(dsn, shouldSeed(cfg.Production))
+		log.Println("using PostgreSQL, one schema per school")
+		pg, err := store.NewPostgresTenants(dsn, shouldSeed(cfg.Production))
 		if err != nil {
 			log.Fatalf("postgres: %v", err)
 		}
 		defer pg.Close()
-		st = pg
+		tenants = pg
 	} else {
-		log.Println("using in-memory store (set POSTGRES_DSN for persistence)")
-		if shouldSeed(cfg.Production) {
-			st = store.New()
-		} else {
-			st = store.NewUnseeded()
+		// In memory, a restart loses every school's records: never in
+		// production.
+		if cfg.Production {
+			log.Fatal("POSTGRES_DSN must be set in production: the in-memory store loses all data on restart")
 		}
+		log.Println("using in-memory stores (set POSTGRES_DSN for persistence)")
+		def := store.NewUnseeded()
+		if shouldSeed(cfg.Production) {
+			def = store.New()
+		}
+		tenants = store.NewMemoryTenants(def)
 	}
 
 	// Gin's debug mode prints every route at boot and warns on each start;
@@ -57,7 +64,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	server, err := httpapi.NewServer(st, cfg)
+	server, err := httpapi.NewTenantServer(tenants, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}

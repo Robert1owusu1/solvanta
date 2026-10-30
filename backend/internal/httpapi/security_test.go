@@ -164,7 +164,7 @@ func TestTamperedAndExpiredTokens(t *testing.T) {
 
 	// An expired token signed by this server must be rejected.
 	s, _ := NewServer(store.New(), Config{})
-	u, ok := s.store.UserByEmail("super@solvanta.app")
+	u, _, ok := s.userByEmail("super@solvanta.app")
 	if !ok {
 		t.Fatal("super user missing from seed")
 	}

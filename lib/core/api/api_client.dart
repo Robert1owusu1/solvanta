@@ -74,17 +74,58 @@ class ApiClient {
 
   static const _defineKey = String.fromEnvironment('SOLVANTA_API');
 
-  /// Whether an API endpoint was explicitly configured (via `SOLVANTA_API`
-  /// dart-define or the `SOLVANTA_API_URL` environment variable), as opposed to
-  /// the default localhost fallback.
+  /// The web app's API address from `config.json` beside the app, read once
+  /// at startup by [loadRuntimeConfig] — so one build serves any host.
+  static String? _runtimeApi;
+
+  /// Reads `config.json` (web only, when no `SOLVANTA_API` was compiled in):
+  /// `{"api": "https://api.school.com"}`, or `{"api": ":8080"}` for the API
+  /// on the page's own host at that port. A missing or unreadable file
+  /// leaves the app in offline-demo mode, as before.
+  static Future<void> loadRuntimeConfig({http.Client? client}) async {
+    if (!kIsWeb || _defineKey.isNotEmpty) return;
+    final c = client ?? http.Client();
+    try {
+      final res = await c
+          .get(Uri.base.resolve('config.json'))
+          .timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        final api = (jsonDecode(res.body) as Map)['api'];
+        _runtimeApi = api is String ? resolveRuntimeApi(api, Uri.base) : null;
+      }
+    } catch (_) {
+      // No config: offline demo.
+    } finally {
+      if (client == null) c.close();
+    }
+  }
+
+  /// [api] from `config.json` as a full base URL: `:8080` means [page]'s own
+  /// host on that port; blank means none.
+  @visibleForTesting
+  static String? resolveRuntimeApi(String api, Uri page) {
+    final a = api.trim();
+    if (a.isEmpty) return null;
+    if (RegExp(r'^:\d{1,5}$').hasMatch(a)) {
+      return '${page.scheme}://${page.host}$a';
+    }
+    return a;
+  }
+
+  /// Whether an API endpoint was configured (the `SOLVANTA_API` dart-define,
+  /// the web app's `config.json`, or the `SOLVANTA_API_URL` environment
+  /// variable), as opposed to the offline-demo localhost fallback.
   static bool get isConfigured =>
       _defineKey.isNotEmpty ||
+      _runtimeApi != null ||
       (!kIsWeb &&
           (Platform.environment['SOLVANTA_API_URL']?.trim().isNotEmpty ??
               false));
 
   static String defaultApiBaseUrl() {
     if (_defineKey.isNotEmpty) return _defineKey;
+    final runtime = _runtimeApi;
+    if (runtime != null) return runtime;
     // Platform.environment is unsupported in the browser; web builds take
     // the endpoint from --dart-define=SOLVANTA_API only.
     final env = kIsWeb ? null : Platform.environment['SOLVANTA_API_URL'];

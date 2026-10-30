@@ -79,6 +79,7 @@ const (
 	NotifAssignment   = "assignment"
 	NotifAnnouncement = "announcement"
 	NotifSystem       = "system"
+	NotifReportCard   = "reportCard"
 )
 
 // AnnouncementAudience mirrors AnnouncementAudience.name values.
@@ -199,6 +200,8 @@ type SchoolTerm struct {
 	Name  string `json:"name"`
 	Start string `json:"start"`
 	End   string `json:"end"`
+	// NextStart is when school reopens for the next term, once announced.
+	NextStart string `json:"nextStart,omitempty"`
 }
 
 func (t SchoolTerm) Label() string { return t.Name + " · " + t.Year }
@@ -595,6 +598,11 @@ const (
 	// and student so a year can never be applied twice. Student-scoped so
 	// parents see their own child's; only school leaders write it.
 	RecordPromotions = "promotions"
+	// RecordTermReports holds one student's report for one term: the class
+	// teacher's remark and conduct/attitude/interest, the headteacher's
+	// remark, and — once approved — a frozen copy of the whole card. See
+	// httpapi/term_reports.go for who may write which part.
+	RecordTermReports = "term_reports"
 )
 
 // Record is one entry of a collection the server stores on the client's

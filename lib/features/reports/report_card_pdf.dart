@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -100,6 +101,15 @@ class YearProgress {
   const YearProgress(this.terms);
 
   final List<YearTerm> terms;
+
+  List<Map<String, dynamic>> toJson() => [
+        for (final t in terms) {'name': t.name, 'average': t.average},
+      ];
+
+  factory YearProgress.fromJson(List<dynamic> j) => YearProgress([
+        for (final t in j.cast<Map<String, dynamic>>())
+          YearTerm(t['name'] as String, _d(t['average'])),
+      ]);
 
   List<double> get _marked => [
         for (final t in terms)
@@ -228,20 +238,56 @@ class SubjectResult {
 
   /// Print-safe label for [average] — `78.5%`, or `–` when unmarked.
   String get averageLabel =>
-      average == null ? '-' : '${average!.toStringAsFixed(1)}%';
+      average == null ? '–' : '${average!.toStringAsFixed(1)}%';
 
   String get classScoreLabel =>
-      classScore == null ? '-' : classScore!.toStringAsFixed(1);
+      classScore == null ? '–' : classScore!.toStringAsFixed(1);
   String get examScoreLabel =>
-      examScore == null ? '-' : examScore!.toStringAsFixed(1);
+      examScore == null ? '–' : examScore!.toStringAsFixed(1);
 
   /// `78.5`, `78.5*` when [partial], or `–`.
   String get totalLabel =>
-      total == null ? '-' : '${total!.toStringAsFixed(1)}${partial ? '*' : ''}';
+      total == null ? '–' : '${total!.toStringAsFixed(1)}${partial ? '*' : ''}';
 
   /// `2nd`, or `–` when unranked.
-  String get positionLabel => position == null ? '-' : ordinal(position!);
+  String get positionLabel => position == null ? '–' : ordinal(position!);
+
+  Map<String, dynamic> toJson() => {
+        'subjectId': subjectId,
+        'name': name,
+        'average': average,
+        'grade': grade,
+        'marked': marked,
+        'of': of,
+        'classScore': classScore,
+        'examScore': examScore,
+        'total': total,
+        'partial': partial,
+        'position': position,
+        'positionOf': positionOf,
+        'termGrade': termGrade,
+        'termRemark': termRemark,
+      };
+
+  factory SubjectResult.fromJson(Map<String, dynamic> j) => SubjectResult(
+        subjectId: j['subjectId'] as String,
+        name: j['name'] as String,
+        average: _d(j['average']),
+        grade: j['grade'] as String,
+        marked: (j['marked'] as num).toInt(),
+        of: (j['of'] as num).toInt(),
+        classScore: _d(j['classScore']),
+        examScore: _d(j['examScore']),
+        total: _d(j['total']),
+        partial: (j['partial'] ?? false) as bool,
+        position: (j['position'] as num?)?.toInt(),
+        positionOf: ((j['positionOf'] ?? 0) as num).toInt(),
+        termGrade: j['termGrade'] as String?,
+        termRemark: (j['termRemark'] ?? '') as String,
+      );
 }
+
+double? _d(Object? v) => (v as num?)?.toDouble();
 
 /// Attendance for the term, in school days.
 class ReportAttendance {
@@ -255,10 +301,18 @@ class ReportAttendance {
 
   /// `58/60 days present`, or `–` when there is no attendance to show.
   String get label =>
-      daysTotal == 0 ? '-' : '$daysPresent/$daysTotal days present';
+      daysTotal == 0 ? '–' : '$daysPresent/$daysTotal days present';
 
   /// Percentage of days present, or `null` when nothing is recorded.
   double? get rate => daysTotal == 0 ? null : 100 * daysPresent / daysTotal;
+
+  Map<String, dynamic> toJson() =>
+      {'daysTotal': daysTotal, 'daysPresent': daysPresent};
+
+  factory ReportAttendance.fromJson(Map<String, dynamic> j) => ReportAttendance(
+        daysTotal: (j['daysTotal'] as num).toInt(),
+        daysPresent: (j['daysPresent'] as num).toInt(),
+      );
 }
 
 /// One term's headline result — the rows of the transcript summary table.
@@ -293,6 +347,29 @@ class TermRecord {
 
   /// That term's aggregate, or `null`.
   final int? aggregate;
+
+  Map<String, dynamic> toJson() => {
+        'termLabel': termLabel,
+        'overall': overall,
+        'grade': grade,
+        'rank': rank,
+        'classSize': classSize,
+        'subjects': [for (final x in subjects) x.toJson()],
+        'aggregate': aggregate,
+      };
+
+  factory TermRecord.fromJson(Map<String, dynamic> j) => TermRecord(
+        termLabel: j['termLabel'] as String,
+        overall: _d(j['overall']),
+        grade: j['grade'] as String,
+        rank: (j['rank'] as num?)?.toInt(),
+        classSize: (j['classSize'] as num).toInt(),
+        subjects: [
+          for (final x in (j['subjects'] ?? const []) as List)
+            SubjectResult.fromJson(x as Map<String, dynamic>),
+        ],
+        aggregate: (j['aggregate'] as num?)?.toInt(),
+      );
 }
 
 /// The single source of truth every report-card template renders.
@@ -332,6 +409,15 @@ class ReportCardData {
     this.outcome,
     this.year = const YearProgress([]),
     this.interventionNeeded = false,
+    this.feesOwing,
+    this.nextTermFees,
+    this.nextTermBegins = '',
+    this.conduct = '',
+    this.attitude = '',
+    this.interest = '',
+    this.headRemark = '',
+    this.approvedBy = '',
+    this.approvedAt = '',
     this.rollSize = 0,
     this.aggregate,
     this.scheme = gesBasicPreset,
@@ -403,6 +489,137 @@ class ReportCardData {
   /// The year average so far is under the scheme's parent-meeting mark.
   final bool interventionNeeded;
 
+  /// Unpaid balance on the student's invoices (GH₵), and the fees set for
+  /// their class next term — `null` where the Fees module has nothing, so
+  /// the line is left to be written in.
+  final int? feesOwing;
+  final int? nextTermFees;
+
+  /// When school reopens (`yyyy-MM-dd`), or `''` until announced.
+  final String nextTermBegins;
+
+  /// The class teacher's assessment of the pupil, and the headteacher's
+  /// remark — written on the term report; `''` leaves a line to fill in.
+  final String conduct;
+  final String attitude;
+  final String interest;
+  final String headRemark;
+
+  /// Who approved the card and when — set only on an approved (frozen) card.
+  final String approvedBy;
+  final String approvedAt;
+
+  /// True for a card the headteacher has approved: its contents are frozen.
+  bool get approved => approvedBy.isNotEmpty;
+
+  /// Everything on the card, for the frozen copy kept on approval.
+  Map<String, dynamic> toJson() => {
+        'studentName': studentName,
+        'studentId': studentId,
+        'admissionNo': admissionNo,
+        'classId': classId,
+        'schoolName': schoolName,
+        'schoolMotto': schoolMotto,
+        'schoolContact': schoolContact,
+        'termLabel': termLabel,
+        'subjects': [for (final x in subjects) x.toJson()],
+        'overall': overall,
+        'overallGrade': overallGrade,
+        'rank': rank,
+        'classSize': classSize,
+        'attendance': attendance?.toJson(),
+        'remark': remark,
+        'teacherName': teacherName,
+        'history': [for (final t in history) t.toJson()],
+        'generatedAt': generatedAt.toIso8601String(),
+        'gender': gender,
+        'dateOfBirth': dateOfBirth,
+        'admissionDate': admissionDate,
+        'studentStatus': studentStatus,
+        'termName': termName,
+        'academicYear': academicYear,
+        'vacationDate': vacationDate,
+        'promotedTo': promotedTo,
+        'termNumber': termNumber,
+        'outcome': outcome?.name,
+        'year': year.toJson(),
+        'interventionNeeded': interventionNeeded,
+        'feesOwing': feesOwing,
+        'nextTermFees': nextTermFees,
+        'nextTermBegins': nextTermBegins,
+        'conduct': conduct,
+        'attitude': attitude,
+        'interest': interest,
+        'headRemark': headRemark,
+        'approvedBy': approvedBy,
+        'approvedAt': approvedAt,
+        'rollSize': rollSize,
+        'aggregate': aggregate,
+        'scheme': scheme.toJson(),
+      };
+
+  factory ReportCardData.fromJson(Map<String, dynamic> j) => ReportCardData(
+        studentName: j['studentName'] as String,
+        studentId: j['studentId'] as String,
+        admissionNo: (j['admissionNo'] ?? '') as String,
+        classId: j['classId'] as String,
+        schoolName: (j['schoolName'] ?? '') as String,
+        schoolMotto: (j['schoolMotto'] ?? '') as String,
+        schoolContact: (j['schoolContact'] ?? '') as String,
+        termLabel: (j['termLabel'] ?? '') as String,
+        subjects: [
+          for (final x in (j['subjects'] ?? const []) as List)
+            SubjectResult.fromJson(x as Map<String, dynamic>),
+        ],
+        overall: _d(j['overall']),
+        overallGrade: (j['overallGrade'] ?? '–') as String,
+        rank: (j['rank'] as num?)?.toInt(),
+        classSize: ((j['classSize'] ?? 0) as num).toInt(),
+        attendance: j['attendance'] == null
+            ? null
+            : ReportAttendance.fromJson(j['attendance'] as Map<String, dynamic>),
+        remark: (j['remark'] ?? '') as String,
+        teacherName: (j['teacherName'] ?? '') as String,
+        history: [
+          for (final t in (j['history'] ?? const []) as List)
+            TermRecord.fromJson(t as Map<String, dynamic>),
+        ],
+        generatedAt:
+            DateTime.tryParse((j['generatedAt'] ?? '') as String) ?? DateTime.now(),
+        gender: (j['gender'] ?? '') as String,
+        dateOfBirth: (j['dateOfBirth'] ?? '') as String,
+        admissionDate: (j['admissionDate'] ?? '') as String,
+        studentStatus: (j['studentStatus'] ?? '') as String,
+        termName: (j['termName'] ?? '') as String,
+        academicYear: (j['academicYear'] ?? '') as String,
+        vacationDate: (j['vacationDate'] ?? '') as String,
+        promotedTo: j['promotedTo'] as String?,
+        termNumber: ((j['termNumber'] ?? 1) as num).toInt(),
+        outcome: YearOutcome.values
+            .where((o) => o.name == j['outcome'])
+            .firstOrNull,
+        year: YearProgress.fromJson((j['year'] ?? const []) as List),
+        interventionNeeded: (j['interventionNeeded'] ?? false) as bool,
+        feesOwing: (j['feesOwing'] as num?)?.toInt(),
+        nextTermFees: (j['nextTermFees'] as num?)?.toInt(),
+        nextTermBegins: (j['nextTermBegins'] ?? '') as String,
+        conduct: (j['conduct'] ?? '') as String,
+        attitude: (j['attitude'] ?? '') as String,
+        interest: (j['interest'] ?? '') as String,
+        headRemark: (j['headRemark'] ?? '') as String,
+        approvedBy: (j['approvedBy'] ?? '') as String,
+        approvedAt: (j['approvedAt'] ?? '') as String,
+        rollSize: ((j['rollSize'] ?? 0) as num).toInt(),
+        aggregate: (j['aggregate'] as num?)?.toInt(),
+        scheme: j['scheme'] == null
+            ? gesBasicPreset
+            : GradingScheme.fromJson(j['scheme'] as Map<String, dynamic>),
+      );
+
+  /// This card with [changes] applied (any of its JSON fields).
+  ReportCardData copyWithJson(Map<String, dynamic> changes) =>
+      ReportCardData.fromJson({...toJson(), ...changes});
+
   /// Students on the class register ("No. on roll").
   final int rollSize;
 
@@ -414,7 +631,7 @@ class ReportCardData {
   final GradingScheme scheme;
 
   /// `2nd`, or `–` when unranked.
-  String get positionLabel => rank == null ? '-' : ordinal(rank!);
+  String get positionLabel => rank == null ? '–' : ordinal(rank!);
 
   /// Sum of subject totals (`452.5`), or `null` when nothing is marked.
   double? get totalScore {
@@ -430,11 +647,11 @@ class ReportCardData {
 
   /// `2 of 6`, or `–` when unranked.
   String get rankLabel =>
-      rank == null || classSize == 0 ? '-' : '$rank of $classSize';
+      rank == null || classSize == 0 ? '–' : '$rank of $classSize';
 
   /// `86.0%`, or `–` when nothing is marked.
   String get overallLabel =>
-      overall == null ? '-' : '${overall!.toStringAsFixed(1)}%';
+      overall == null ? '–' : '${overall!.toStringAsFixed(1)}%';
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +683,8 @@ class ReportCardDataBuilder {
     ({int total, int present})? attendance,
     GradingConfig? grading,
     List<ClassRoom> classes = const [],
+    int? feesOwing,
+    int? Function(String classId)? nextTermFeesFor,
   }) {
     final config = grading ?? GradingConfig.fallback;
     final inTerm = [
@@ -567,7 +786,7 @@ class ReportCardDataBuilder {
       subjects: current.subjects,
       overall: current.overall,
       overallGrade: current.overall == null
-          ? '-'
+          ? '–'
           : scheme.bandFor(current.overall!).grade,
       rank: current.rank,
       classSize: current.ranked,
@@ -591,6 +810,15 @@ class ReportCardDataBuilder {
       outcome: outcome,
       year: year,
       interventionNeeded: intervention,
+      feesOwing: feesOwing,
+      // Next term's fees are for the class they will be in: the next one
+      // after a Term 3 promotion, otherwise the same.
+      nextTermFees: nextTermFeesFor?.call(
+        outcome == YearOutcome.promoted && nextClass != null
+            ? nextClass
+            : termClass,
+      ),
+      nextTermBegins: term.nextStart,
       rollSize: classmates.length,
       aggregate: current.aggregate,
       scheme: scheme,
@@ -716,7 +944,7 @@ class ReportCardDataBuilder {
           subjectId: s.subjectId,
           name: subjectName(s.subjectId),
           average: s.average,
-          grade: s.average == null ? '-' : scheme.bandFor(s.average!).grade,
+          grade: s.average == null ? '–' : scheme.bandFor(s.average!).grade,
           marked: s.attempts,
           of: s.of,
           classScore: scores[s.subjectId]?.classScore,
@@ -862,7 +1090,7 @@ class _TermResult {
   TermRecord record(String label) => TermRecord(
     termLabel: label,
     overall: overall,
-    grade: overall == null ? '-' : scheme.bandFor(overall!).grade,
+    grade: overall == null ? '–' : scheme.bandFor(overall!).grade,
     rank: rank,
     classSize: ranked,
     subjects: subjects,
@@ -956,29 +1184,65 @@ final pw.TextStyle _modernName = pw.TextStyle(
 final pw.TextStyle _subjectName = pw.TextStyle(fontSize: 9, color: _ink);
 
 // ---------------------------------------------------------------------------
+// Font
+// ---------------------------------------------------------------------------
+
+Future<pw.ThemeData>? _theme;
+
+/// Noto Sans, bundled with the app, for every report-card PDF: unlike the
+/// PDF's built-in Helvetica it draws –, ₵ and Ghanaian letters (ɛ, ɔ).
+/// Loaded once; if the font can't be read the card still prints in
+/// Helvetica rather than not at all.
+Future<pw.ThemeData> reportCardTheme() => _theme ??= () async {
+      try {
+        Future<pw.Font> font(String style) async => pw.Font.ttf(
+            await rootBundle.load('assets/fonts/NotoSans-$style.ttf'));
+        return pw.ThemeData.withFont(
+          base: await font('Regular'),
+          bold: await font('Bold'),
+          italic: await font('Italic'),
+          boldItalic: await font('BoldItalic'),
+        );
+      } catch (_) {
+        _theme = null; // try again next time
+        return pw.ThemeData();
+      }
+    }();
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
 /// Renders [data] as a single-page A4 PDF in [template] and returns its bytes.
 ///
-/// Pure Dart — no build context — so the caller can write the bytes to a file
-/// and hand them to the share sheet.
+/// No build context — the caller writes the bytes to a file and hands them
+/// to the share sheet.
 Future<Uint8List> buildReportCardPdf(
   ReportCardData data,
   ReportCardTemplate template,
+) =>
+    buildClassReportPdf([data], template);
+
+/// Every card in [cards] as one A4 PDF, a page each — a whole class printed
+/// in one go.
+Future<Uint8List> buildClassReportPdf(
+  List<ReportCardData> cards,
+  ReportCardTemplate template,
 ) async {
-  final doc = pw.Document();
-  doc.addPage(
-    pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      margin: pw.EdgeInsets.zero,
-      build: (context) => switch (template) {
-        ReportCardTemplate.classic => _terminalPage(data),
-        ReportCardTemplate.modern => _modernPage(data),
-        ReportCardTemplate.transcript => _transcriptPage(data),
-      },
-    ),
-  );
+  final doc = pw.Document(theme: await reportCardTheme());
+  for (final data in cards) {
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: pw.EdgeInsets.zero,
+        build: (context) => switch (template) {
+          ReportCardTemplate.classic => _terminalPage(data),
+          ReportCardTemplate.modern => _modernPage(data),
+          ReportCardTemplate.transcript => _transcriptPage(data),
+        },
+      ),
+    );
+  }
   return doc.save();
 }
 
@@ -1017,11 +1281,20 @@ pw.Widget _stat(String label, String value) => pw.Expanded(
 pw.Widget _footer(ReportCardData d) => pw.Padding(
   padding: const pw.EdgeInsets.only(top: 12),
   child: pw.Text(
-    'Generated by SOLVANTA · ${_iso(d.generatedAt)} · ${d.schoolName}',
+    '${approvalLine(d)} · Generated by SOLVANTA · ${_iso(d.generatedAt)} · '
+    '${d.schoolName}',
     textAlign: pw.TextAlign.center,
     style: _mutedText,
   ),
 );
+
+/// `Approved by Mr. Kwame Boateng on 12 Dec 2026`, or a draft warning — so a
+/// card printed before approval can never pass for the final one.
+String approvalLine(ReportCardData d) {
+  if (!d.approved) return 'DRAFT – not yet approved by the headteacher';
+  final day = d.approvedAt.length >= 10 ? d.approvedAt.substring(0, 10) : '';
+  return 'Approved by ${d.approvedBy}${day.isEmpty ? '' : ' on ${longDate(day)}'}';
+}
 
 String _iso(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-'
@@ -1387,11 +1660,22 @@ pw.Widget _ghStamp() => pw.Container(
   ),
 );
 
+/// `GH₵ 1,250`.
+String cedis(int amount) {
+  final digits = amount.abs().toString();
+  final buf = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buf.write(',');
+    buf.write(digits[i]);
+  }
+  return '${amount < 0 ? '–' : ''}GH₵ $buf';
+}
+
 /// What the Term 3 "Promoted to:" line says: the class, or why there is
 /// none. Blank where the school decides by hand, so it can be written in.
 String endOfYearLabel(ReportCardData d) => switch (d.outcome) {
   YearOutcome.promoted => d.promotedTo ?? '',
-  YearOutcome.repeated => 'Repeated - stays in ${classLevel(d.classId)}',
+  YearOutcome.repeated => 'Repeated – stays in ${classLevel(d.classId)}',
   YearOutcome.completed => 'Completed ${classLevel(d.classId)}',
   YearOutcome.review => 'Awaiting headteacher\'s decision',
   null => '',
@@ -1444,7 +1728,7 @@ pw.Widget _ghYearBlock(ReportCardData d) {
                         mainAxisAlignment: pw.MainAxisAlignment.end,
                         children: [
                           pw.Text(
-                            b.value == null ? '-' : b.value!.toStringAsFixed(1),
+                            b.value == null ? '–' : b.value!.toStringAsFixed(1),
                             style: _ghKeyGrade,
                           ),
                           pw.Container(
@@ -1573,7 +1857,7 @@ pw.Widget _terminalPage(ReportCardData d) => _ghFrame(
       ),
       _ghPair(
         'Next term begins:',
-        '',
+        longDate(d.nextTermBegins),
         d.termNumber == 3 ? 'Promoted to:' : '',
         endOfYearLabel(d),
       ),
@@ -1590,13 +1874,13 @@ pw.Widget _terminalPage(ReportCardData d) => _ghFrame(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Text(
-              'Total score: ${d.totalScore == null ? '-' : '${d.totalScore!.toStringAsFixed(1)} out of ${d.gradedSubjects * 100}'}',
+              'Total score: ${d.totalScore == null ? '–' : '${d.totalScore!.toStringAsFixed(1)} out of ${d.gradedSubjects * 100}'}',
               style: _ghTdBold,
             ),
             pw.Text('Average: ${d.overallLabel}', style: _ghTdBold),
             if (d.scheme.showAggregate)
               pw.Text(
-                '${aggregateLabel(d.scheme)}: ${d.aggregate?.toString() ?? '-'}',
+                '${aggregateLabel(d.scheme)}: ${d.aggregate?.toString() ?? '–'}',
                 style: _ghTdBold,
               ),
           ],
@@ -1615,22 +1899,32 @@ pw.Widget _terminalPage(ReportCardData d) => _ghFrame(
       pw.SizedBox(height: 4),
       pw.Row(
         children: [
-          pw.Expanded(child: _ghField('Conduct:', '')),
+          pw.Expanded(child: _ghField('Conduct:', d.conduct)),
           pw.SizedBox(width: 10),
-          pw.Expanded(child: _ghField('Attitude:', '')),
+          pw.Expanded(child: _ghField('Attitude:', d.attitude)),
           pw.SizedBox(width: 10),
-          pw.Expanded(child: _ghField('Interest:', '')),
+          pw.Expanded(child: _ghField('Interest:', d.interest)),
         ],
       ),
       pw.Row(
         children: [
-          pw.Expanded(child: _ghField('Fees owing (GHS):', '')),
+          pw.Expanded(
+            child: _ghField(
+              'Fees owing:',
+              d.feesOwing == null ? '' : cedis(d.feesOwing!),
+            ),
+          ),
           pw.SizedBox(width: 14),
-          pw.Expanded(child: _ghField("Next term's fees (GHS):", '')),
+          pw.Expanded(
+            child: _ghField(
+              "Next term's fees:",
+              d.nextTermFees == null ? '' : cedis(d.nextTermFees!),
+            ),
+          ),
         ],
       ),
       _ghLines("Class teacher's remarks:", d.remark),
-      _ghLines("Headteacher's remarks:", ''),
+      _ghLines("Headteacher's remarks:", d.headRemark),
       pw.SizedBox(height: 26),
       pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.end,
@@ -1639,7 +1933,9 @@ pw.Widget _terminalPage(ReportCardData d) => _ghFrame(
             child: _ghSignature("Class teacher's signature", d.teacherName),
           ),
           pw.SizedBox(width: 18),
-          pw.Expanded(child: _ghSignature("Headteacher's signature", '')),
+          pw.Expanded(
+            child: _ghSignature("Headteacher's signature", d.approvedBy),
+          ),
           pw.SizedBox(width: 18),
           _ghStamp(),
         ],
@@ -1690,9 +1986,9 @@ pw.Widget _terminalTable(ReportCardData d) => pw.Table(
           _ghCell(s.classScoreLabel),
           _ghCell(s.examScoreLabel),
           _ghCell(s.totalLabel, style: _ghTdBold),
-          _ghCell(s.termGrade ?? '-', style: _ghTdBold),
+          _ghCell(s.termGrade ?? '–', style: _ghTdBold),
           _ghCell(s.positionLabel),
-          _ghCell(s.termRemark.isEmpty ? '-' : s.termRemark),
+          _ghCell(s.termRemark.isEmpty ? '–' : s.termRemark),
         ],
       ),
   ],
@@ -1742,7 +2038,7 @@ pw.Widget _modernPage(ReportCardData d) => pw.Container(
         children: [
           _stat('Class', d.classId),
           _stat('Position', d.rankLabel),
-          _stat('Attendance', d.attendance?.label ?? '-'),
+          _stat('Attendance', d.attendance?.label ?? '–'),
         ],
       ),
       _title('Subjects'),
@@ -1848,7 +2144,7 @@ List<String> transcriptSubjects(ReportCardData d) {
 /// `78.5 (2)` for [name] in term [t], or `–`.
 String transcriptCell(TermRecord t, String name) {
   final s = t.subjects.where((x) => x.name == name).firstOrNull;
-  if (s == null || s.total == null) return '-';
+  if (s == null || s.total == null) return '–';
   return '${s.totalLabel} (${s.termGrade})';
 }
 
@@ -1922,14 +2218,14 @@ pw.Widget _transcriptPage(ReportCardData d) {
                     _ghCell(name, align: pw.TextAlign.left),
                     for (final t in terms) _ghCell(transcriptCell(t, name)),
                     _ghCell(
-                      mean == null ? '-' : mean.toStringAsFixed(1),
+                      mean == null ? '–' : mean.toStringAsFixed(1),
                       style: _ghTdBold,
                     ),
                     _ghCell(
-                      mean == null ? '-' : d.scheme.bandFor(mean).grade,
+                      mean == null ? '–' : d.scheme.bandFor(mean).grade,
                       style: _ghTdBold,
                     ),
-                    _ghCell(mean == null ? '-' : d.scheme.bandFor(mean).remark),
+                    _ghCell(mean == null ? '–' : d.scheme.bandFor(mean).remark),
                   ],
                 );
               }(),
@@ -1937,19 +2233,19 @@ pw.Widget _transcriptPage(ReportCardData d) {
               (
                 'Term average',
                 (TermRecord t) => t.overall == null
-                    ? '-'
+                    ? '–'
                     : '${t.overall!.toStringAsFixed(1)}%',
               ),
               (
                 'Position in class',
                 (TermRecord t) => t.rank == null || t.classSize == 0
-                    ? '-'
+                    ? '–'
                     : '${ordinal(t.rank!)} / ${t.classSize}',
               ),
               if (d.scheme.showAggregate)
                 (
                   aggregateLabel(d.scheme),
-                  (TermRecord t) => t.aggregate?.toString() ?? '-',
+                  (TermRecord t) => t.aggregate?.toString() ?? '–',
                 ),
             ])
               pw.TableRow(
@@ -1984,7 +2280,7 @@ pw.Widget _transcriptPage(ReportCardData d) {
         pw.Text(
           'This is to certify that the above is a true and accurate record of '
           'the academic performance of ${d.studentName} '
-          '(Admission No. ${d.admissionNo.isEmpty ? '-' : d.admissionNo}) '
+          '(Admission No. ${d.admissionNo.isEmpty ? '–' : d.admissionNo}) '
           'at ${d.schoolName}.',
           style: _body,
         ),

@@ -7,7 +7,8 @@ enum NotificationKind {
   message('Message'),
   assignment('Assignment'),
   announcement('Announcement'),
-  system('System');
+  system('System'),
+  reportCard('Report card');
 
   const NotificationKind(this.label);
 

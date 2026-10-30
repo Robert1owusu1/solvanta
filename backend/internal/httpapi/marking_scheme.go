@@ -137,7 +137,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 	var assessment *domain.Assessment
 	var assignment *domain.Assignment
 	if hasAssessment {
-		a, ok := s.store.AssessmentByID(body.AssessmentID)
+		a, ok := s.db(c).AssessmentByID(body.AssessmentID)
 		if !ok {
 			fail(c, http.StatusNotFound, "Assessment not found")
 			return
@@ -153,7 +153,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 			return
 		}
 	} else {
-		a, ok := s.store.AssignmentByID(body.AssignmentID)
+		a, ok := s.db(c).AssignmentByID(body.AssignmentID)
 		if !ok {
 			fail(c, http.StatusNotFound, "Assignment not found")
 			return
@@ -171,7 +171,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 	}
 
 	// Get next version number
-	nextVersion := s.store.LatestSchemeVersion(body.AssessmentID, body.AssignmentID) + 1
+	nextVersion := s.db(c).LatestSchemeVersion(body.AssessmentID, body.AssignmentID) + 1
 
 	// Generate ID
 	schemeID := newID("MS")
@@ -216,14 +216,14 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 		}
 	}
 
-	if writeFailed(c, s.store.SaveMarkingScheme(scheme)) {
+	if writeFailed(c, s.db(c).SaveMarkingScheme(scheme)) {
 		return
 	}
 
 	// Save questions. A failure removes the scheme row too, so a half-written
 	// scheme can never become the latest version and be marked against.
-	if err := s.saveSchemeRows(scheme.Questions); err != nil {
-		_ = s.store.DeleteMarkingScheme(scheme.ID)
+	if err := s.saveSchemeRows(c, scheme.Questions); err != nil {
+		_ = s.db(c).DeleteMarkingScheme(scheme.ID)
 		writeFailed(c, err)
 		return
 	}
@@ -236,7 +236,7 @@ func (s *Server) createMarkingScheme(c *gin.Context) {
 // getMarkingScheme returns a marking scheme with all its questions and nested data.
 func (s *Server) getMarkingScheme(c *gin.Context) {
 	id := c.Param("id")
-	scheme, ok := s.store.MarkingSchemeByID(id)
+	scheme, ok := s.db(c).MarkingSchemeByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Marking scheme not found")
 		return
@@ -244,13 +244,13 @@ func (s *Server) getMarkingScheme(c *gin.Context) {
 	u := currentUser(c)
 
 	// A scheme is the answer key: only the people who may write it read it.
-	if classID, _ := s.schemeTarget(scheme); !canWriteSchemeFor(u, classID) {
+	if classID, _ := s.schemeTarget(c, scheme); !canWriteSchemeFor(u, classID) {
 		fail(c, http.StatusForbidden, "You may only view schemes for your own class")
 		return
 	}
 
 	// Load questions with nested data
-	scheme.Questions = s.store.SchemeQuestions(scheme.ID)
+	scheme.Questions = s.db(c).SchemeQuestions(scheme.ID)
 	sendJSON(c, scheme)
 }
 
@@ -262,7 +262,7 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	id := c.Param("id")
 	u := currentUser(c)
 
-	existing, ok := s.store.MarkingSchemeByID(id)
+	existing, ok := s.db(c).MarkingSchemeByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Marking scheme not found")
 		return
@@ -295,7 +295,7 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	//   2. Grade-relevant fields changed AND submissions exist → NEW version.
 	//   3. Everything else — including a notes-only edit with submissions
 	//      present — → update in place.
-	existingQuestions := s.store.SchemeQuestions(existing.ID)
+	existingQuestions := s.db(c).SchemeQuestions(existing.ID)
 	if schemeQuestionsIdentical(existingQuestions, body.Questions) {
 		// No changes — return existing
 		sendJSON(c, existing)
@@ -307,8 +307,8 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	// Check if there are submissions marked against this scheme. A draft
 	// (Phase 5) counts too, whatever its status: it records marks proposed
 	// against these exact questions, and its answers point at their rows.
-	submissions := s.store.SubmissionsByScheme(existing.ID)
-	drafts := s.store.MarkingDraftsByScheme(existing.ID)
+	submissions := s.db(c).SubmissionsByScheme(existing.ID)
+	drafts := s.db(c).MarkingDraftsByScheme(existing.ID)
 	marked := len(submissions) + len(drafts)
 
 	var schemeToSave domain.MarkingScheme
@@ -389,7 +389,7 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 		}
 	}
 
-	if writeFailed(c, s.store.SaveMarkingScheme(schemeToSave)) {
+	if writeFailed(c, s.db(c).SaveMarkingScheme(schemeToSave)) {
 		return
 	}
 
@@ -397,16 +397,16 @@ func (s *Server) updateMarkingScheme(c *gin.Context) {
 	// question_number) is unique and the replacements reuse the numbers.
 	inPlace := schemeToSave.ID == existing.ID
 	if inPlace && !notesOnly {
-		s.deleteSchemeRows(existingQuestions)
+		s.deleteSchemeRows(c, existingQuestions)
 	}
-	if err := s.saveSchemeRows(schemeToSave.Questions); err != nil {
+	if err := s.saveSchemeRows(c, schemeToSave.Questions); err != nil {
 		// saveSchemeRows has removed its partial writes; put the previous
 		// questions back so a failed edit leaves the scheme as it was rather
 		// than empty, or drop the new version that never got its rows.
 		if inPlace {
-			_ = s.saveSchemeRows(existingQuestions)
+			_ = s.saveSchemeRows(c, existingQuestions)
 		} else {
-			_ = s.store.DeleteMarkingScheme(schemeToSave.ID)
+			_ = s.db(c).DeleteMarkingScheme(schemeToSave.ID)
 		}
 		writeFailed(c, err)
 		return
@@ -422,8 +422,8 @@ func (s *Server) listMarkingSchemes(c *gin.Context) {
 
 	// Same rule as getMarkingScheme, per scheme: students and parents get an
 	// empty list, a teacher only their own class's schemes.
-	for _, ms := range s.store.MarkingSchemes() {
-		if classID, _ := s.schemeTarget(ms); canWriteSchemeFor(u, classID) {
+	for _, ms := range s.db(c).MarkingSchemes() {
+		if classID, _ := s.schemeTarget(c, ms); canWriteSchemeFor(u, classID) {
 			schemes = append(schemes, ms)
 		}
 	}
@@ -439,7 +439,7 @@ func (s *Server) deleteMarkingScheme(c *gin.Context) {
 	id := c.Param("id")
 	u := currentUser(c)
 
-	existing, ok := s.store.MarkingSchemeByID(id)
+	existing, ok := s.db(c).MarkingSchemeByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Marking scheme not found")
 		return
@@ -451,31 +451,31 @@ func (s *Server) deleteMarkingScheme(c *gin.Context) {
 	}
 
 	// Prevent deletion if submissions exist
-	submissions := s.store.SubmissionsByScheme(existing.ID)
+	submissions := s.db(c).SubmissionsByScheme(existing.ID)
 	if len(submissions) > 0 {
 		fail(c, http.StatusConflict, "Cannot delete marking scheme with existing submissions (versioning required)")
 		return
 	}
 	// Or drafts: they record marks proposed against this exact scheme.
-	if len(s.store.MarkingDraftsByScheme(existing.ID)) > 0 {
+	if len(s.db(c).MarkingDraftsByScheme(existing.ID)) > 0 {
 		fail(c, http.StatusConflict, "Cannot delete a marking scheme that papers have been drafted against")
 		return
 	}
 
-	if writeFailed(c, s.store.DeleteMarkingScheme(existing.ID)) {
+	if writeFailed(c, s.db(c).DeleteMarkingScheme(existing.ID)) {
 		return
 	}
 
 	// Delete associated questions/answers/misconceptions
-	questions := s.store.SchemeQuestions(existing.ID)
+	questions := s.db(c).SchemeQuestions(existing.ID)
 	for _, q := range questions {
 		for _, aa := range q.AcceptedAnswers {
-			s.store.DeleteAcceptedAnswer(aa.ID)
+			s.db(c).DeleteAcceptedAnswer(aa.ID)
 		}
 		for _, msc := range q.Misconceptions {
-			s.store.DeleteMisconception(msc.ID)
+			s.db(c).DeleteMisconception(msc.ID)
 		}
-		s.store.DeleteSchemeQuestion(q.ID)
+		s.db(c).DeleteSchemeQuestion(q.ID)
 	}
 
 	s.audit(c, "marking_scheme.delete", existing.ID, "Deleted marking scheme v"+itoa(existing.Version), "")
@@ -502,13 +502,13 @@ func canWriteSchemeFor(u domain.User, classID string) bool {
 // schemeTarget resolves the class a scheme is for, and the assessment type when
 // it belongs to an assessment ("" for an assignment). A missing target gives
 // an empty class, which only leaders pass.
-func (s *Server) schemeTarget(ms domain.MarkingScheme) (classID, assessmentType string) {
+func (s *Server) schemeTarget(c *gin.Context, ms domain.MarkingScheme) (classID, assessmentType string) {
 	if ms.AssessmentID != "" {
-		if a, ok := s.store.AssessmentByID(ms.AssessmentID); ok {
+		if a, ok := s.db(c).AssessmentByID(ms.AssessmentID); ok {
 			return a.ClassID, a.Type
 		}
 	} else if ms.AssignmentID != "" {
-		if a, ok := s.store.AssignmentByID(ms.AssignmentID); ok {
+		if a, ok := s.db(c).AssignmentByID(ms.AssignmentID); ok {
 			return a.ClassID, ""
 		}
 	}
@@ -518,7 +518,7 @@ func (s *Server) schemeTarget(ms domain.MarkingScheme) (classID, assessmentType 
 // canWriteScheme applies the create rule to an existing scheme for an edit or
 // delete, writing the 403 itself when it refuses.
 func (s *Server) canWriteScheme(c *gin.Context, u domain.User, ms domain.MarkingScheme, verb string) bool {
-	classID, typ := s.schemeTarget(ms)
+	classID, typ := s.schemeTarget(c, ms)
 	if typ != "" && !canCreateAssessmentType(u.Role, typ) {
 		fail(c, http.StatusForbidden, "Only school admins and headteachers can "+verb+" this scheme")
 		return false
@@ -543,7 +543,7 @@ func (s *Server) listMarkingSchemesForAssessment(c *gin.Context) {
 	u := currentUser(c)
 
 	// Verify assessment exists and user has access
-	a, ok := s.store.AssessmentByID(assessmentID)
+	a, ok := s.db(c).AssessmentByID(assessmentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -553,11 +553,11 @@ func (s *Server) listMarkingSchemesForAssessment(c *gin.Context) {
 		return
 	}
 
-	schemes := s.store.MarkingSchemesByAssessment(assessmentID)
+	schemes := s.db(c).MarkingSchemesByAssessment(assessmentID)
 
 	// Load questions for each scheme
 	for i := range schemes {
-		schemes[i].Questions = s.store.SchemeQuestions(schemes[i].ID)
+		schemes[i].Questions = s.db(c).SchemeQuestions(schemes[i].ID)
 	}
 
 	// Sort: newest version first
@@ -572,7 +572,7 @@ func (s *Server) listMarkingSchemesForAssignment(c *gin.Context) {
 	u := currentUser(c)
 
 	// Verify assignment exists and user has access
-	a, ok := s.store.AssignmentByID(assignmentID)
+	a, ok := s.db(c).AssignmentByID(assignmentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Assignment not found")
 		return
@@ -582,11 +582,11 @@ func (s *Server) listMarkingSchemesForAssignment(c *gin.Context) {
 		return
 	}
 
-	schemes := s.store.MarkingSchemesByAssignment(assignmentID)
+	schemes := s.db(c).MarkingSchemesByAssignment(assignmentID)
 
 	// Load questions for each scheme
 	for i := range schemes {
-		schemes[i].Questions = s.store.SchemeQuestions(schemes[i].ID)
+		schemes[i].Questions = s.db(c).SchemeQuestions(schemes[i].ID)
 	}
 
 	// Sort: newest version first
@@ -678,27 +678,27 @@ func keepRowIDs(q *domain.SchemeQuestion, stored domain.SchemeQuestion) {
 // saveSchemeRows writes every question with its answers and misconceptions.
 // When a write fails it removes what this call already wrote, so the store is
 // never left holding part of a scheme, and returns the error.
-func (s *Server) saveSchemeRows(qs []domain.SchemeQuestion) error {
+func (s *Server) saveSchemeRows(c *gin.Context, qs []domain.SchemeQuestion) error {
 	for i, q := range qs {
-		if err := s.saveSchemeQuestion(q); err != nil {
-			s.deleteSchemeRows(qs[:i+1])
+		if err := s.saveSchemeQuestion(c, q); err != nil {
+			s.deleteSchemeRows(c, qs[:i+1])
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Server) saveSchemeQuestion(q domain.SchemeQuestion) error {
-	if err := s.store.SaveSchemeQuestion(q); err != nil {
+func (s *Server) saveSchemeQuestion(c *gin.Context, q domain.SchemeQuestion) error {
+	if err := s.db(c).SaveSchemeQuestion(q); err != nil {
 		return err
 	}
 	for _, aa := range q.AcceptedAnswers {
-		if err := s.store.SaveAcceptedAnswer(aa); err != nil {
+		if err := s.db(c).SaveAcceptedAnswer(aa); err != nil {
 			return err
 		}
 	}
 	for _, msc := range q.Misconceptions {
-		if err := s.store.SaveMisconception(msc); err != nil {
+		if err := s.db(c).SaveMisconception(msc); err != nil {
 			return err
 		}
 	}
@@ -708,14 +708,14 @@ func (s *Server) saveSchemeQuestion(q domain.SchemeQuestion) error {
 // deleteSchemeRows removes questions with their answers and misconceptions.
 // Best effort: it runs on paths that are already reporting a failure, or after
 // the replacement rows are safely in.
-func (s *Server) deleteSchemeRows(qs []domain.SchemeQuestion) {
+func (s *Server) deleteSchemeRows(c *gin.Context, qs []domain.SchemeQuestion) {
 	for _, q := range qs {
 		for _, aa := range q.AcceptedAnswers {
-			_ = s.store.DeleteAcceptedAnswer(aa.ID)
+			_ = s.db(c).DeleteAcceptedAnswer(aa.ID)
 		}
 		for _, msc := range q.Misconceptions {
-			_ = s.store.DeleteMisconception(msc.ID)
+			_ = s.db(c).DeleteMisconception(msc.ID)
 		}
-		_ = s.store.DeleteSchemeQuestion(q.ID)
+		_ = s.db(c).DeleteSchemeQuestion(q.ID)
 	}
 }

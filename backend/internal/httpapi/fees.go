@@ -52,7 +52,7 @@ func (s *Server) createPayment(c *gin.Context) {
 		PaidAt:     firstNonEmpty(body.PaidAt, now()),
 		RecordedBy: firstNonEmpty(body.RecordedBy, u.Name),
 	}
-	if writeFailed(c, s.store.SavePayment(p)) {
+	if writeFailed(c, s.db(c).SavePayment(p)) {
 		return
 	}
 	s.audit(c, "payment.record", p.ID,
@@ -96,7 +96,7 @@ func studentVisible(u domain.User, studentID, want string) bool {
 func (s *Server) listInvoices(c *gin.Context) {
 	u := currentUser(c)
 	want := c.Query("studentId")
-	all := s.store.Invoices()
+	all := s.db(c).Invoices()
 	out := make([]domain.Invoice, 0, len(all))
 	for _, inv := range all {
 		if studentVisible(u, inv.StudentID, want) {
@@ -110,7 +110,7 @@ func (s *Server) listInvoices(c *gin.Context) {
 // does not exist and 403 for one that exists but belongs to another student,
 // matching the order interventions.go answers in.
 func (s *Server) invoiceDetail(c *gin.Context) {
-	inv, ok := s.store.InvoiceByID(c.Param("id"))
+	inv, ok := s.db(c).InvoiceByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Invoice not found")
 		return
@@ -160,7 +160,7 @@ func (s *Server) createInvoice(c *gin.Context) {
 	// for them is dropped rather than trusted — otherwise a client could
 	// assert a payment this school never received.
 	inv.Status = inv.ResolveStatus(today())
-	if writeFailed(c, s.store.SaveInvoice(inv)) {
+	if writeFailed(c, s.db(c).SaveInvoice(inv)) {
 		return
 	}
 	s.audit(c, "invoice.create", inv.ID,
@@ -175,7 +175,7 @@ func (s *Server) listPayments(c *gin.Context) {
 	u := currentUser(c)
 	wantStudent := c.Query("studentId")
 	wantInvoice := c.Query("invoiceId")
-	all := s.store.Payments()
+	all := s.db(c).Payments()
 	out := make([]domain.Payment, 0, len(all))
 	for _, p := range all {
 		if wantInvoice != "" && p.InvoiceID != wantInvoice {

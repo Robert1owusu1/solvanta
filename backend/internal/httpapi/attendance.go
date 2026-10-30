@@ -15,12 +15,12 @@ import (
 func (s *Server) attendanceForClassDate(c *gin.Context) {
 	u := currentUser(c)
 	classID := c.Param("classId")
-	if !u.IsSchoolStaff() && !s.viewsClass(u, classID) {
+	if !u.IsSchoolStaff() && !s.viewsClass(c, u, classID) {
 		fail(c, http.StatusForbidden, "You may only view your own class attendance")
 		return
 	}
 	date := c.Param("date")
-	days := s.store.AttendanceForClassDate(classID, date)
+	days := s.db(c).AttendanceForClassDate(classID, date)
 	name := u.Name
 	sendJSON(c, domain.AttendanceDay{Date: date, ClassID: classID, MarkedBy: name, Records: days})
 }
@@ -51,10 +51,10 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 		}
 	}
 	before := map[string]string{}
-	for _, r := range s.store.AttendanceForClassDate(classID, date) {
+	for _, r := range s.db(c).AttendanceForClassDate(classID, date) {
 		before[r.StudentID] = r.Status
 	}
-	if writeFailed(c, s.store.SaveDay(classID, date, raw)) {
+	if writeFailed(c, s.db(c).SaveDay(classID, date, raw)) {
 		return
 	}
 	// Tell parents about a new absence or late arrival — only on a change,
@@ -63,7 +63,7 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 		if (r.Status != domain.AttAbsent && r.Status != domain.AttLate) || before[r.StudentID] == r.Status {
 			continue
 		}
-		st, ok := s.store.StudentByID(r.StudentID)
+		st, ok := s.db(c).StudentByID(r.StudentID)
 		if !ok || st.ParentUserID == "" {
 			continue
 		}
@@ -71,7 +71,7 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 		if r.Status == domain.AttLate {
 			word = "late"
 		}
-		s.notify(st.ParentUserID, domain.NotifAttendance, st.FullName()+" "+word,
+		s.notify(c, st.ParentUserID, domain.NotifAttendance, st.FullName()+" "+word,
 			st.FullName()+" was marked "+word+" on "+date+".", st.ID)
 	}
 	s.audit(c, "attendance.save", classID+"/"+date, "Saved "+itoa(len(raw))+" attendance records", "")
@@ -80,7 +80,7 @@ func (s *Server) saveAttendanceDay(c *gin.Context) {
 
 // studentAttendanceHistory returns recent records for a student.
 func (s *Server) studentAttendanceHistory(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -90,7 +90,7 @@ func (s *Server) studentAttendanceHistory(c *gin.Context) {
 		return
 	}
 	var out []domain.AttendanceRecord
-	for _, r := range s.store.Attendance() {
+	for _, r := range s.db(c).Attendance() {
 		if r.StudentID == st.ID {
 			out = append(out, r)
 		}
@@ -101,7 +101,7 @@ func (s *Server) studentAttendanceHistory(c *gin.Context) {
 // studentAttendanceSummary returns present/late/absent/excused totals +
 // attendance percentage, mirroring AttendanceRepository.summaryForStudent.
 func (s *Server) studentAttendanceSummary(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -112,7 +112,7 @@ func (s *Server) studentAttendanceSummary(c *gin.Context) {
 	}
 	counts := map[string]int{}
 	var total int
-	for _, r := range s.store.Attendance() {
+	for _, r := range s.db(c).Attendance() {
 		if r.StudentID == st.ID {
 			counts[r.Status]++
 			total++
@@ -145,7 +145,7 @@ func (s *Server) checkIn(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only check in yourself")
 		return
 	}
-	st, ok := s.store.StudentByID(body.StudentID)
+	st, ok := s.db(c).StudentByID(body.StudentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -159,7 +159,7 @@ func (s *Server) checkIn(c *gin.Context) {
 		ID: "ATT" + date + "-" + st.ID, StudentID: st.ID, ClassID: body.ClassID, Date: date,
 		Status: domain.AttPresent, CheckIn: checkInTime,
 	}
-	if writeFailed(c, s.store.SaveDay(body.ClassID, date, mergeDay(s.store.AttendanceForClassDate(body.ClassID, date), rec))) {
+	if writeFailed(c, s.db(c).SaveDay(body.ClassID, date, mergeDay(s.db(c).AttendanceForClassDate(body.ClassID, date), rec))) {
 		return
 	}
 	s.audit(c, "attendance.checkin", st.ID, "Check-in recorded for "+st.FullName()+" at "+checkInTime, "")
@@ -180,7 +180,7 @@ func (s *Server) attendanceCorrection(c *gin.Context) {
 		return
 	}
 	changed := []domain.AttendanceRecord{}
-	for _, r := range s.store.Attendance() {
+	for _, r := range s.db(c).Attendance() {
 		if r.Date == body.PlanDate && contains(body.StudentIDs, r.StudentID) {
 			if r.OldStatus == "" {
 				r.OldStatus = r.Status
@@ -195,7 +195,7 @@ func (s *Server) attendanceCorrection(c *gin.Context) {
 	}
 	for _, r := range changed {
 		r.Reason = body.Reason
-		if writeFailed(c, s.store.SaveDay(r.ClassID, r.Date, mergeDay(s.store.AttendanceForClassDate(r.ClassID, r.Date), r))) {
+		if writeFailed(c, s.db(c).SaveDay(r.ClassID, r.Date, mergeDay(s.db(c).AttendanceForClassDate(r.ClassID, r.Date), r))) {
 			return
 		}
 	}

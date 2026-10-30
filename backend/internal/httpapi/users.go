@@ -13,7 +13,7 @@ import (
 func (s *Server) listUsers(c *gin.Context) {
 	u := currentUser(c)
 	var out []domain.User
-	for _, x := range s.store.Users() {
+	for _, x := range s.db(c).Users() {
 		if x.Role == domain.RoleSuperAdmin && !u.IsSuperAdmin() {
 			continue
 		}
@@ -66,7 +66,7 @@ func (s *Server) createUser(c *gin.Context) {
 		fail(c, http.StatusForbidden, "only the super admin can create super admins")
 		return
 	}
-	if _, exists := s.store.UserByEmail(body.Email); exists {
+	if _, _, exists := s.userByEmail(body.Email); exists {
 		fail(c, http.StatusConflict, "A user with this email already exists")
 		return
 	}
@@ -95,7 +95,14 @@ func (s *Server) createUser(c *gin.Context) {
 		ClassID:    body.ClassID,
 		StudentIDs: body.StudentIDs,
 	}
-	if writeFailed(c, s.store.SaveUser(nu)) {
+	// The account lives in its own school's store — for the super admin
+	// that is the school named in the body, which must exist.
+	target, err := s.tenants.For(schoolID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "unknown school")
+		return
+	}
+	if writeFailed(c, target.SaveUser(nu)) {
 		return
 	}
 	s.audit(c, "user.create", nu.ID, "Created "+nu.Role+" account "+nu.Name, "")
@@ -134,7 +141,7 @@ func (s *Server) changePassword(c *gin.Context) {
 		return
 	}
 	u.Password = hashPassword(body.New)
-	if writeFailed(c, s.store.SaveUser(u)) {
+	if writeFailed(c, s.db(c).SaveUser(u)) {
 		return
 	}
 	s.audit(c, "user.password", u.ID, "Password changed", "")
@@ -154,7 +161,7 @@ type passwordResetRequest struct {
 // account holds is signed out.
 func (s *Server) resetPassword(c *gin.Context) {
 	u := currentUser(c)
-	target, ok := s.store.UserByID(c.Param("id"))
+	target, ok := s.db(c).UserByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "User not found")
 		return
@@ -172,10 +179,10 @@ func (s *Server) resetPassword(c *gin.Context) {
 		return
 	}
 	target.Password = hashPassword(body.New)
-	if writeFailed(c, s.store.SaveUser(target)) {
+	if writeFailed(c, s.db(c).SaveUser(target)) {
 		return
 	}
-	if writeFailed(c, s.store.DeleteRefreshTokensForUser(target.ID)) {
+	if writeFailed(c, s.db(c).DeleteRefreshTokensForUser(target.ID)) {
 		return
 	}
 	s.audit(c, "user.password_reset", target.ID, "Reset the password of "+target.Name, "")

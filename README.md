@@ -143,7 +143,8 @@ repositories read through `RemoteDataSource` and mirror results into the local
 store. Gate events follow the same rule: [`SafetyRepository`](lib/features/safety/safety_repository.dart)
 records locally first, then pushes to `POST /api/gate/events` (best-effort; the
 offline outbox retries it), adopting the server-assigned id so a school with
-several gate devices sees one deduplicated trail. API URL priority: `--dart-define=SOLVANTA_API=…` → `SOLVANTA_API_URL` →
+several gate devices sees one deduplicated trail. API URL priority: `--dart-define=SOLVANTA_API=…` → the web app's `config.json`
+(`{"api": "…"}`, or `":8080"` for the page's own host) → `SOLVANTA_API_URL` →
 `http://127.0.0.1:8080`. The live-parity suite asserts app seed/models match the
 API byte-for-byte:
 

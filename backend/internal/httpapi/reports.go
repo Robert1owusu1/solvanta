@@ -15,7 +15,7 @@ import (
 // studentReportCard mirrors reporting_service report-card structure: per-subject
 // rows plus overall average and attendance (doc §22, §34).
 func (s *Server) studentReportCard(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -44,13 +44,13 @@ func (s *Server) studentReportCard(c *gin.Context) {
 
 	// Only this term's work and days count; undated assessments are taken as
 	// this term's, matching the app's report card.
-	term := s.store.Term()
+	term := s.db(c).Term()
 	perSubject := map[string][]assessmentRow{}
-	for _, a := range s.store.Assessments() {
+	for _, a := range s.db(c).Assessments() {
 		if a.ClassID != st.ClassID || (a.Date != "" && !term.Contains(a.Date)) {
 			continue
 		}
-		sub, found := s.store.SubmissionFor(a.ID, st.ID)
+		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found {
 			continue
 		}
@@ -90,7 +90,7 @@ func (s *Server) studentReportCard(c *gin.Context) {
 
 	counts := map[string]int{}
 	var totalDays int
-	for _, r := range s.store.Attendance() {
+	for _, r := range s.db(c).Attendance() {
 		if r.StudentID == st.ID && term.Contains(r.Date) {
 			counts[r.Status]++
 			totalDays++
@@ -124,7 +124,7 @@ type classResultRow struct {
 }
 
 func (s *Server) classResultsReport(c *gin.Context) {
-	a, ok := s.store.AssessmentByID(c.Param("id"))
+	a, ok := s.db(c).AssessmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
@@ -135,8 +135,8 @@ func (s *Server) classResultsReport(c *gin.Context) {
 	}
 	total := a.TotalMarks()
 	var rows []classResultRow
-	for _, st := range s.store.Students() {
-		sub, found := s.store.SubmissionFor(a.ID, st.ID)
+	for _, st := range s.db(c).Students() {
+		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found {
 			continue
 		}

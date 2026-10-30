@@ -454,6 +454,7 @@ class _EditTermDialogState extends State<_EditTermDialog> {
   late final _name = TextEditingController(text: widget.initial.name);
   late String _start = widget.initial.start;
   late String _end = widget.initial.end;
+  late String _nextStart = widget.initial.nextStart;
 
   @override
   void dispose() {
@@ -465,6 +466,19 @@ class _EditTermDialogState extends State<_EditTermDialog> {
   String _d(DateTime x) {
     String p(int v) => v.toString().padLeft(2, '0');
     return '${x.year}-${p(x.month)}-${p(x.day)}';
+  }
+
+  Future<void> _pickNext() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(_nextStart) ??
+          (DateTime.tryParse(_end) ?? DateTime.now())
+              .add(const Duration(days: 21)),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2032),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _nextStart = _d(picked));
   }
 
   Future<void> _pick(bool isStart) async {
@@ -491,6 +505,7 @@ class _EditTermDialogState extends State<_EditTermDialog> {
       name: _name.text.trim().isEmpty ? widget.initial.name : _name.text.trim(),
       start: _start,
       end: _end,
+      nextStart: _nextStart,
     ));
     if (mounted) Navigator.of(context).pop();
   }
@@ -534,6 +549,15 @@ class _EditTermDialogState extends State<_EditTermDialog> {
               subtitle: const Text('Tap to change end date'),
               trailing: const Icon(Icons.edit_calendar),
               onTap: () => _pick(false),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(_nextStart.isEmpty
+                  ? 'Next term begins: not set'
+                  : 'Next term begins $_nextStart'),
+              subtitle: const Text('Printed on report cards'),
+              trailing: const Icon(Icons.event_available),
+              onTap: _pickNext,
             ),
           ],
         ),

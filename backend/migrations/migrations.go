@@ -6,35 +6,37 @@ import (
 	"embed"
 	"io/fs"
 	"sort"
-	"strings"
 )
 
-// Every *.sql file in this directory. They are concatenated in filename order
-// and executed as one batch at boot, so adding a numbered file is all a schema
-// change needs — there is no version table, and a live database is re-run
-// against the whole script on every start. Each statement must therefore be
-// idempotent (IF NOT EXISTS), which is how the schema has always been written.
+// Every *.sql file in this directory, applied in filename order. Each file
+// runs once per database schema and is recorded in schema_migrations (see
+// store.applyMigrations), so a new numbered file is all a schema change needs.
+// The files written before that table existed are idempotent (IF NOT EXISTS),
+// so recording them on a database that already has their tables is safe.
 //
 //go:embed *.sql
 var files embed.FS
 
-// SQL is every migration in this package, in filename order.
-var SQL = concat()
+// File is one migration: its file name (the version) and its SQL.
+type File struct {
+	Name string
+	SQL  string
+}
 
-func concat() string {
+// Files lists every migration in filename order.
+func Files() []File {
 	names, err := fs.Glob(files, "*.sql")
 	if err != nil {
 		panic("migrations: " + err.Error())
 	}
 	sort.Strings(names)
-	var b strings.Builder
+	out := make([]File, 0, len(names))
 	for _, n := range names {
 		data, err := files.ReadFile(n)
 		if err != nil {
 			panic("migrations: " + err.Error())
 		}
-		b.Write(data)
-		b.WriteByte('\n')
+		out = append(out, File{Name: n, SQL: string(data)})
 	}
-	return b.String()
+	return out
 }

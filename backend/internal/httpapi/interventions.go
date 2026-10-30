@@ -19,19 +19,19 @@ var validInterventionStatus = map[string]bool{
 func (s *Server) listInterventions(c *gin.Context) {
 	u := currentUser(c)
 	if u.IsSchoolStaff() {
-		sendJSON(c, s.store.Interventions())
+		sendJSON(c, s.db(c).Interventions())
 		return
 	}
 	var out []domain.Intervention
 	for _, id := range u.StudentIDs {
-		out = append(out, s.store.InterventionsForStudent(id)...)
+		out = append(out, s.db(c).InterventionsForStudent(id)...)
 	}
 	sendJSON(c, out)
 }
 
 // interventionsForStudent returns a student's interventions newest-first.
 func (s *Server) interventionsForStudent(c *gin.Context) {
-	st, ok := s.store.StudentByID(c.Param("studentId"))
+	st, ok := s.db(c).StudentByID(c.Param("studentId"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -40,7 +40,7 @@ func (s *Server) interventionsForStudent(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own records")
 		return
 	}
-	sendJSON(c, s.store.InterventionsForStudent(st.ID))
+	sendJSON(c, s.db(c).InterventionsForStudent(st.ID))
 }
 
 // createIntervention assigns one (doc §31).
@@ -50,7 +50,7 @@ func (s *Server) createIntervention(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	if _, ok := s.store.StudentByID(body.StudentID); !ok {
+	if _, ok := s.db(c).StudentByID(body.StudentID); !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
 	}
@@ -63,12 +63,12 @@ func (s *Server) createIntervention(c *gin.Context) {
 		CreatedDate: firstNonEmpty(body.CreatedDate, today()),
 		Status:      domain.IntOpen,
 	}
-	if writeFailed(c, s.store.SaveIntervention(i)) {
+	if writeFailed(c, s.db(c).SaveIntervention(i)) {
 		return
 	}
-	st, _ := s.store.StudentByID(i.StudentID)
+	st, _ := s.db(c).StudentByID(i.StudentID)
 	if st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifIntervention, "Intervention assigned",
+		s.notify(c, st.ParentUserID, domain.NotifIntervention, "Intervention assigned",
 			st.FullName()+" has a new learning intervention on "+i.Topic+".", st.ID)
 	}
 	s.audit(c, "intervention.create", i.ID, "Assigned intervention on "+i.Topic+" to "+st.FullName(), "")
@@ -89,18 +89,18 @@ func (s *Server) updateInterventionStatus(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "Invalid status")
 		return
 	}
-	i, ok := s.store.InterventionByID(c.Param("id"))
+	i, ok := s.db(c).InterventionByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Intervention not found")
 		return
 	}
 	i.Status = body.Status
-	if writeFailed(c, s.store.SaveIntervention(i)) {
+	if writeFailed(c, s.db(c).SaveIntervention(i)) {
 		return
 	}
-	st, _ := s.store.StudentByID(i.StudentID)
+	st, _ := s.db(c).StudentByID(i.StudentID)
 	if st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifIntervention, "Intervention "+stringStatus(body.Status),
+		s.notify(c, st.ParentUserID, domain.NotifIntervention, "Intervention "+stringStatus(body.Status),
 			"The intervention on "+i.Topic+" for "+st.FullName()+" is now "+stringStatus(body.Status)+".", st.ID)
 	}
 	s.audit(c, "intervention.status", i.ID, "Status → "+body.Status+" for "+st.FullName(), "")
@@ -115,17 +115,17 @@ func (s *Server) attachReassessment(c *gin.Context) {
 	if !bind(c, &body) {
 		return
 	}
-	if _, ok := s.store.AssessmentByID(body.AssessmentID); !ok {
+	if _, ok := s.db(c).AssessmentByID(body.AssessmentID); !ok {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
 	}
-	i, ok := s.store.InterventionByID(c.Param("id"))
+	i, ok := s.db(c).InterventionByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Intervention not found")
 		return
 	}
 	i.ReassessmentAssessmentID = body.AssessmentID
-	if writeFailed(c, s.store.SaveIntervention(i)) {
+	if writeFailed(c, s.db(c).SaveIntervention(i)) {
 		return
 	}
 	s.audit(c, "intervention.reassessment", i.ID, "Reassessment "+body.AssessmentID+" attached", "")
@@ -135,12 +135,12 @@ func (s *Server) attachReassessment(c *gin.Context) {
 // interventionImprovement compares pre-intervention performance on the topic
 // with the linked reassessment result (doc §32).
 func (s *Server) interventionImprovement(c *gin.Context) {
-	i, ok := s.store.InterventionByID(c.Param("id"))
+	i, ok := s.db(c).InterventionByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Intervention not found")
 		return
 	}
-	st, ok := s.store.StudentByID(i.StudentID)
+	st, ok := s.db(c).StudentByID(i.StudentID)
 	if !ok {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
@@ -149,12 +149,12 @@ func (s *Server) interventionImprovement(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own records")
 		return
 	}
-	before := s.averageOnTopic(st.ID, i.Topic, "")
+	before := s.averageOnTopic(c, st.ID, i.Topic, "")
 	var after float64
 	if i.ReassessmentAssessmentID != "" {
-		after = s.averageOnTopic(st.ID, i.Topic, i.ReassessmentAssessmentID)
+		after = s.averageOnTopic(c, st.ID, i.Topic, i.ReassessmentAssessmentID)
 		if after == 0 {
-			after = s.assessmentPercent(st.ID, i.ReassessmentAssessmentID)
+			after = s.assessmentPercent(c, st.ID, i.ReassessmentAssessmentID)
 		}
 	}
 	sendJSON(c, gin.H{
@@ -169,13 +169,13 @@ func (s *Server) interventionImprovement(c *gin.Context) {
 
 // averageOnTopic returns the student's average % on objective questions of a
 // topic (optionally limited to one assessment).
-func (s *Server) averageOnTopic(studentID, topic, assessmentID string) float64 {
+func (s *Server) averageOnTopic(c *gin.Context, studentID, topic, assessmentID string) float64 {
 	var correct, total float64
-	for _, a := range s.store.Assessments() {
+	for _, a := range s.db(c).Assessments() {
 		if assessmentID != "" && a.ID != assessmentID {
 			continue
 		}
-		sub, ok := s.store.SubmissionFor(a.ID, studentID)
+		sub, ok := s.db(c).SubmissionFor(a.ID, studentID)
 		if !ok {
 			continue
 		}
@@ -197,12 +197,12 @@ func (s *Server) averageOnTopic(studentID, topic, assessmentID string) float64 {
 }
 
 // assessmentPercent returns the student's overall percentage for an assessment.
-func (s *Server) assessmentPercent(studentID, assessmentID string) float64 {
-	a, ok := s.store.AssessmentByID(assessmentID)
+func (s *Server) assessmentPercent(c *gin.Context, studentID, assessmentID string) float64 {
+	a, ok := s.db(c).AssessmentByID(assessmentID)
 	if !ok {
 		return 0
 	}
-	sub, ok := s.store.SubmissionFor(assessmentID, studentID)
+	sub, ok := s.db(c).SubmissionFor(assessmentID, studentID)
 	if !ok {
 		return 0
 	}

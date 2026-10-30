@@ -87,7 +87,7 @@ func (s *Server) createQuestion(c *gin.Context) {
 	if q.ClassID == "" {
 		q.ClassID = u.ClassID
 	}
-	if writeFailed(c, s.store.SaveQuestion(q)) {
+	if writeFailed(c, s.db(c).SaveQuestion(q)) {
 		return
 	}
 	s.audit(c, "question.create", q.ID, "Added "+q.Type+" question on "+q.Topic, "")
@@ -96,7 +96,7 @@ func (s *Server) createQuestion(c *gin.Context) {
 
 // updateQuestion edits banked/approved questions.
 func (s *Server) updateQuestion(c *gin.Context) {
-	q, ok := s.store.QuestionByID(c.Param("id"))
+	q, ok := s.db(c).QuestionByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Question not found")
 		return
@@ -104,7 +104,7 @@ func (s *Server) updateQuestion(c *gin.Context) {
 	if !bind(c, &q) {
 		return
 	}
-	if writeFailed(c, s.store.SaveQuestion(q)) {
+	if writeFailed(c, s.db(c).SaveQuestion(q)) {
 		return
 	}
 	s.audit(c, "question.update", q.ID, "Updated question on "+q.Topic, "")
@@ -114,11 +114,11 @@ func (s *Server) updateQuestion(c *gin.Context) {
 // deleteQuestion removes a question (doc §17).
 func (s *Server) deleteQuestion(c *gin.Context) {
 	id := c.Param("id")
-	if _, ok := s.store.QuestionByID(id); !ok {
+	if _, ok := s.db(c).QuestionByID(id); !ok {
 		fail(c, http.StatusNotFound, "Question not found")
 		return
 	}
-	if writeFailed(c, s.store.DeleteQuestion(id)) {
+	if writeFailed(c, s.db(c).DeleteQuestion(id)) {
 		return
 	}
 	s.audit(c, "question.delete", id, "Deleted question", "")
@@ -128,7 +128,7 @@ func (s *Server) deleteQuestion(c *gin.Context) {
 // aiRequests lists AI question-generation requests (doc §43).
 func (s *Server) aiRequests(c *gin.Context) {
 	u := currentUser(c)
-	out := s.store.AIRequests()
+	out := s.db(c).AIRequests()
 	// A saved OCR reading is a student's handwriting: only the teacher who
 	// asked for it sees it, here as on its own route.
 	for i := range out {
@@ -143,7 +143,7 @@ func (s *Server) aiRequests(c *gin.Context) {
 // reading whose response never reached the device can be recovered instead
 // of the page being photographed again. Requester only.
 func (s *Server) aiRequestOCR(c *gin.Context) {
-	req, ok := s.store.AIRequestByID(c.Param("id"))
+	req, ok := s.db(c).AIRequestByID(c.Param("id"))
 	if !ok || req.RequesterID != currentUser(c).ID {
 		fail(c, http.StatusNotFound, "Request not found")
 		return
@@ -163,7 +163,7 @@ func (s *Server) aiRequest(c *gin.Context) {
 		return
 	}
 	if body.ID != "" {
-		if _, exists := s.store.AIRequestByID(body.ID); exists {
+		if _, exists := s.db(c).AIRequestByID(body.ID); exists {
 			fail(c, http.StatusConflict, "A request with this id already exists")
 			return
 		}
@@ -181,7 +181,7 @@ func (s *Server) aiRequest(c *gin.Context) {
 		CreatedAt:     now(),
 		Status:        domain.QGenPending,
 	}
-	if writeFailed(c, s.store.SaveAIRequest(req)) {
+	if writeFailed(c, s.db(c).SaveAIRequest(req)) {
 		return
 	}
 	s.audit(c, "questiongen.req", req.ID, "Requested "+itoa(req.Count)+" "+req.Type+" on "+req.Topic, "")
@@ -273,7 +273,7 @@ func summarize(res *ocr.Result) ocrSummary {
 // to prevent; a 502 that says what went wrong is the honest answer.
 func (s *Server) aiGenerate(c *gin.Context) {
 	id := c.Param("id")
-	req, ok := s.store.AIRequestByID(id)
+	req, ok := s.db(c).AIRequestByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Request not found")
 		return
@@ -323,10 +323,10 @@ func (s *Server) aiGenerate(c *gin.Context) {
 	if b, err := json.Marshal(summary); err == nil {
 		req.OCRResult = b
 	}
-	if writeFailed(c, s.store.SaveAIRequest(req)) {
+	if writeFailed(c, s.db(c).SaveAIRequest(req)) {
 		return
 	}
-	s.notify(req.RequesterID, domain.NotifAssessment,
+	s.notify(c, req.RequesterID, domain.NotifAssessment,
 		"AI question drafts ready",
 		itoa(len(drafts))+" "+req.Type+" questions drafted for "+req.SubjectID+" · "+req.Topic+". Review them.",
 		"")
@@ -366,7 +366,7 @@ func decodeImageB64(s string) ([]byte, error) {
 // aiPublish approves the drafts into the question bank (status published).
 func (s *Server) aiPublish(c *gin.Context) {
 	id := c.Param("id")
-	req, ok := s.store.AIRequestByID(id)
+	req, ok := s.db(c).AIRequestByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Request not found")
 		return
@@ -379,16 +379,16 @@ func (s *Server) aiPublish(c *gin.Context) {
 		if req.Drafts[i].ID == "" {
 			req.Drafts[i].ID = newID("Q")
 		}
-		if writeFailed(c, s.store.SaveQuestion(req.Drafts[i])) {
+		if writeFailed(c, s.db(c).SaveQuestion(req.Drafts[i])) {
 			return
 		}
 	}
 	req.Status = domain.QGenPublished
 	req.PublishedAt = now()
-	if writeFailed(c, s.store.SaveAIRequest(req)) {
+	if writeFailed(c, s.db(c).SaveAIRequest(req)) {
 		return
 	}
-	s.notify(req.RequesterID, domain.NotifAssessment,
+	s.notify(c, req.RequesterID, domain.NotifAssessment,
 		"Questions published to the bank",
 		itoa(len(req.Drafts))+" "+req.SubjectID+" questions on "+req.Topic+" are now in the question bank.",
 		"")
@@ -399,14 +399,14 @@ func (s *Server) aiPublish(c *gin.Context) {
 // aiReject rejects the request without saving to the bank.
 func (s *Server) aiReject(c *gin.Context) {
 	id := c.Param("id")
-	req, ok := s.store.AIRequestByID(id)
+	req, ok := s.db(c).AIRequestByID(id)
 	if !ok {
 		fail(c, http.StatusNotFound, "Request not found")
 		return
 	}
 	req.Status = domain.QGenRejected
 	req.Drafts = nil
-	if writeFailed(c, s.store.SaveAIRequest(req)) {
+	if writeFailed(c, s.db(c).SaveAIRequest(req)) {
 		return
 	}
 	s.audit(c, "questiongen.reject", req.ID, "Rejected generation request", "")

@@ -13,8 +13,8 @@ import (
 func (s *Server) listAssignments(c *gin.Context) {
 	u := currentUser(c)
 	var out []domain.Assignment
-	for _, a := range s.store.Assignments() {
-		if u.IsSchoolStaff() || s.viewsClass(u, a.ClassID) {
+	for _, a := range s.db(c).Assignments() {
+		if u.IsSchoolStaff() || s.viewsClass(c, u, a.ClassID) {
 			out = append(out, a)
 		}
 	}
@@ -37,12 +37,12 @@ func (s *Server) createAssignment(c *gin.Context) {
 		CreatedBy:    firstNonEmpty(body.CreatedBy, u.Name),
 		CreatedAt:    today(),
 	}
-	if writeFailed(c, s.store.SaveAssignment(a)) {
+	if writeFailed(c, s.db(c).SaveAssignment(a)) {
 		return
 	}
 	// notify parents of target class
 	seen := map[string]bool{}
-	for _, st := range s.store.Students() {
+	for _, st := range s.db(c).Students() {
 		if st.ClassID != a.ClassID || st.ParentUserID == "" {
 			continue
 		}
@@ -50,7 +50,7 @@ func (s *Server) createAssignment(c *gin.Context) {
 			continue
 		}
 		seen[st.ParentUserID] = true
-		s.notify(st.ParentUserID, domain.NotifAssignment, "New "+domain.SubjectName(a.SubjectID)+" assignment",
+		s.notify(c, st.ParentUserID, domain.NotifAssignment, "New "+domain.SubjectName(a.SubjectID)+" assignment",
 			a.Title+" — due "+a.Deadline, st.ID)
 	}
 	s.audit(c, "assignment.create", a.ID, "Assignment "+a.Title+" for "+a.ClassID, "")
@@ -58,7 +58,7 @@ func (s *Server) createAssignment(c *gin.Context) {
 }
 
 func (s *Server) completeAssignment(c *gin.Context) {
-	a, ok := s.store.AssignmentByID(c.Param("id"))
+	a, ok := s.db(c).AssignmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assignment not found")
 		return
@@ -72,11 +72,11 @@ func (s *Server) completeAssignment(c *gin.Context) {
 		}
 	}
 	a.CompletedBy = append(a.CompletedBy, studentID)
-	if writeFailed(c, s.store.SaveAssignment(a)) {
+	if writeFailed(c, s.db(c).SaveAssignment(a)) {
 		return
 	}
-	if st, ok := s.store.StudentByID(studentID); ok && st.ParentUserID != "" {
-		s.notify(st.ParentUserID, domain.NotifAssignment, st.FullName()+" submitted an assignment",
+	if st, ok := s.db(c).StudentByID(studentID); ok && st.ParentUserID != "" {
+		s.notify(c, st.ParentUserID, domain.NotifAssignment, st.FullName()+" submitted an assignment",
 			"Completed \""+a.Title+"\" — "+a.Instructions, st.ID)
 	}
 	sendJSON(c, a)
@@ -85,7 +85,7 @@ func (s *Server) completeAssignment(c *gin.Context) {
 // uncompleteAssignment takes back a pupil's own completion, for a box ticked
 // by mistake.
 func (s *Server) uncompleteAssignment(c *gin.Context) {
-	a, ok := s.store.AssignmentByID(c.Param("id"))
+	a, ok := s.db(c).AssignmentByID(c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Assignment not found")
 		return
@@ -102,7 +102,7 @@ func (s *Server) uncompleteAssignment(c *gin.Context) {
 		return
 	}
 	a.CompletedBy = kept
-	if writeFailed(c, s.store.SaveAssignment(a)) {
+	if writeFailed(c, s.db(c).SaveAssignment(a)) {
 		return
 	}
 	sendJSON(c, a)

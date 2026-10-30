@@ -16,9 +16,15 @@ No host has been chosen yet. Everything below works with any provider.
 ## 1. Database: PostgreSQL
 
 - PostgreSQL. Developed and tested on version 18; use 18 in production to match.
-- Create an empty database and a user for it. **Nothing else.** The API applies
-  every file in `backend/migrations/` at each boot, in filename order, and each
-  statement is idempotent (`IF NOT EXISTS`), so upgrades need no manual step.
+- Create an empty database and a user for it that may create schemas.
+  **Nothing else.** The API is required to run on PostgreSQL in production
+  (it refuses to start without `POSTGRES_DSN`).
+- Every school has its own schema (`school_<id>`), listed in `public.tenants`.
+  At boot the API applies each file in `backend/migrations/` that a school's
+  `schema_migrations` table doesn't list yet, in filename order, one
+  transaction per file — so upgrades need no manual step. A new school (the
+  super admin's `POST /api/schools`) gets its schema and migrations on
+  creation.
 - Back it up. Marks, attendance and fees live here.
 - **Never** point `TEST_POSTGRES_DSN` (the test suite) at this database. The
   tests empty every table.
@@ -54,10 +60,11 @@ scripts/build-web.sh https://api.yourschool.com
 
 Upload the contents of `build/web/` to any static host.
 
-- The API address is **compiled into** the web app. A build without it falls
-  back to `http://127.0.0.1:8080` and runs as an offline demo in each visitor's
-  browser, which is why the script refuses to build without one.
-- Rebuild the web app whenever the API address changes.
+- The API address lives in `build/web/config.json` (`{"api": "…"}`), which the
+  app reads at startup. Change the address by editing that file — no rebuild.
+  `{"api": ":8080"}` means the API on the same host as the page, on port 8080.
+- Without `config.json` the app runs as an offline demo in each visitor's
+  browser, which is why the script refuses to build without an address.
 - The app uses `#/` links, so the host needs no rewrite rules. For a sub-path
   (`yourschool.com/portal/`) run with `BASE_HREF=/portal/`.
 - Serve it over HTTPS. Browsers block an HTTPS page from calling an HTTP API.

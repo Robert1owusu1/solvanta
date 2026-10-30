@@ -114,6 +114,9 @@ ReportCardData _card(Student s) {
 }
 
 void main() {
+  // Report-card PDFs load their bundled font through the asset bundle.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('scheme for a class', () {
     test('by the class list level, then by prefix, then the default', () {
       expect(_school.schemeFor('JHS2A', _classes).name, 'JHS');

@@ -68,6 +68,9 @@ AssessmentSubmission _sub(Assessment a, Student s, double earned) =>
     );
 
 void main() {
+  // Report-card PDFs load their bundled font through the asset bundle.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('GES 9-point grade bands (the default scheme)', () {
     const ges = gesBasicPreset;
     expect(ges.bandFor(100).grade, '1');
@@ -76,9 +79,9 @@ void main() {
     expect(ges.bandFor(57).remark, 'High Average');
     expect(ges.bandFor(34.4).grade, '9');
     expect(ges.bandFor(0).remark, 'Lowest');
-    expect(ges.rangeOf(0), '80-100');
-    expect(ges.rangeOf(1), '70-79');
-    expect(ges.rangeOf(8), '0-34');
+    expect(ges.rangeOf(0), '80–100');
+    expect(ges.rangeOf(1), '70–79');
+    expect(ges.rangeOf(8), '0–34');
   });
 
   test('ordinals', () {
@@ -193,7 +196,14 @@ void main() {
       expect(past.rank, 2);
       expect(past.classSize, 2);
       expect(transcriptCell(past, 'Mathematics'), '50.0* (5)'); // exam only
-      expect(transcriptCell(past, 'Social Studies'), '-');
+      expect(transcriptCell(past, 'Social Studies'), '–');
+    });
+
+    test('PDFs embed the bundled Noto Sans, not Helvetica', () async {
+      final pdf = String.fromCharCodes(
+          await buildReportCardPdf(build(kofi), ReportCardTemplate.classic));
+      expect(pdf, contains('NotoSans'));
+      expect(pdf, isNot(contains('/Helvetica')));
     });
 
     test('every template renders a one-page A4 PDF', () async {

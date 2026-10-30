@@ -25,7 +25,7 @@ func (s *Server) gradingSchool(c *gin.Context) string {
 // cards and results are graded with it on every device.
 func (s *Server) gradingConfig(c *gin.Context) {
 	school := s.gradingSchool(c)
-	if g, ok := s.store.GradingConfig(school); ok {
+	if g, ok := s.db(c).GradingConfig(school); ok {
 		sendJSON(c, g)
 		return
 	}
@@ -47,7 +47,7 @@ func (s *Server) saveGradingConfig(c *gin.Context) {
 	body.SchoolID = s.gradingSchool(c) // never taken from the body
 	body.UpdatedAt = now()
 	body.UpdatedBy = u.Name
-	if writeFailed(c, s.store.SaveGradingConfig(body)) {
+	if writeFailed(c, s.db(c).SaveGradingConfig(body)) {
 		return
 	}
 	s.audit(c, "grading.update", body.SchoolID,

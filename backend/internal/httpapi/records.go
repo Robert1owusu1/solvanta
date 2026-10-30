@@ -32,6 +32,12 @@ type recordKind struct {
 	// roles that may write; empty means any signed-in user (still bound by
 	// scope: a pupil can only write rows about themselves)
 	writers []string
+	// readable, when set, further limits which in-scope rows a user sees.
+	readable func(u domain.User, r domain.Record) bool
+	// check, when set, applies the kind's own write rules after the scope
+	// checks. It may rewrite the stored JSON (server stamps) and returns
+	// false after failing the request.
+	check func(s *Server, c *gin.Context, u domain.User, prev *domain.Record, next *domain.Record) bool
 }
 
 var staffRoles = []string{domain.RoleSuperAdmin, domain.RoleSchoolAdmin,
@@ -54,6 +60,11 @@ var recordKinds = map[string]recordKind{
 	// The same leaders who may promote a student one at a time.
 	domain.RecordPromotions: {scope: scopeStudent, writers: []string{
 		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher}},
+	// Teachers write their own class's; leaders approve. Families see a
+	// report only once it is approved.
+	domain.RecordTermReports: {scope: scopeStudent, writers: []string{
+		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher},
+		readable: termReportReadable, check: checkTermReport},
 }
 
 // recordFields are the fields lifted out of a record's JSON.
@@ -74,10 +85,10 @@ func (s *Server) recordKindParam(c *gin.Context) (string, recordKind, bool) {
 }
 
 // recordVisible applies the kind's read scope to one row.
-func (s *Server) recordVisible(u domain.User, k recordKind, visible map[string]bool, r domain.Record) bool {
+func (s *Server) recordVisible(c *gin.Context, u domain.User, k recordKind, visible map[string]bool, r domain.Record) bool {
 	switch k.scope {
 	case scopeClass:
-		return u.IsSchoolStaff() || r.ClassID == "" || s.viewsClass(u, r.ClassID)
+		return u.IsSchoolStaff() || r.ClassID == "" || s.viewsClass(c, u, r.ClassID)
 	case scopeStudent:
 		return visible == nil || visible[r.StudentID]
 	case scopeOwner:
@@ -92,10 +103,10 @@ func (s *Server) listRecords(c *gin.Context) {
 		return
 	}
 	u := currentUser(c)
-	visible := s.visibleStudents(u)
+	visible := s.visibleStudents(c, u)
 	out := []json.RawMessage{}
-	for _, r := range s.store.Records(kind) {
-		if s.recordVisible(u, k, visible, r) {
+	for _, r := range s.db(c).Records(kind) {
+		if s.recordVisible(c, u, k, visible, r) && (k.readable == nil || k.readable(u, r)) {
 			out = append(out, r.Data)
 		}
 	}
@@ -118,7 +129,7 @@ func (s *Server) canWriteRecord(c *gin.Context, u domain.User, kind string, k re
 		fail(c, http.StatusForbidden, "Your role cannot change this")
 		return false
 	}
-	visible := s.visibleStudents(u)
+	visible := s.visibleStudents(c, u)
 	check := func(r domain.Record) bool {
 		switch k.scope {
 		case scopeStudent:
@@ -142,7 +153,7 @@ func (s *Server) canWriteRecord(c *gin.Context, u domain.User, kind string, k re
 	if !check(r) {
 		return false
 	}
-	if prev, ok := s.store.RecordByID(kind, r.ID); ok && !check(prev) {
+	if prev, ok := s.db(c).RecordByID(kind, r.ID); ok && !check(prev) {
 		return false
 	}
 	return true
@@ -191,11 +202,20 @@ func (s *Server) saveRecord(c *gin.Context) {
 	if !s.canWriteRecord(c, u, kind, k, r) {
 		return
 	}
-	if writeFailed(c, s.store.SaveRecord(r)) {
+	if k.check != nil {
+		var prev *domain.Record
+		if p, ok := s.db(c).RecordByID(kind, id); ok {
+			prev = &p
+		}
+		if !k.check(s, c, u, prev, &r) {
+			return
+		}
+	}
+	if writeFailed(c, s.db(c).SaveRecord(r)) {
 		return
 	}
 	s.audit(c, "record.save", kind+"/"+id, "Saved "+strings.ReplaceAll(kind, "_", " ")+" "+id, "")
-	c.Data(http.StatusOK, "application/json", raw)
+	c.Data(http.StatusOK, "application/json", r.Data)
 }
 
 func (s *Server) deleteRecord(c *gin.Context) {
@@ -204,7 +224,7 @@ func (s *Server) deleteRecord(c *gin.Context) {
 		return
 	}
 	u := currentUser(c)
-	r, found := s.store.RecordByID(kind, c.Param("id"))
+	r, found := s.db(c).RecordByID(kind, c.Param("id"))
 	if !found {
 		// already gone: deleting is idempotent so a replayed outbox item
 		// does not surface as an error
@@ -214,7 +234,11 @@ func (s *Server) deleteRecord(c *gin.Context) {
 	if !s.canWriteRecord(c, u, kind, k, r) {
 		return
 	}
-	if writeFailed(c, s.store.DeleteRecord(kind, r.ID)) {
+	if k.readable != nil && kind == domain.RecordTermReports && isApprovedReport(r) {
+		fail(c, http.StatusConflict, "An approved report can't be deleted; reopen it first")
+		return
+	}
+	if writeFailed(c, s.db(c).DeleteRecord(kind, r.ID)) {
 		return
 	}
 	s.audit(c, "record.delete", kind+"/"+r.ID, "Removed "+strings.ReplaceAll(kind, "_", " ")+" "+r.ID, "")
@@ -229,7 +253,7 @@ const maxScanImage = 8 << 20
 func (s *Server) putScanImage(c *gin.Context) {
 	u := currentUser(c)
 	k := recordKinds[domain.RecordScans]
-	r, ok := s.store.RecordByID(domain.RecordScans, c.Param("id"))
+	r, ok := s.db(c).RecordByID(domain.RecordScans, c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Scan not found")
 		return
@@ -255,7 +279,7 @@ func (s *Server) putScanImage(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "Empty image")
 		return
 	}
-	if writeFailed(c, s.store.SaveScanImage(r.ID, ct, data)) {
+	if writeFailed(c, s.db(c).SaveScanImage(r.ID, ct, data)) {
 		return
 	}
 	sendJSON(c, gin.H{"stored": r.ID, "bytes": len(data)})
@@ -263,12 +287,12 @@ func (s *Server) putScanImage(c *gin.Context) {
 
 func (s *Server) getScanImage(c *gin.Context) {
 	u := currentUser(c)
-	r, ok := s.store.RecordByID(domain.RecordScans, c.Param("id"))
-	if !ok || !s.recordVisible(u, recordKinds[domain.RecordScans], s.visibleStudents(u), r) {
+	r, ok := s.db(c).RecordByID(domain.RecordScans, c.Param("id"))
+	if !ok || !s.recordVisible(c, u, recordKinds[domain.RecordScans], s.visibleStudents(c, u), r) {
 		fail(c, http.StatusNotFound, "Scan not found")
 		return
 	}
-	ct, data, ok := s.store.ScanImage(r.ID)
+	ct, data, ok := s.db(c).ScanImage(r.ID)
 	if !ok {
 		fail(c, http.StatusNotFound, "No image uploaded for this scan")
 		return
@@ -309,7 +333,7 @@ func (s *Server) putSubmissionPageImage(c *gin.Context) {
 	u := currentUser(c)
 	kind := domain.RecordAssignmentSubmissions
 	k := recordKinds[kind]
-	r, ok := s.store.RecordByID(kind, c.Param("id"))
+	r, ok := s.db(c).RecordByID(kind, c.Param("id"))
 	if !ok {
 		fail(c, http.StatusNotFound, "Submission not found")
 		return
@@ -342,7 +366,7 @@ func (s *Server) putSubmissionPageImage(c *gin.Context) {
 	// No explicit size check here: limitRequestBody already caps every PUT
 	// ending in "/image" at maxScanImage and turns an overflow into 413.
 	key := submissionPageKey(r.ID, page)
-	if writeFailed(c, s.store.SaveScanImage(key, ct, data)) {
+	if writeFailed(c, s.db(c).SaveScanImage(key, ct, data)) {
 		return
 	}
 	sendJSON(c, gin.H{"stored": r.ID, "page": page, "bytes": len(data)})
@@ -351,8 +375,8 @@ func (s *Server) putSubmissionPageImage(c *gin.Context) {
 func (s *Server) getSubmissionPageImage(c *gin.Context) {
 	u := currentUser(c)
 	kind := domain.RecordAssignmentSubmissions
-	r, ok := s.store.RecordByID(kind, c.Param("id"))
-	if !ok || !s.recordVisible(u, recordKinds[kind], s.visibleStudents(u), r) {
+	r, ok := s.db(c).RecordByID(kind, c.Param("id"))
+	if !ok || !s.recordVisible(c, u, recordKinds[kind], s.visibleStudents(c, u), r) {
 		fail(c, http.StatusNotFound, "Submission not found")
 		return
 	}
@@ -360,7 +384,7 @@ func (s *Server) getSubmissionPageImage(c *gin.Context) {
 	if !okPage {
 		return
 	}
-	ct, data, ok := s.store.ScanImage(submissionPageKey(r.ID, page))
+	ct, data, ok := s.db(c).ScanImage(submissionPageKey(r.ID, page))
 	if !ok {
 		fail(c, http.StatusNotFound, "No image uploaded for this page")
 		return

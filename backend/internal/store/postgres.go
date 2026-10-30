@@ -64,9 +64,9 @@ func NewPostgres(dsn string, seed bool) (*Postgres, error) {
 		return nil, err
 	}
 	p := &Postgres{db: db}
-	if _, err := db.Exec(migrations.SQL); err != nil {
+	if err := applyMigrations(db); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("apply migrations: %w", err)
+		return nil, err
 	}
 	if seed {
 		// Seeding writes hundreds of rows through Store methods that cannot
@@ -80,6 +80,46 @@ func NewPostgres(dsn string, seed bool) (*Postgres, error) {
 		}
 	}
 	return p, nil
+}
+
+// applyMigrations runs each migration file not yet recorded in this schema's
+// schema_migrations, each in its own transaction with its record, so a failed
+// file leaves nothing half-applied and is retried on the next boot.
+func applyMigrations(db *sql.DB) error {
+	ctx := contextTODO()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		version     TEXT PRIMARY KEY,
+		applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+	)`); err != nil {
+		return fmt.Errorf("migrations table: %w", err)
+	}
+	for _, f := range migrations.Files() {
+		var done bool
+		if err := db.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, f.Name).Scan(&done); err != nil {
+			return fmt.Errorf("migration %s: %w", f.Name, err)
+		}
+		if done {
+			continue
+		}
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("migration %s: %w", f.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx, f.SQL); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %s: %w", f.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO schema_migrations (version) VALUES ($1)`, f.Name); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %s: %w", f.Name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("migration %s: %w", f.Name, err)
+		}
+	}
+	return nil
 }
 
 // Close releases the underlying connection pool.
@@ -267,8 +307,9 @@ func (p *Postgres) SaveFinishedTerm(schoolID string, t domain.FinishedTerm) erro
 func (p *Postgres) Term() domain.SchoolTerm {
 	var t domain.SchoolTerm
 	row := p.db.QueryRowContext(contextTODO(),
-		`SELECT year, name, start_date::text, end_date::text FROM school_terms ORDER BY id DESC LIMIT 1`)
-	err := row.Scan(&t.Year, &t.Name, &t.Start, &t.End)
+		`SELECT year, name, start_date::text, end_date::text, COALESCE(next_start, '')
+		 FROM school_terms ORDER BY id DESC LIMIT 1`)
+	err := row.Scan(&t.Year, &t.Name, &t.Start, &t.End, &t.NextStart)
 	if err != nil && err != sql.ErrNoRows {
 		p.errLog("Term", err)
 	}
@@ -277,9 +318,9 @@ func (p *Postgres) Term() domain.SchoolTerm {
 
 func (p *Postgres) SaveTerm(t domain.SchoolTerm) error {
 	_, err := p.db.ExecContext(contextTODO(),
-		`INSERT INTO school_terms (school_id, year, name, start_date, end_date)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		domain.DefaultSchoolID(), t.Year, t.Name, t.Start, t.End)
+		`INSERT INTO school_terms (school_id, year, name, start_date, end_date, next_start)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		domain.DefaultSchoolID(), t.Year, t.Name, t.Start, t.End, nullStr(t.NextStart))
 	if err != nil {
 		p.errLog("SaveTerm", err)
 		return err

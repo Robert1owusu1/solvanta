@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/grading.dart';
+import '../../core/models/role.dart';
+import '../../core/models/term_report.dart';
+import '../../core/models/user.dart';
 import '../../core/models/student.dart';
 import '../../core/platform/file_share.dart';
 import '../../core/settings/app_settings.dart';
@@ -9,6 +12,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import 'report_card_pdf.dart';
 import 'report_card_source.dart';
+import 'term_reports_repository.dart';
+import '../auth/auth_repository.dart';
 
 /// Failures never surface as an exception: a SnackBar on the brand danger
 /// surface (`AppColors.dangerSolid`) with white text.
@@ -34,6 +39,11 @@ void reportCardFailSnack(BuildContext context, String message) {
 /// report / Modern / Transcript templates, watch a live first-page preview and share the
 /// generated A4 PDF.
 ///
+/// The class teacher writes each pupil's remark and conduct / attitude /
+/// interest; a school leader adds the headteacher's remark and approves,
+/// which freezes the card and releases it to the family. A teacher sees only
+/// their own class. A whole class prints as one PDF.
+///
 /// Everything is built from the local store, so the screen works offline; the
 /// data-saver preference ([shouldSkipHeavyFetch]) additionally reuses the last
 /// built card instead of re-walking the class roster for the rank.
@@ -52,6 +62,7 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
 
   late Future<ReportCardSource> _data;
   String? _studentId;
+  User? _me;
   ReportCardTemplate _template = ReportCardTemplate.classic;
   bool _working = false;
 
@@ -68,8 +79,146 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
 
   Future<ReportCardSource> _load() async {
     final source = await ReportCardSource.load();
-    _studentId ??= source.students.firstOrNull?.id;
+    _me = await AuthRepository().currentUser();
+    _studentId ??= _students(source).firstOrNull?.id;
     return source;
+  }
+
+  /// School leaders approve and reopen reports and write the head's remark.
+  bool get _leader =>
+      _me?.role == AppRole.superAdmin ||
+      _me?.role == AppRole.schoolAdmin ||
+      _me?.role == AppRole.headteacher;
+
+  /// The students this user reports on: a teacher only their own class.
+  List<Student> _students(ReportCardSource s) => _me?.role == AppRole.teacher
+      ? [
+          for (final st in s.students)
+            if (st.classId == _me?.classId) st,
+        ]
+      : s.students;
+
+  /// Whether this user may write [student]'s class-teacher fields now.
+  bool _canWriteRemarks(Student student, TermReport report) =>
+      !report.approved &&
+      (_leader ||
+          (_me?.role == AppRole.teacher && _me?.classId == student.classId));
+
+  Future<void> _editRemarks(
+    ReportCardSource src,
+    Student student,
+    ReportCardData card,
+  ) async {
+    final report = src.reportFor(student);
+    final saved = await showModalBottomSheet<TermReport>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _RemarksSheet(
+        report: report,
+        studentName: student.fullName,
+        draftRemark: card.remark,
+        leader: _leader,
+      ),
+    );
+    if (saved == null) return;
+    await TermReportsRepository().save(saved);
+    _reload();
+  }
+
+  Future<void> _approve(ReportCardSource src, Student student) async {
+    final ok = await svConfirm(
+      context,
+      title: 'Approve ${student.firstName}\'s card?',
+      message:
+          'The card is frozen exactly as it is now and released to the '
+          'family. Later mark changes won\'t alter it unless you reopen it.',
+      confirmLabel: 'Approve',
+    );
+    if (!ok) return;
+    final report = src.reportFor(student);
+    await TermReportsRepository().approve(
+      report,
+      ReportCardSource.withReport(src.liveCardFor(student), report),
+      _me?.name ?? 'Headteacher',
+    );
+    _reload();
+  }
+
+  Future<void> _reopen(ReportCardSource src, Student student) async {
+    final ok = await svConfirm(
+      context,
+      title: 'Reopen ${student.firstName}\'s card?',
+      message:
+          'It goes back to a draft built from the latest marks, and the '
+          'family no longer sees it until it is approved again.',
+      confirmLabel: 'Reopen',
+    );
+    if (!ok) return;
+    await TermReportsRepository().reopen(src.reportFor(student));
+    _reload();
+  }
+
+  /// Students of [classId] in name order.
+  List<Student> _classOf(ReportCardSource src, String classId) => [
+    for (final s in _students(src))
+      if (s.classId == classId) s,
+  ]..sort((a, b) => a.fullName.compareTo(b.fullName));
+
+  Future<void> _approveClass(ReportCardSource src, String classId) async {
+    final todo = [
+      for (final s in _classOf(src, classId))
+        if (!src.reportFor(s).approved && src.liveCardFor(s).overall != null) s,
+    ];
+    if (todo.isEmpty) {
+      reportCardFailSnack(context, 'Nothing to approve in $classId.');
+      return;
+    }
+    final ok = await svConfirm(
+      context,
+      title: 'Approve $classId?',
+      message:
+          'Approve ${todo.length} card(s) as they are now and release '
+          'them to families. Pupils with no marks yet are left as drafts.',
+      confirmLabel: 'Approve all',
+    );
+    if (!ok) return;
+    setState(() => _working = true);
+    for (final s in todo) {
+      final report = src.reportFor(s);
+      await TermReportsRepository().approve(
+        report,
+        ReportCardSource.withReport(src.liveCardFor(s), report),
+        _me?.name ?? 'Headteacher',
+      );
+    }
+    if (!mounted) return;
+    setState(() => _working = false);
+    _reload();
+  }
+
+  /// The whole class as one PDF, a page per pupil — approved cards exactly
+  /// as approved, the rest as drafts marked so.
+  Future<void> _printClass(String classId) async {
+    if (_working) return;
+    setState(() => _working = true);
+    try {
+      final src = await _load();
+      final cards = [for (final s in _classOf(src, classId)) src.cardFor(s)];
+      if (cards.isEmpty) throw StateError('no students in $classId');
+      final bytes = await buildClassReportPdf(cards, _template);
+      if (!mounted) return;
+      await saveAndShareFile(
+        bytes,
+        'reports_${classId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}_${_template.name}.pdf',
+        'application/pdf',
+      );
+    } catch (_) {
+      if (mounted) {
+        reportCardFailSnack(context, "Couldn't build the class PDF.");
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
   }
 
   /// Builds (or reuses) the card for [student]. The rank walk is the only
@@ -106,7 +255,9 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
     setState(() => _working = true);
     try {
       final src = await _load();
-      final student = src.students.where((s) => s.id == studentId).firstOrNull;
+      final student = _students(src)
+          .where((s) => s.id == studentId)
+          .firstOrNull;
       if (student == null) throw StateError('student $studentId is gone');
       _cards.remove(studentId);
       final card = _cardFor(src, student);
@@ -147,6 +298,38 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _working ? null : _reload,
           ),
+          FutureBuilder<ReportCardSource>(
+            future: _data,
+            builder: (context, snap) {
+              final src = snap.data;
+              final student = src == null
+                  ? null
+                  : _students(src).where((s) => s.id == _studentId).firstOrNull;
+              if (src == null || student == null) {
+                return const SizedBox.shrink();
+              }
+              final classId = student.classId;
+              return PopupMenuButton<String>(
+                tooltip: 'Whole class',
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+                enabled: !_working,
+                onSelected: (v) => v == 'print'
+                    ? _printClass(classId)
+                    : _approveClass(src, classId),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'print',
+                    child: Text('Print all of $classId'),
+                  ),
+                  if (_leader)
+                    PopupMenuItem(
+                      value: 'approve',
+                      child: Text('Approve all of $classId'),
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
       body: FutureBuilder<ReportCardSource>(
@@ -166,7 +349,8 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
           }
           final src = snap.data;
           if (src == null) return const SvErrorState();
-          if (src.students.isEmpty) {
+          final students = _students(src);
+          if (students.isEmpty) {
             return const SvEmptyState(
               icon: Icons.school_outlined,
               title: 'No students yet',
@@ -184,11 +368,12 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
                   'from marks.',
             );
           }
-          final student = src.students.firstWhere(
+          final student = students.firstWhere(
             (s) => s.id == _studentId,
-            orElse: () => src.students.first,
+            orElse: () => students.first,
           );
           final card = _cardFor(src, student);
+          final report = src.reportFor(student);
 
           return Column(
             children: [
@@ -204,7 +389,7 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
                     labelText: 'Student',
                   ),
                   items: [
-                    for (final s in src.students)
+                    for (final s in students)
                       DropdownMenuItem(
                         value: s.id,
                         child: Text(
@@ -217,7 +402,16 @@ class _ReportCardScreenState extends State<ReportCardScreen> {
                   onChanged: (v) => setState(() => _studentId = v),
                 ),
               ),
-              const SizedBox(height: 12),
+              _ReportStatusBar(
+                report: report,
+                canWrite: _canWriteRemarks(student, report),
+                leader: _leader,
+                busy: _working,
+                onRemarks: () => _editRemarks(src, student, card),
+                onApprove: () => _approve(src, student),
+                onReopen: () => _reopen(src, student),
+              ),
+              const SizedBox(height: 4),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Align(
@@ -819,15 +1013,17 @@ class YearProgressChart extends StatelessWidget {
                 Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(b.value == null ? '-' : b.value!.toStringAsFixed(1),
-                        style: bold),
+                    Text(
+                      b.value == null ? '–' : b.value!.toStringAsFixed(1),
+                      style: bold,
+                    ),
                     Container(
                       width: 20 * scale,
                       height: b.value == null
                           ? 0.6
                           : (chartH * b.value!.clamp(0, 100) / 100)
-                              .clamp(0.6, chartH)
-                              .toDouble(),
+                                .clamp(0.6, chartH)
+                                .toDouble(),
                       color: b.value == null
                           ? AppPalette.light.border
                           : (b.year ? AppTheme.gold : AppTheme.brand),
@@ -862,9 +1058,12 @@ class YearProgressChart extends StatelessWidget {
           Container(
             margin: EdgeInsets.only(top: 3 * scale),
             padding: EdgeInsets.symmetric(
-                horizontal: 5 * scale, vertical: 2 * scale),
+              horizontal: 5 * scale,
+              vertical: 2 * scale,
+            ),
             decoration: BoxDecoration(
-                border: Border.all(color: AppTheme.brand, width: 0.6)),
+              border: Border.all(color: AppTheme.brand, width: 0.6),
+            ),
             child: Text(
               'END OF YEAR: ${d.outcome!.label.toUpperCase()}'
               '${d.outcome == YearOutcome.promoted && d.promotedTo != null ? ' TO ${d.promotedTo}' : ''}',
@@ -890,17 +1089,24 @@ class YearProgressChart extends StatelessWidget {
         else
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text('This year so far',
-                style: const TextStyle(
-                    color: AppTheme.brand,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800)),
+            child: Text(
+              'This year so far',
+              style: const TextStyle(
+                color: AppTheme.brand,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         // Side by side on the A4 preview; stacked when scaled up on a phone.
         if (scale == 1)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [chart, const SizedBox(width: 8), Expanded(child: explain)],
+            children: [
+              chart,
+              const SizedBox(width: 8),
+              Expanded(child: explain),
+            ],
           )
         else ...[
           Center(child: chart),
@@ -974,7 +1180,7 @@ Widget _previewClassic(ReportCardData d) {
     ),
     _pvGhPair(
       'Next term begins:',
-      '',
+      longDate(d.nextTermBegins),
       d.termNumber == 3 ? 'Promoted to:' : '',
       endOfYearLabel(d),
     ),
@@ -1017,9 +1223,9 @@ Widget _previewClassic(ReportCardData d) {
               _pvGhCell(s.classScoreLabel),
               _pvGhCell(s.examScoreLabel),
               _pvGhCell(s.totalLabel, style: _pvGhTdBold),
-              _pvGhCell(s.termGrade ?? '-', style: _pvGhTdBold),
+              _pvGhCell(s.termGrade ?? '–', style: _pvGhTdBold),
               _pvGhCell(s.positionLabel),
-              _pvGhCell(s.termRemark.isEmpty ? '-' : s.termRemark),
+              _pvGhCell(s.termRemark.isEmpty ? '–' : s.termRemark),
             ],
           ),
       ],
@@ -1035,13 +1241,13 @@ Widget _previewClassic(ReportCardData d) {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            'Total: ${d.totalScore == null ? '-' : '${d.totalScore!.toStringAsFixed(1)} / ${d.gradedSubjects * 100}'}',
+            'Total: ${d.totalScore == null ? '–' : '${d.totalScore!.toStringAsFixed(1)} / ${d.gradedSubjects * 100}'}',
             style: _pvGhTdBold,
           ),
           Text('Average: ${d.overallLabel}', style: _pvGhTdBold),
           if (d.scheme.showAggregate)
             Text(
-              'Aggregate: ${d.aggregate?.toString() ?? '-'}',
+              'Aggregate: ${d.aggregate?.toString() ?? '–'}',
               style: _pvGhTdBold,
             ),
         ],
@@ -1059,28 +1265,38 @@ Widget _previewClassic(ReportCardData d) {
     if (d.termNumber >= 2 && d.year.average != null) YearProgressChart(d),
     Row(
       children: [
-        Expanded(child: _pvGhField('Conduct:', '')),
+        Expanded(child: _pvGhField('Conduct:', d.conduct)),
         const SizedBox(width: 8),
-        Expanded(child: _pvGhField('Attitude:', '')),
+        Expanded(child: _pvGhField('Attitude:', d.attitude)),
         const SizedBox(width: 8),
-        Expanded(child: _pvGhField('Interest:', '')),
+        Expanded(child: _pvGhField('Interest:', d.interest)),
       ],
     ),
     Row(
       children: [
-        Expanded(child: _pvGhField('Fees owing (GHS):', '')),
+        Expanded(
+          child: _pvGhField(
+            'Fees owing:',
+            d.feesOwing == null ? '' : cedis(d.feesOwing!),
+          ),
+        ),
         const SizedBox(width: 10),
-        Expanded(child: _pvGhField("Next term's fees (GHS):", '')),
+        Expanded(
+          child: _pvGhField(
+            "Next term's fees:",
+            d.nextTermFees == null ? '' : cedis(d.nextTermFees!),
+          ),
+        ),
       ],
     ),
     _pvGhLines("Class teacher's remarks:", d.remark),
-    _pvGhLines("Headteacher's remarks:", ''),
+    _pvGhLines("Headteacher's remarks:", d.headRemark),
     const SizedBox(height: 14),
     _pvGhSignatures(
       "Class teacher's signature",
       d.teacherName,
       "Headteacher's signature",
-      '',
+      d.approvedBy,
     ),
     const SizedBox(height: 8),
     _pvGhGradingKey(d.scheme),
@@ -1140,14 +1356,14 @@ Widget _previewTranscript(ReportCardData d) {
                 _pvGhCell(name, align: TextAlign.left),
                 for (final t in terms) _pvGhCell(transcriptCell(t, name)),
                 _pvGhCell(
-                  mean == null ? '-' : mean.toStringAsFixed(1),
+                  mean == null ? '–' : mean.toStringAsFixed(1),
                   style: _pvGhTdBold,
                 ),
                 _pvGhCell(
-                  mean == null ? '-' : d.scheme.bandFor(mean).grade,
+                  mean == null ? '–' : d.scheme.bandFor(mean).grade,
                   style: _pvGhTdBold,
                 ),
-                _pvGhCell(mean == null ? '-' : d.scheme.bandFor(mean).remark),
+                _pvGhCell(mean == null ? '–' : d.scheme.bandFor(mean).remark),
               ],
             );
           }(),
@@ -1155,18 +1371,18 @@ Widget _previewTranscript(ReportCardData d) {
           (
             'Term average',
             (TermRecord t) =>
-                t.overall == null ? '-' : '${t.overall!.toStringAsFixed(1)}%',
+                t.overall == null ? '–' : '${t.overall!.toStringAsFixed(1)}%',
           ),
           (
             'Position in class',
             (TermRecord t) => t.rank == null || t.classSize == 0
-                ? '-'
+                ? '–'
                 : '${ordinal(t.rank!)} / ${t.classSize}',
           ),
           if (d.scheme.showAggregate)
             (
               aggregateLabel(d.scheme),
-              (TermRecord t) => t.aggregate?.toString() ?? '-',
+              (TermRecord t) => t.aggregate?.toString() ?? '–',
             ),
         ])
           TableRow(
@@ -1237,7 +1453,7 @@ Widget _pvStat(String label, String value) => Expanded(
 );
 
 Widget _pvFooter(ReportCardData d) => Text(
-  'Generated by SOLVANTA · ${d.schoolName}',
+  '${approvalLine(d)} · Generated by SOLVANTA · ${d.schoolName}',
   textAlign: TextAlign.center,
   style: _pvMuted,
 );
@@ -1293,6 +1509,202 @@ Widget _pvModernRow(SubjectResult s) => Padding(
 // ---------------------------------------------------------------------------
 // Supporting types
 // ---------------------------------------------------------------------------
+
+/// The selected pupil's report: draft or approved, and what this user may
+/// do with it.
+class _ReportStatusBar extends StatelessWidget {
+  const _ReportStatusBar({
+    required this.report,
+    required this.canWrite,
+    required this.leader,
+    required this.busy,
+    required this.onRemarks,
+    required this.onApprove,
+    required this.onReopen,
+  });
+
+  final TermReport report;
+  final bool canWrite;
+  final bool leader;
+  final bool busy;
+  final VoidCallback onRemarks;
+  final VoidCallback onApprove;
+  final VoidCallback onReopen;
+
+  @override
+  Widget build(BuildContext context) {
+    final approved = report.approved;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Chip(
+            avatar: Icon(
+              approved ? Icons.verified : Icons.edit_note,
+              size: 18,
+              color: AppColors.brand,
+            ),
+            label: Text(
+              approved
+                  ? 'Approved${report.approvedBy.isEmpty ? '' : ' by ${report.approvedBy}'}'
+                  : 'Draft',
+            ),
+          ),
+          if (canWrite)
+            OutlinedButton.icon(
+              onPressed: busy ? null : onRemarks,
+              icon: const Icon(Icons.rate_review_outlined, size: 18),
+              label: const Text('Remarks'),
+            ),
+          if (leader && !approved)
+            FilledButton.icon(
+              onPressed: busy ? null : onApprove,
+              icon: const Icon(Icons.verified_outlined, size: 18),
+              label: const Text('Approve'),
+            ),
+          if (leader && approved)
+            OutlinedButton.icon(
+              onPressed: busy ? null : onReopen,
+              icon: const Icon(Icons.lock_open, size: 18),
+              label: const Text('Reopen'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The class teacher's remark and assessment of the pupil, and — for school
+/// leaders — the headteacher's remark. Starts from the generated remark so
+/// the teacher edits rather than writes from scratch.
+class _RemarksSheet extends StatefulWidget {
+  const _RemarksSheet({
+    required this.report,
+    required this.studentName,
+    required this.draftRemark,
+    required this.leader,
+  });
+
+  final TermReport report;
+  final String studentName;
+  final String draftRemark;
+  final bool leader;
+
+  @override
+  State<_RemarksSheet> createState() => _RemarksSheetState();
+}
+
+class _RemarksSheetState extends State<_RemarksSheet> {
+  late final _remark = TextEditingController(
+    text: widget.report.teacherRemark.isNotEmpty
+        ? widget.report.teacherRemark
+        : widget.draftRemark,
+  );
+  late final _head = TextEditingController(text: widget.report.headRemark);
+  late String _conduct = widget.report.conduct;
+  late String _attitude = widget.report.attitude;
+  late String _interest = widget.report.interest;
+
+  @override
+  void dispose() {
+    _remark.dispose();
+    _head.dispose();
+    super.dispose();
+  }
+
+  Widget _rating(String label, String value, ValueChanged<String> onChanged) {
+    final options = {...TermReport.ratings, if (value.isNotEmpty) value};
+    return DropdownButtonFormField<String>(
+      initialValue: value.isEmpty ? null : value,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: [
+        for (final o in options) DropdownMenuItem(value: o, child: Text(o)),
+      ],
+      onChanged: (v) => onChanged(v ?? ''),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Remarks for ${widget.studentName}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _remark,
+              maxLines: 4,
+              maxLength: 600,
+              decoration: const InputDecoration(
+                labelText: "Class teacher's remark",
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _rating('Conduct', _conduct, (v) => setState(() => _conduct = v)),
+            const SizedBox(height: 10),
+            _rating(
+              'Attitude',
+              _attitude,
+              (v) => setState(() => _attitude = v),
+            ),
+            const SizedBox(height: 10),
+            _rating(
+              'Interest',
+              _interest,
+              (v) => setState(() => _interest = v),
+            ),
+            if (widget.leader) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: _head,
+                maxLines: 3,
+                maxLength: 600,
+                decoration: const InputDecoration(
+                  labelText: "Headteacher's remark",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(
+                widget.report.copyWith(
+                  teacherRemark: _remark.text.trim(),
+                  conduct: _conduct,
+                  attitude: _attitude,
+                  interest: _interest,
+                  headRemark: widget.leader ? _head.text.trim() : null,
+                ),
+              ),
+              child: const Text('Save remarks'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Page-shaped skeleton shown while the report source loads.
 class _PreviewSkeleton extends StatelessWidget {
