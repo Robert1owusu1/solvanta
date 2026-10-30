@@ -60,7 +60,7 @@ dependencies:
   mobile_scanner: ^7.4.2
   # Hashing for on-device secrets (app-lock PIN, offline password copies) that
   # previously sat in SharedPreferences in plain text.
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   sqflite: ^2.4.5
   idb_shim: ^2.11.1
   path: ^1.9.1
