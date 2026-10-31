@@ -45,6 +45,33 @@ func canCreateAssessmentType(role string, typ string) bool {
 		role == domain.RoleTeacher
 }
 
+// canFinalizeDraft reports who may turn a reviewed marking draft into recorded
+// marks. Finalizing writes the grade, so it follows the same split that
+// decides who may create the assessment in the first place (adminOnlyAssessmentTypes):
+//
+//   - Classroom work — quiz, class test, exercise, homework, vacation — is the
+//     owning teacher's alone. School leaders still read the draft for oversight
+//     (mayWorkOnClass), but may not commit marks on somebody else's class.
+//   - Exam work — Mid-Term, End-of-Term, Mock, Diagnostic, Remedial — is
+//     created by school leaders under that same rule, so they retain the
+//     right to finalize it.
+//
+// superAdmin is a named case rather than an accident of the boolean: it acts
+// in every school and is not a school-level role, so it may finalize anywhere
+// (subject, as always, to the route's school scoping).
+func canFinalizeDraft(u domain.User, classID, assessmentType string) bool {
+	switch u.Role {
+	case domain.RoleSuperAdmin:
+		return true
+	case domain.RoleTeacher:
+		return classID != "" && classID == u.ClassID
+	case domain.RoleSchoolAdmin, domain.RoleHeadteacher:
+		return adminOnlyAssessmentTypes[assessmentType]
+	default:
+		return false
+	}
+}
+
 // listAssessments returns assessments, scoped for students/parents to their
 // own class and for teachers to their class (doc §16).
 func (s *Server) listAssessments(c *gin.Context) {
@@ -314,7 +341,7 @@ func (s *Server) submitAssessment(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only submit your own class assessments")
 		return
 	}
-	if !teacherCoversClass(u, st.ClassID) {
+	if !mayWorkOnClass(u, st.ClassID) {
 		fail(c, http.StatusForbidden, "You may only capture work for your own class")
 		return
 	}
@@ -384,7 +411,7 @@ func (s *Server) markVerdicts(c *gin.Context) {
 		fail(c, http.StatusNotFound, "No submission for this assessment/student")
 		return
 	}
-	if !teacherCoversClass(currentUser(c), sub.ClassID) {
+	if !mayWorkOnClass(currentUser(c), sub.ClassID) {
 		fail(c, http.StatusForbidden, "You may only mark work for your own class")
 		return
 	}
@@ -467,10 +494,12 @@ func (s *Server) assessmentResults(c *gin.Context) {
 
 // --- helpers ---
 
-// teacherCoversClass applies the classroom rule to capturing and marking: a
-// teacher works on their own class only, school leaders on any. Other roles
-// are decided by the caller and the route's own gates.
-func teacherCoversClass(u domain.User, classID string) bool {
+// mayWorkOnClass applies the classroom scope rule to reading, capturing and
+// drafting: a teacher works on their own class only, school leaders on any.
+// It answers "may this user handle work for this class at all" — NOT who may
+// commit marks, which is canFinalizeDraft. Other roles are decided by the
+// caller and the route's own gates.
+func mayWorkOnClass(u domain.User, classID string) bool {
 	return u.Role != domain.RoleTeacher || (classID != "" && classID == u.ClassID)
 }
 

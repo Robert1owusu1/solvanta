@@ -152,7 +152,7 @@ func (s *Server) studentMarkingFeedback(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Student not found")
 		return
 	}
-	if !s.canViewStudent(u, st) || !teacherCoversClass(u, st.ClassID) {
+	if !s.canViewStudent(u, st) || !mayWorkOnClass(u, st.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view feedback for students you teach or your own family")
 		return
 	}
@@ -258,7 +258,7 @@ type classPaperReport struct {
 func (s *Server) classMarkingFeedback(c *gin.Context) {
 	u := currentUser(c)
 	classID := c.Param("classId")
-	if !teacherCoversClass(u, classID) {
+	if !mayWorkOnClass(u, classID) {
 		fail(c, http.StatusForbidden, "You may only view reports for your own class")
 		return
 	}

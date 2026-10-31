@@ -129,7 +129,7 @@ func (s *Server) classResultsReport(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Assessment not found")
 		return
 	}
-	if !teacherCoversClass(currentUser(c), a.ClassID) {
+	if !mayWorkOnClass(currentUser(c), a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only view your own class's results")
 		return
 	}

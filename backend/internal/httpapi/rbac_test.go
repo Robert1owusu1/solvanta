@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"solvanta/backend/internal/domain"
 )
 
 // Role endpoint acceptance matrix — the "what may each role do" contract.
@@ -368,5 +370,142 @@ func TestStudentCannotActForOthers(t *testing.T) {
 	rec = do(r, "POST", "/api/assessments/ASSMT-MAT-HALF/submit", body, map[string]string{"Authorization": "Bearer " + tok})
 	if rec.Code != http.StatusConflict {
 		t.Errorf("student resubmitting a marked paper: got %d, want 409 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// classTestSchemeFixture matches ASSMT-ENG-T1 question for question: three
+// questions, so the recorded marks line up with the assessment's own papers.
+const classTestSchemeFixture = `[
+  {"questionNumber":1,"totalMarks":1,
+   "markBreakdown":[{"type":"final_answer","criteria":"True or false","marks":1}],
+   "acceptedAnswers":[{"answerText":"True","normalizedForm":"true","marksAwarded":1,"isPrimary":true}],
+   "misconceptions":[]},
+  {"questionNumber":2,"totalMarks":2,
+   "markBreakdown":[{"type":"final_answer","criteria":"The verb","marks":2}],
+   "acceptedAnswers":[{"answerText":"goes","normalizedForm":"goes","marksAwarded":2,"isPrimary":true}],
+   "misconceptions":[]},
+  {"questionNumber":3,"totalMarks":3,
+   "markBreakdown":[{"type":"method","criteria":"Cohesion","marks":1},{"type":"final_answer","criteria":"Accuracy","marks":2}],
+   "acceptedAnswers":[{"answerText":"Kojo ran, but he was late.","normalizedForm":"kojo ran but he was late","marksAwarded":3,"isPrimary":true}],
+   "misconceptions":[]}
+]`
+
+// TestFinalizeIsScopedByAssessmentType closes a gap the role x endpoint matrix
+// structurally cannot reach: every leader role is ALLOWED to call finalize, so
+// the matrix passes for a headteacher on a classroom draft just as happily as
+// on an exam one. The rule lives inside the handler, so it is pinned here
+// instead — a leader finalizes the exam papers they may create, but never
+// another teacher's classroom work, and reading it stays open to them.
+func TestFinalizeIsScopedByAssessmentType(t *testing.T) {
+	r, st := newTestServerWithStore(t, Config{})
+	teacher := login(t, r, demoAccounts["teacher"][0], demoAccounts["teacher"][1])
+	head := login(t, r, demoAccounts["headteacher"][0], demoAccounts["headteacher"][1])
+
+	// Classroom work: ASSMT-ENG-T1 is a class test, a type teachers create, so
+	// the classroom is the teacher's to finalize. STU-001's paper is seeded.
+	rec := do(r, "POST", "/api/assessments/ASSMT-ENG-T1/marking-scheme",
+		`{"assessmentId":"ASSMT-ENG-T1","questions":`+classTestSchemeFixture+`}`, bearer(head))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("class test scheme: %d %s", rec.Code, rec.Body.String())
+	}
+	var engScheme domain.MarkingScheme
+	_ = json.Unmarshal(rec.Body.Bytes(), &engScheme)
+	code, classroom, body := postDraft(t, r, teacher, fmt.Sprintf(
+		`{"schemeId":%q,"submissionId":"SUB-E1-STU001","studentId":"STU-001",`+
+			`"answers":[{"questionNumber":1,"text":"True"},{"questionNumber":2,"text":"goes"},`+
+			`{"questionNumber":3,"text":"Kojo ran, but he was late."}]}`,
+		engScheme.ID))
+	if code != http.StatusCreated {
+		t.Fatalf("classroom draft: %d %s", code, body)
+	}
+
+	// Exam work: ASSMT-MAT-HALF is a diagnostic, a type leaders create, and
+	// carries three questions like the assessment itself.
+	_, exam := draftForSTU002(t, r, teacher, head)
+	before, ok := st.SubmissionFor("ASSMT-ENG-T1", "STU-001")
+	if !ok {
+		t.Fatal("seed submission for ASSMT-ENG-T1/STU-001 is missing")
+	}
+
+	// A headteacher may finalize the exam paper they are entitled to create...
+	rec = do(r, "POST", "/api/marking-drafts/"+exam.ID+"/finalize",
+		finalizeBody(exam, map[int]float64{1: 2, 2: 3, 3: 4}, nil), bearer(head))
+	if rec.Code != http.StatusOK {
+		t.Errorf("headteacher finalizing an exam draft: got %d, want 200 (%s)",
+			rec.Code, rec.Body.String())
+	}
+
+	// ...but not another teacher's classroom work, which stays the teacher's.
+	rec = do(r, "POST", "/api/marking-drafts/"+classroom.ID+"/finalize",
+		finalizeBody(classroom, map[int]float64{1: 1, 2: 1, 3: 2}, nil), bearer(head))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("headteacher finalizing classroom work: got %d, want 403 (%s)",
+			rec.Code, rec.Body.String())
+	}
+	if after, _ := st.SubmissionFor("ASSMT-ENG-T1", "STU-001"); after.Earned != before.Earned {
+		t.Errorf("a refused finalize still wrote marks: %v -> %v", before.Earned, after.Earned)
+	}
+
+	// Oversight is untouched: the leader reads the draft it may not commit.
+	if rec := do(r, "GET", "/api/marking-drafts/"+classroom.ID, "", bearer(head)); rec.Code != http.StatusOK {
+		t.Errorf("headteacher reading a classroom draft: got %d, want 200", rec.Code)
+	}
+
+	// The owning teacher still finalizes their own classroom work.
+	rec = do(r, "POST", "/api/marking-drafts/"+classroom.ID+"/finalize",
+		finalizeBody(classroom, map[int]float64{1: 1, 2: 1, 3: 2}, nil), bearer(teacher))
+	if rec.Code != http.StatusOK {
+		t.Errorf("teacher finalizing their own classroom draft: got %d, want 200 (%s)",
+			rec.Code, rec.Body.String())
+	}
+}
+
+// TestCanFinalizeDraftMatrix pins the policy itself — the split from
+// adminOnlyAssessmentTypes applied to the write path — including superAdmin as
+// a NAMED case rather than something inherited from the school-level roles by
+// fall-through.
+func TestCanFinalizeDraftMatrix(t *testing.T) {
+	classroom := domain.TypeClassTest
+	exam := domain.TypeMock
+	assignment := "" // a scheme with no assessment is assignment work
+	own := domain.User{Role: domain.RoleTeacher, ClassID: "JHS2A"}
+	other := domain.User{Role: domain.RoleTeacher, ClassID: "JHS1B"}
+
+	cases := []struct {
+		name    string
+		u       domain.User
+		classID string
+		typ     string
+		want    bool
+	}{
+		// The owning teacher finalizes classroom work in their own class...
+		{"teacher, own classroom", own, "JHS2A", classroom, true},
+		{"teacher, own assignment", own, "JHS2A", assignment, true},
+		// ...and nobody else's, whatever the type.
+		{"teacher, another class", other, "JHS2A", classroom, false},
+		{"teacher, another class's exam", other, "JHS2A", exam, false},
+		// Leaders keep the exam types they are entitled to create...
+		{"headteacher, exam", domain.User{Role: domain.RoleHeadteacher}, "JHS2A", exam, true},
+		{"schoolAdmin, exam", domain.User{Role: domain.RoleSchoolAdmin}, "JHS2A", exam, true},
+		// ...but never another teacher's classroom work.
+		{"headteacher, classroom", domain.User{Role: domain.RoleHeadteacher}, "JHS2A", classroom, false},
+		{"schoolAdmin, classroom", domain.User{Role: domain.RoleSchoolAdmin}, "JHS2A", classroom, false},
+		{"headteacher, assignment", domain.User{Role: domain.RoleHeadteacher}, "JHS2A", assignment, false},
+		// superAdmin is explicit: it acts in every school, so it finalizes
+		// anywhere rather than inheriting the school-level restriction.
+		{"superAdmin, classroom", domain.User{Role: domain.RoleSuperAdmin}, "JHS2A", classroom, true},
+		{"superAdmin, assignment", domain.User{Role: domain.RoleSuperAdmin}, "JHS1B", assignment, true},
+		// Roles the route already blocks must not pass here either.
+		{"parent", domain.User{Role: domain.RoleParent}, "JHS2A", exam, false},
+		{"student", domain.User{Role: domain.RoleStudent}, "JHS2A", exam, false},
+		{"staff", domain.User{Role: domain.RoleStaff}, "JHS2A", exam, false},
+		// A teacher without a class of their own cannot finalize anything.
+		{"teacher, classless", domain.User{Role: domain.RoleTeacher}, "JHS2A", classroom, false},
+		{"teacher, empty class", own, "", classroom, false},
+	}
+	for _, tc := range cases {
+		if got := canFinalizeDraft(tc.u, tc.classID, tc.typ); got != tc.want {
+			t.Errorf("%s: canFinalizeDraft = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

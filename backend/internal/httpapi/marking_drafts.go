@@ -91,7 +91,7 @@ func (s *Server) createMarkingDraft(c *gin.Context) {
 		fail(c, http.StatusNotFound, "The scheme's assessment or assignment no longer exists")
 		return
 	}
-	if !teacherCoversClass(u, classID) {
+	if !mayWorkOnClass(u, classID) {
 		fail(c, http.StatusForbidden, "You may only mark work for your own class")
 		return
 	}
@@ -302,7 +302,7 @@ func (s *Server) listMarkingDrafts(c *gin.Context) {
 	}
 	out := []draftResponse{}
 	for _, d := range drafts {
-		if teacherCoversClass(u, d.ClassID) {
+		if mayWorkOnClass(u, d.ClassID) {
 			out = append(out, toDraftResponse(d))
 		}
 	}
@@ -325,8 +325,28 @@ type finalizeRequest struct {
 func (s *Server) finalizeMarkingDraft(c *gin.Context) {
 	u := currentUser(c)
 	d, ok := s.db(c).MarkingDraftByID(c.Param("id"))
-	if !ok || !teacherCoversClass(u, d.ClassID) {
+	if !ok || !mayWorkOnClass(u, d.ClassID) {
 		fail(c, http.StatusNotFound, "Draft not found")
+		return
+	}
+	// Authorization comes first: finalizing writes the marks, so it is scoped
+	// by the assessment type as well as by class — classroom work stays with
+	// its owning teacher (canFinalizeDraft), exam work stays with the leaders
+	// who may create it.
+	scheme, ok := s.db(c).MarkingSchemeByID(d.SchemeID)
+	if !ok {
+		fail(c, http.StatusConflict, "The scheme this draft used no longer exists")
+		return
+	}
+	_, assessmentType := s.schemeTarget(c, scheme)
+	if !canFinalizeDraft(u, d.ClassID, assessmentType) {
+		if assessmentType == "" {
+			fail(c, http.StatusForbidden,
+				"Classroom work is finalized by the teacher whose class it is")
+		} else {
+			fail(c, http.StatusForbidden,
+				"Only the teacher whose class this is can finalize a "+assessmentType+" draft")
+		}
 		return
 	}
 	if d.Status != domain.DraftStatusDraft {
@@ -368,11 +388,6 @@ func (s *Server) finalizeMarkingDraft(c *gin.Context) {
 		a.TeacherNote = strings.TrimSpace(m.Note)
 	}
 
-	scheme, ok := s.db(c).MarkingSchemeByID(d.SchemeID)
-	if !ok {
-		fail(c, http.StatusConflict, "The scheme this draft used no longer exists")
-		return
-	}
 	d.Status = domain.DraftStatusFinalized
 	d.FinalizedBy = u.ID
 	d.FinalizedAt = now()
@@ -468,7 +483,7 @@ func (s *Server) finalizedSubmission(c *gin.Context, scheme domain.MarkingScheme
 
 func (s *Server) getMarkingDraft(c *gin.Context) {
 	d, ok := s.db(c).MarkingDraftByID(c.Param("id"))
-	if !ok || !teacherCoversClass(currentUser(c), d.ClassID) {
+	if !ok || !mayWorkOnClass(currentUser(c), d.ClassID) {
 		fail(c, http.StatusNotFound, "Draft not found")
 		return
 	}
