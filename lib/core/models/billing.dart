@@ -152,3 +152,8 @@ class MyBilling {
 
 /// Formats pesewas as `GHS 90.00`.
 String formatGhs(int pesewas) => 'GHS ${(pesewas / 100).toStringAsFixed(2)}';
+
+/// SOLVANTA never takes money in-app. Paid plans (anything but the free tier)
+/// are arranged with sales; this is where schools are pointed to do that.
+const String salesContact = 'sales@solvanta.app';
+

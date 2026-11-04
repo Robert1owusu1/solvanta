@@ -165,6 +165,16 @@ class _PlansScreenState extends State<PlansScreen> {
                   : 'Free access for everyone. Usage is still counted so you can price from real numbers.',
               style: TextStyle(fontSize: 12, color: AppColors.body),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'The free tier is self-serve. Paid plans are arranged with the '
+              'school directly — SOLVANTA does not take payments in-app. '
+              'Prices here are for quoting; schools pay you their own way.',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: AppColors.muted),
+            ),
           ],
         ),
       ),

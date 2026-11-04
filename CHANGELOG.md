@@ -8,6 +8,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Bulk payment recording. SOLVANTA takes no money in-app — schools collect fees
+  their own way (cash, mobile money, bank) and record what they received: one at
+  a time (search a student on the Fees screen → their invoice → enter the
+  payment, which already existed) or in bulk from a prefilled `.xlsx`/`.csv`
+  template. The upload previews every row as valid / warning / error (unknown
+  student, no outstanding invoice, non-numeric amount, amount over the balance)
+  before anything is written, matching students on id then admission number —
+  never name — and applying each payment to the student's oldest outstanding
+  invoice (or a named one). Paid subscription plans are now explicitly
+  **"contact sales"** (only the free tier is self-serve); the app never charges,
+  so the Plans screen and the independent teacher's billing badge point to sales
+  rather than any in-app checkout.
+
 - Plans, pricing & free-vs-paid machinery (Phase 4), built in full but **shipped
   switched off**. A platform-wide **billing mode** (`testing` | `live`, default
   `testing`, super-admin only): in testing nothing is blocked and no invoices

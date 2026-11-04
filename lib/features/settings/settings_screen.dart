@@ -58,11 +58,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         if (!b.liveOn && b.liveStartDate.isNotEmpty) {
           return _badge('Paid billing starts ${b.liveStartDate}',
-              'From then, ${b.plan.name} is ${formatGhs(b.previewMonthPesewas)} / month for your ${b.peakStudents} students.',
+              'From then, ${b.plan.name} is about ${formatGhs(b.previewMonthPesewas)} / month '
+              'for your ${b.peakStudents} students. Arrange it with sales ($salesContact) — '
+              'SOLVANTA does not take payments in the app.',
               AppColors.warning);
         }
-        return _badge('${b.plan.name} · ${formatGhs(b.previewMonthPesewas)} / month',
-            'For your ${b.peakStudents} students, or ${formatGhs(b.previewTermPesewas)} / term.',
+        return _badge('${b.plan.name} · contact sales',
+            'About ${formatGhs(b.previewMonthPesewas)} / month (or ${formatGhs(b.previewTermPesewas)} / term) '
+            'for your ${b.peakStudents} students. Arrange payment your own way with sales: $salesContact.',
             AppColors.brand);
       },
     );
