@@ -43,7 +43,7 @@ dependencies:
   image_picker: ^1.2.3
   # Pick an .xlsx/.csv file for bulk manual score upload.
   file_picker: ^13.3.2
-  share_plus: ^13.3.0
+  share_plus: ^13.3.1
   path_provider: ^2.1.6
   pdf: ^3.12.0
   excel: ^4.0.6
