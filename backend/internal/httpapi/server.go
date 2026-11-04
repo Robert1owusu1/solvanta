@@ -114,11 +114,22 @@ func (s *Server) OCRStatus() string {
 	return s.ocrs.Status()
 }
 
-// sign issues a token for a user for the given ttl.
+// sign issues a full session token for a user for the given ttl.
 func (s *Server) sign(u domain.User, ttl time.Duration) string {
+	return s.signClaims(u, ttl, false)
+}
+
+// signMFAChallenge issues a short-lived token that only /auth/mfa/verify
+// accepts — the user must still pass their one-time code to get a real session.
+func (s *Server) signMFAChallenge(u domain.User) string {
+	return s.signClaims(u, 5*time.Minute, true)
+}
+
+func (s *Server) signClaims(u domain.User, ttl time.Duration, mfa bool) string {
 	now := time.Now()
 	claims, _ := json.Marshal(tokenClaims{
-		Sub: u.ID, Sch: u.SchoolID, Exp: now.Add(ttl).Unix(), Iat: now.Unix(), Jti: randomHex(16),
+		Sub: u.ID, Sch: u.SchoolID, Exp: now.Add(ttl).Unix(), Iat: now.Unix(),
+		Jti: randomHex(16), Mfa: mfa,
 	})
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write(claims)
@@ -227,6 +238,12 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 		tc, ok := s.parseToken(token)
 		if !ok || s.isRevoked(tc.Jti) {
 			fail(c, http.StatusUnauthorized, "Invalid or expired token")
+			c.Abort()
+			return
+		}
+		// A challenge token only unlocks /auth/mfa/verify, never the API.
+		if tc.Mfa {
+			fail(c, http.StatusUnauthorized, "Complete two-factor sign-in first")
 			c.Abort()
 			return
 		}
@@ -462,9 +479,15 @@ func (s *Server) Router() *gin.Engine {
 	{
 		auth.POST("/login", s.loginRateLimit(), s.login)
 		auth.POST("/register", s.loginRateLimit(), s.register)
+		// Two-factor: setup/enable/disable need a session; verify is the public
+		// second step of sign-in (it carries the challenge token in the body).
+		auth.POST("/mfa/setup", s.requireAuth(), s.mfaSetup)
+		auth.POST("/mfa/enable", s.requireAuth(), s.mfaEnable)
+		auth.POST("/mfa/disable", s.requireAuth(), s.mfaDisable)
+		auth.POST("/mfa/verify", s.loginRateLimit(), s.mfaVerify)
 		auth.POST("/logout", s.requireAuth(), s.logout)
 		auth.GET("/me", s.requireAuth(), func(c *gin.Context) {
-			sendJSON(c, gin.H{"user": currentUser(c)})
+			sendJSON(c, gin.H{"user": currentUser(c), "mfaEnabled": currentUser(c).MFAEnabled})
 		})
 	}
 

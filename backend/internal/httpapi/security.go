@@ -317,4 +317,8 @@ type tokenClaims struct {
 	Exp int64  `json:"exp"`
 	Iat int64  `json:"iat"`
 	Jti string `json:"jti"`
+	// Mfa marks a short-lived challenge token issued to a user who has MFA on:
+	// it lets them call /auth/mfa/verify but nothing else, until they exchange
+	// it for a full token by passing their one-time code.
+	Mfa bool `json:"mfa,omitempty"`
 }

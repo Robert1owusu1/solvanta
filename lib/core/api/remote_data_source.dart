@@ -27,6 +27,10 @@ typedef SubjectInfo = ({String id, String name});
 /// Login response from `POST /auth/login`.
 typedef LoginResult = ({String token, User user});
 
+/// A login attempt's outcome: a full session (user set), or a two-factor
+/// challenge (mfaToken set, user null) to be completed at /auth/mfa/verify.
+typedef LoginAttempt = ({String token, User? user, String mfaToken});
+
 class AttendanceSummary {
   const AttendanceSummary({
     required this.total,
@@ -107,7 +111,7 @@ class RemoteDataSource {
     return res['status'] == 'ok';
   }
 
-  Future<LoginResult> login({
+  Future<LoginAttempt> login({
     required String email,
     required String password,
     bool? offlineQueue,
@@ -127,6 +131,53 @@ class RemoteDataSource {
       offlineQueue: offlineQueue,
       syncKind: syncKind,
       syncPayload: syncPayload,
+    ) as JsonMap;
+    if (res['mfaRequired'] == true) {
+      return (token: '', user: null, mfaToken: res['mfaToken'] as String);
+    }
+    final token = res['token'] as String;
+    client.token = token;
+    return (
+      token: token,
+      user: User.fromJson(res['user'] as JsonMap),
+      mfaToken: ''
+    );
+  }
+
+  /// Whether two-factor is on for the signed-in user.
+  Future<bool> mfaEnabled() async {
+    final res = await client.get('/auth/me') as JsonMap;
+    return (res['mfaEnabled'] ?? false) as bool;
+  }
+
+  /// Begins enrolment: returns the TOTP secret and the otpauth URI to show as
+  /// a QR code.
+  Future<({String secret, String uri})> mfaSetup() async {
+    final res = await client.post('/auth/mfa/setup') as JsonMap;
+    return (
+      secret: res['secret'] as String,
+      uri: res['otpauthUri'] as String
+    );
+  }
+
+  /// Confirms enrolment with the first valid code.
+  Future<void> mfaEnable(String code) async {
+    await client.post('/auth/mfa/enable', {'code': code});
+  }
+
+  /// Turns two-factor off (requires a current code).
+  Future<void> mfaDisable(String code) async {
+    await client.post('/auth/mfa/disable', {'code': code});
+  }
+
+  /// Completes a two-factor sign-in: exchanges the challenge token plus the
+  /// one-time code for a full session.
+  Future<LoginResult> verifyMfa(String mfaToken, String code) async {
+    final res = await client.request(
+      'POST',
+      '/auth/mfa/verify',
+      body: {'mfaToken': mfaToken, 'code': code},
+      offlineQueue: false,
     ) as JsonMap;
     final token = res['token'] as String;
     client.token = token;

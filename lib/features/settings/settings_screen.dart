@@ -8,6 +8,8 @@ import '../../core/models/school.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../auth/mfa_settings_screen.dart';
+import '../legal/legal_screen.dart';
 import '../security/security.dart';
 
 /// Appearance, feedback, data, security and accessibility preferences.
@@ -259,6 +261,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Status is never shown by colour alone: every state carries an '
                 'icon and a text label, and the app respects your device '
                 'text size.',
+              ),
+
+              // -------------------------------------------------------------
+              const SvSectionTitle('Account security'),
+              _Card(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.verified_user_outlined,
+                      color: AppColors.muted),
+                  title: const Text('Two-factor authentication'),
+                  subtitle: const Text('An extra code at sign-in'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MfaSettingsScreen())),
+                ),
+              ),
+
+              // -------------------------------------------------------------
+              const SvSectionTitle('Legal'),
+              _Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.description_outlined,
+                          color: AppColors.muted),
+                      title: const Text('Terms of Service'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) =>
+                              const LegalScreen(doc: LegalDoc.terms))),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.privacy_tip_outlined,
+                          color: AppColors.muted),
+                      title: const Text('Privacy Policy'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) =>
+                              const LegalScreen(doc: LegalDoc.privacy))),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

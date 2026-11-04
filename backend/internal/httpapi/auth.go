@@ -47,6 +47,12 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	c.Set(ctxStoreKey, home)
+	// With two-factor on, the password is only the first step: return a
+	// short-lived challenge the client exchanges at /auth/mfa/verify.
+	if u.MFAEnabled {
+		sendJSON(c, gin.H{"mfaRequired": true, "mfaToken": s.signMFAChallenge(u)})
+		return
+	}
 	s.audit(c, "auth.login", u.ID, "Signed in as "+u.Name, "")
 	sendJSON(c, gin.H{"token": s.sign(u, tokenTTL), "user": u})
 }

@@ -37,7 +37,7 @@ class _FakeRemote extends RemoteDataSource {
   final String issuedToken;
 
   @override
-  Future<LoginResult> login({
+  Future<LoginAttempt> login({
     required String email,
     required String password,
     bool? offlineQueue,
@@ -47,7 +47,7 @@ class _FakeRemote extends RemoteDataSource {
     // Mirrors the real method, which publishes the token to the shared
     // session before returning — every other ApiClient picks it up from there.
     client.token = issuedToken;
-    return (token: issuedToken, user: _teacher);
+    return (token: issuedToken, user: _teacher, mfaToken: '');
   }
 
   @override

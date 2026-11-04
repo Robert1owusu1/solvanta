@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/role.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../legal/legal_screen.dart';
 import 'auth_repository.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -271,6 +272,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('I already have an account'),
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text('By creating an account you agree to our ',
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted)),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap),
+                        onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const LegalScreen(doc: LegalDoc.terms))),
+                        child: const Text('Terms',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                      Text(' and ',
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted)),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap),
+                        onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const LegalScreen(
+                                    doc: LegalDoc.privacy))),
+                        child: const Text('Privacy Policy',
+                            style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
                   ),
                 ],
               ),

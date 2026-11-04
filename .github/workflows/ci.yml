@@ -48,10 +48,17 @@ jobs:
       # -p 1: the store and API packages share this database and the store
       # tests truncate every table, so the packages must not run at once. The
       # DSN also exercises the migrations on real PostgreSQL.
-      - name: go test (with PostgreSQL)
-        run: go test -count=1 -p 1 ./...
+      - name: go test (with PostgreSQL + coverage)
+        run: go test -count=1 -p 1 -coverprofile=coverage.out ./...
         env:
           TEST_POSTGRES_DSN: postgres://solvanta:test@127.0.0.1:5433/solvanta?sslmode=disable
+      - name: go coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.out
+          if-no-files-found: warn
       # Supply-chain vulnerability scan. Non-blocking for now (findings are
       # often in the Go toolchain and clear with the next patch release); it
       # surfaces advisories in the log without failing the build. Tighten to a
@@ -75,7 +82,12 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       # The parity suite runs only against a live API; it self-skips otherwise.
-      - run: flutter test
+      - run: flutter test --coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-coverage
+          path: coverage/lcov.info
+          if-no-files-found: warn
 
   # CD: build the production web bundle on main once both check jobs pass, and
   # keep it as a downloadable artifact ready to deploy (see docs/DEPLOYMENT.md).

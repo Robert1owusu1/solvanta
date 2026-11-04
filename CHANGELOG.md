@@ -8,6 +8,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Two-factor authentication (TOTP). Any user can enrol from Settings → Account
+  security: scan the QR with an authenticator app, confirm a code to turn it on,
+  and turn it off with a current code. Sign-in then becomes two-step — the
+  password returns a short-lived challenge that only `/auth/mfa/verify` accepts,
+  exchanged for a session with the one-time code. RFC 6238 (SHA-1, 6 digits, 30s)
+  implemented with no external dependency and unit-tested against the RFC vector.
+- Terms of Service and Privacy Policy screens, linked from Settings and from the
+  registration form.
+- CI now reports test coverage (Go `-coverprofile`, Flutter `--coverage`) and
+  uploads it as an artifact.
+
 - Supply-chain scanning in CI: a (non-blocking) `govulncheck` step and a
   Dependabot config (gomod / pub / github-actions, weekly); bumped `quic-go` to
   v0.59.1 to clear a known advisory.

@@ -351,11 +351,12 @@ func (p *Postgres) SaveTerm(t domain.SchoolTerm) error {
 // --- Users (doc §9) ---
 
 const userColumns = `id, name, email, COALESCE(phone,''), password, role,
-	COALESCE(school_id,''), COALESCE(class_id,'')`
+	COALESCE(school_id,''), COALESCE(class_id,''), COALESCE(mfa_secret,''), COALESCE(mfa_enabled,FALSE)`
 
 func scanUser(row interface{ Scan(...any) error }) (domain.User, error) {
 	var u domain.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.Password, &u.Role, &u.SchoolID, &u.ClassID)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.Password, &u.Role, &u.SchoolID, &u.ClassID,
+		&u.MFASecret, &u.MFAEnabled)
 	return u, err
 }
 
@@ -434,13 +435,15 @@ func (p *Postgres) SaveUser(u domain.User) error {
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(contextTODO(), `
-		INSERT INTO users (id, name, email, phone, password, role, school_id, class_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, name, email, phone, password, role, school_id, class_id, mfa_secret, mfa_enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone,
 			password = EXCLUDED.password, role = EXCLUDED.role,
-			school_id = EXCLUDED.school_id, class_id = EXCLUDED.class_id`,
-		u.ID, u.Name, u.Email, nullStr(u.Phone), u.Password, u.Role, nullStr(u.SchoolID), nullStr(u.ClassID)); err != nil {
+			school_id = EXCLUDED.school_id, class_id = EXCLUDED.class_id,
+			mfa_secret = EXCLUDED.mfa_secret, mfa_enabled = EXCLUDED.mfa_enabled`,
+		u.ID, u.Name, u.Email, nullStr(u.Phone), u.Password, u.Role, nullStr(u.SchoolID), nullStr(u.ClassID),
+		nullStr(u.MFASecret), u.MFAEnabled); err != nil {
 		p.errLog("SaveUser", err)
 		return err
 	}

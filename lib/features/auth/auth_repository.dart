@@ -27,11 +27,25 @@ class AuthRepository {
   Future<User?> login({
     required String email,
     required String password,
+    Future<String?> Function()? requestMfaCode,
   }) async {
     final remote = _remote;
     if (remote != null) {
-      final res = await remote.login(email: email, password: password);
-      final remoteUser = res.user;
+      final attempt = await remote.login(email: email, password: password);
+      final String token;
+      final User remoteUser;
+      if (attempt.mfaToken.isNotEmpty) {
+        // Two-factor is on: ask the UI for the one-time code and verify it.
+        final code = await requestMfaCode?.call();
+        if (code == null || code.trim().isEmpty) return null;
+        final verified = await remote.verifyMfa(attempt.mfaToken, code.trim());
+        token = verified.token;
+        remoteUser = verified.user;
+      } else {
+        token = attempt.token;
+        remoteUser = attempt.user!;
+      }
+      final res = (token: token, user: remoteUser);
 
       // This device may still hold someone else's school data (the app was
       // closed without signing out): it goes before this account's arrives.

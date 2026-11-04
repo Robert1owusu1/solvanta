@@ -139,6 +139,10 @@ type User struct {
 	// TokenVersion is bumped on password change / full sign-out; access
 	// tokens carrying an older version are refused (session revocation).
 	TokenVersion int `json:"-"`
+	// MFASecret is the user's TOTP secret (base32); MFAEnabled is set once they
+	// confirm a code. Both are server-only — never serialised to any client.
+	MFASecret  string `json:"-"`
+	MFAEnabled bool   `json:"-"`
 }
 
 func (u User) IsSchoolStaff() bool {
