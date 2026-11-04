@@ -33,9 +33,10 @@ void main() {
       // The platform owner also onboards schools and sets platform pricing;
       // school leaders don't.
       expect(labels(AppRole.superAdmin),
-          ['Schools', 'Plans & Pricing', ...labels(AppRole.schoolAdmin)]);
+          ['Schools', 'Plans & Pricing', 'Usage', ...labels(AppRole.schoolAdmin)]);
       expect(labels(AppRole.schoolAdmin), isNot(contains('Schools')));
       expect(labels(AppRole.schoolAdmin), isNot(contains('Plans & Pricing')));
+      expect(labels(AppRole.schoolAdmin), isNot(contains('Usage')));
       expect(labels(AppRole.schoolAdmin), labels(AppRole.headteacher));
       expect(labels(AppRole.schoolAdmin), containsAll(<String>[
         'Students',

@@ -8,6 +8,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Supply-chain scanning in CI: a (non-blocking) `govulncheck` step and a
+  Dependabot config (gomod / pub / github-actions, weekly); bumped `quic-go` to
+  v0.59.1 to clear a known advisory.
+- Student bulk import: register a whole class from a prefilled `.xlsx`/`.csv`
+  template with the same preview-then-confirm flow as scores and payments
+  (missing name, bad gender and unknown class are errors; a duplicate admission
+  number warns but still registers), wired into the Students screen.
+- Super-admin **Usage** screen: each tenant's activity this month (peak
+  students, classes, AI pages, OCR cost), exportable to `.xlsx`.
+
 - Bulk payment recording. SOLVANTA takes no money in-app — schools collect fees
   their own way (cash, mobile money, bank) and record what they received: one at
   a time (search a student on the Fees screen → their invoice → enter the

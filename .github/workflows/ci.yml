@@ -52,6 +52,15 @@ jobs:
         run: go test -count=1 -p 1 ./...
         env:
           TEST_POSTGRES_DSN: postgres://solvanta:test@127.0.0.1:5433/solvanta?sslmode=disable
+      # Supply-chain vulnerability scan. Non-blocking for now (findings are
+      # often in the Go toolchain and clear with the next patch release); it
+      # surfaces advisories in the log without failing the build. Tighten to a
+      # gate once the dependency set is consistently clean.
+      - name: govulncheck
+        continue-on-error: true
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
   client:
     name: Flutter (analyze + test)

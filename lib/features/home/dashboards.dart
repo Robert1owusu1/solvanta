@@ -6,6 +6,7 @@ import '../../core/models/school.dart';
 import '../../core/models/user.dart';
 import '../admin/parent_linking_screen.dart';
 import '../admin/plans_screen.dart';
+import '../admin/usage_screen.dart';
 import '../admin/school_admin_screen.dart';
 import '../admin/schools_screen.dart';
 import '../admin/sms_screen.dart';
@@ -137,6 +138,9 @@ final _superAdminModules = [
   Module(Icons.payments_outlined, 'Plans & Pricing', NavSection.records,
       subtitle: 'Platform billing, plans & limits',
       builder: (_) => const PlansScreen()),
+  Module(Icons.insights_outlined, 'Usage', NavSection.records,
+      subtitle: 'Per-tenant activity vs. cost',
+      builder: (_) => const UsageScreen()),
   ..._adminModules,
 ];
 
