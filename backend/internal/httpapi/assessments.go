@@ -131,8 +131,15 @@ func (s *Server) createAssessment(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "classId does not exist")
 		return
 	}
-	if len(body.Questions) == 0 {
-		fail(c, http.StatusBadRequest, "at least one question is required")
+	// A "score-only" assessment carries an explicit max score and no questions
+	// (a school marks it on paper and records only the final mark). Otherwise at
+	// least one question is required, as before.
+	if body.MaxScore != nil && *body.MaxScore <= 0 {
+		fail(c, http.StatusBadRequest, "maxScore must be greater than 0")
+		return
+	}
+	if len(body.Questions) == 0 && body.MaxScore == nil {
+		fail(c, http.StatusBadRequest, "an assessment needs at least one question or a max score")
 		return
 	}
 	// An offline client names its own assessment so screens can refer to it
@@ -152,6 +159,7 @@ func (s *Server) createAssessment(c *gin.Context) {
 		Date:      firstNonEmpty(body.Date, today()),
 		CreatedBy: firstNonEmpty(body.CreatedBy, u.Name),
 		Questions: body.Questions,
+		MaxScore:  body.MaxScore,
 	}
 	if writeFailed(c, s.db(c).SaveAssessment(a)) {
 		return
@@ -405,12 +413,12 @@ func (s *Server) markVerdicts(c *gin.Context) {
 
 	st, _ := s.db(c).StudentByID(sub.StudentID)
 	var pct float64
-	if tm := a.TotalMarks(); tm > 0 {
+	if tm := a.EffectiveTotal(); tm > 0 {
 		pct = 100 * sub.Earned / tm
 	}
 	if st.ParentUserID != "" {
 		s.notify(c, st.ParentUserID, domain.NotifMarking, a.Title+" marked",
-			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
+			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.EffectiveTotal())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
 	s.audit(c, "marking.verdicts", sub.ID, "Marked "+a.Title+" for "+st.FullName(), "")
@@ -430,13 +438,25 @@ func (s *Server) assessmentResults(c *gin.Context) {
 		Total   float64        `json:"total"`
 		Percent float64        `json:"percent"`
 		Grade   string         `json:"grade"`
+		Absent  bool           `json:"absent"`
+		Source  string         `json:"source,omitempty"`
+		Remark  string         `json:"remark,omitempty"`
 	}
-	total := a.TotalMarks()
+	total := a.EffectiveTotal()
 	var rows []row
 	dist := map[string]int{}
+	// Absent pupils still appear in the roster, but they are not graded and are
+	// excluded from the distribution and the class average.
+	var avgSum float64
+	var graded int
 	for _, st := range s.db(c).Students() {
 		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found {
+			continue
+		}
+		if sub.Absent {
+			rows = append(rows, row{Student: st, Total: total, Absent: true,
+				Source: sub.EffectiveSource(), Remark: sub.Remark})
 			continue
 		}
 		pct := 0.0
@@ -445,15 +465,21 @@ func (s *Server) assessmentResults(c *gin.Context) {
 		}
 		g := marking.GradeLetter(pct)
 		dist[g]++
-		rows = append(rows, row{Student: st, Earned: sub.Earned, Total: total, Percent: pct, Grade: g})
+		avgSum += pct
+		graded++
+		rows = append(rows, row{Student: st, Earned: sub.Earned, Total: total, Percent: pct,
+			Grade: g, Source: sub.EffectiveSource(), Remark: sub.Remark})
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Percent > rows[j].Percent })
-	avg := 0.0
-	if len(rows) > 0 {
-		for _, r := range rows {
-			avg += r.Percent
+	// Absent rows sort to the bottom (negative percent sentinel on the sort key).
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Absent != rows[j].Absent {
+			return !rows[i].Absent
 		}
-		avg /= float64(len(rows))
+		return rows[i].Percent > rows[j].Percent
+	})
+	avg := 0.0
+	if graded > 0 {
+		avg = avgSum / float64(graded)
 	}
 	sendJSON(c, gin.H{
 		"assessment":   a,
@@ -461,6 +487,7 @@ func (s *Server) assessmentResults(c *gin.Context) {
 		"distribution": dist,
 		"average":      avg,
 		"submitted":    len(rows),
+		"graded":       graded,
 		"totalMarks":   total,
 	})
 }
@@ -529,12 +556,12 @@ func clampMarks(qs []domain.Question, marks map[string]float64) map[string]float
 // parent (doc §36).
 func (s *Server) notifyAssessmentComplete(c *gin.Context, a domain.Assessment, st domain.Student, sub domain.Submission) {
 	pct := 0.0
-	if tm := a.TotalMarks(); tm > 0 {
+	if tm := a.EffectiveTotal(); tm > 0 {
 		pct = 100 * sub.Earned / tm
 	}
 	if st.ParentUserID != "" {
 		s.notify(c, st.ParentUserID, domain.NotifAssessment, a.Title+" — result available",
-			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.TotalMarks())+" ("+marking.GradeLetter(pct)+").",
+			st.FullName()+" scored "+formatMarks(sub.Earned)+"/"+formatMarks(a.EffectiveTotal())+" ("+marking.GradeLetter(pct)+").",
 			st.ID)
 	}
 }

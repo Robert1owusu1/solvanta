@@ -33,6 +33,8 @@ class AssessmentBuilderPresets {
 
 class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
   late final TextEditingController _title;
+  final _maxScore = TextEditingController();
+  bool _scoreOnly = false;
   final _repo = AssessmentRepository();
 
   /// Fetched once: every dropdown change calls setState, and a fresh future
@@ -55,6 +57,7 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
   @override
   void dispose() {
     _title.dispose();
+    _maxScore.dispose();
     super.dispose();
   }
 
@@ -116,7 +119,19 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
           const SnackBar(content: Text('Enter a title')));
       return;
     }
-    if (_selected.isEmpty) {
+    double? maxScore;
+    if (_scoreOnly) {
+      maxScore = double.tryParse(_maxScore.text.trim().replaceAll(',', '.'));
+      if (maxScore == null || maxScore <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Enter a max score greater than 0'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+        return;
+      }
+    } else if (_selected.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -147,7 +162,8 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
       classId: _classId ?? 'JHS2A',
       date: date,
       createdBy: user.name,
-      questions: _selected,
+      questions: _scoreOnly ? const [] : _selected,
+      maxScore: maxScore,
     );
     await _repo.saveAssessment(assessment);
     if (!mounted) return;
@@ -215,52 +231,77 @@ class _AssessmentBuilderScreenState extends State<AssessmentBuilderScreen> {
                 ],
                 onChanged: (v) => setState(() => _classId = v),
               ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                        'Questions (${_selected.length}) · ${_selected.fold<double>(0, (s, q) => s + q.marks)} marks',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: .w700)),
-                  ),
-                  TextButton(
-                    onPressed: _generateBlueprint,
-                    child: const Text('Add from bank'),
-                  ),
-                  TextButton(
-                    onPressed: _addQuestion,
-                    child: const Text('+ New'),
-                  ),
-                ],
-              ),
-              if (_selected.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-child: Text('No questions yet. Use "Add from bank" to '
-                    'auto-select from the question bank by subject, or add '
-                    'your own.',
-                      style: TextStyle(color: AppColors.muted)),
+              const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _scoreOnly,
+                onChanged: (v) => setState(() => _scoreOnly = v),
+                title: const Text('Score only (marked on paper)'),
+                subtitle: Text(
+                  'Record a final mark per pupil out of a max score, with no '
+                  'questions.',
+                  style: TextStyle(fontSize: 12, color: AppColors.body),
                 ),
-              for (final q in _selected)
-                Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4),
-                  child: ListTile(
-                    dense: true,
-                    title: Text(q.stem,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                        '${q.type.label} · ${q.topic} · ${q.marks.toStringAsFixed(0)} marks · ${q.difficulty}/3'),
-                    trailing: IconButton(
-                      tooltip: 'Remove ${q.topic} from this paper',
-                      icon: Icon(Icons.remove_circle_outline,
-                          color: AppColors.danger),
-                      onPressed: () => setState(() =>
-                          _selected = _selected.where((x) => x.id != q.id).toList()),
+              ),
+              if (_scoreOnly) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _maxScore,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Max score',
+                    hintText: 'e.g. 20',
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                          'Questions (${_selected.length}) · ${_selected.fold<double>(0, (s, q) => s + q.marks)} marks',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                    ),
+                    TextButton(
+                      onPressed: _generateBlueprint,
+                      child: const Text('Add from bank'),
+                    ),
+                    TextButton(
+                      onPressed: _addQuestion,
+                      child: const Text('+ New'),
+                    ),
+                  ],
+                ),
+                if (_selected.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                        'No questions yet. Use "Add from bank" to '
+                        'auto-select from the question bank by subject, or add '
+                        'your own.',
+                        style: TextStyle(color: AppColors.muted)),
+                  ),
+                for (final q in _selected)
+                  Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListTile(
+                      dense: true,
+                      title: Text(q.stem,
+                          maxLines: 2, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(
+                          '${q.type.label} · ${q.topic} · ${q.marks.toStringAsFixed(0)} marks · ${q.difficulty}/3'),
+                      trailing: IconButton(
+                        tooltip: 'Remove ${q.topic} from this paper',
+                        icon: Icon(Icons.remove_circle_outline,
+                            color: AppColors.danger),
+                        onPressed: () => setState(() => _selected =
+                            _selected.where((x) => x.id != q.id).toList()),
+                      ),
                     ),
                   ),
-                ),
+              ],
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: _save,

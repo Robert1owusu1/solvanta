@@ -1,5 +1,19 @@
 import 'question.dart';
 
+/// Where a submission's score came from.
+///
+/// [online] (the default, and the empty wire value) is a question-by-question
+/// submission; [ai] is a finalized marking draft; [manual] is a score recorded
+/// by hand (empty answers, [AssessmentSubmission.earned] set directly).
+enum SubmissionSource {
+  ai,
+  manual,
+  online;
+
+  static SubmissionSource fromKey(String? key) => SubmissionSource.values
+      .firstWhere((s) => s.name == key, orElse: () => SubmissionSource.online);
+}
+
 class AssessmentSubmission {
   final String id;
   final String assessmentId;
@@ -9,6 +23,9 @@ class AssessmentSubmission {
   final Map<String, String> answers;
   final Map<String, double> teacherMarks;
   final double earned;
+  final SubmissionSource source;
+  final String remark;
+  final bool absent;
   final String? markingSchemeId;
   final int? markingSchemeVersion;
 
@@ -21,6 +38,9 @@ class AssessmentSubmission {
     required this.answers,
     required this.teacherMarks,
     required this.earned,
+    this.source = SubmissionSource.online,
+    this.remark = '',
+    this.absent = false,
     this.markingSchemeId,
     this.markingSchemeVersion,
   });
@@ -50,6 +70,9 @@ class AssessmentSubmission {
           (k, v) => MapEntry(k as String, ((v as num).toDouble())),
         ),
         earned: ((json['earned'] ?? 0) as num).toDouble(),
+        source: SubmissionSource.fromKey(json['source'] as String?),
+        remark: (json['remark'] ?? '') as String,
+        absent: (json['absent'] ?? false) as bool,
         markingSchemeId: json['markingSchemeId'] as String?,
         markingSchemeVersion: (json['markingSchemeVersion'] as num?)?.toInt(),
       );
@@ -63,6 +86,9 @@ class AssessmentSubmission {
         'answers': answers,
         'teacherMarks': teacherMarks,
         'earned': earned,
+        if (source != SubmissionSource.online) 'source': source.name,
+        if (remark.isNotEmpty) 'remark': remark,
+        'absent': absent,
         if (markingSchemeId != null) 'markingSchemeId': markingSchemeId,
         if (markingSchemeVersion != null) 'markingSchemeVersion': markingSchemeVersion,
       };

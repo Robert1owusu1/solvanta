@@ -1,6 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
+import '../../core/models/billing.dart';
+import '../../core/models/capabilities.dart';
+import '../../core/models/school.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
@@ -28,6 +32,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _settings.load();
   }
 
+  /// For an independent workspace, a badge showing the billing status: a
+  /// "Testing — free access" chip, or (once live is scheduled) a warning of the
+  /// coming change. Empty for normal schools.
+  Widget _billingBadge() {
+    if (Capabilities.currentKind != SchoolKind.independent) {
+      return const SizedBox.shrink();
+    }
+    // Default to the testing chip; refine from the server when reachable.
+    if (!ApiClient.isConfigured) {
+      return _badge('Testing — free access',
+          'Every feature is free while we test. Usage is counted so pricing can be set fairly.',
+          AppColors.success);
+    }
+    return FutureBuilder<MyBilling>(
+      future: ApiClient()
+          .get('/api/billing/me')
+          .then((r) => MyBilling.fromJson(r as Map<String, dynamic>)),
+      builder: (context, snap) {
+        final b = snap.data;
+        if (b == null || b.isTesting) {
+          return _badge('Testing — free access',
+              'Every feature is free while we test. Usage is counted so pricing can be set fairly.',
+              AppColors.success);
+        }
+        if (!b.liveOn && b.liveStartDate.isNotEmpty) {
+          return _badge('Paid billing starts ${b.liveStartDate}',
+              'From then, ${b.plan.name} is ${formatGhs(b.previewMonthPesewas)} / month for your ${b.peakStudents} students.',
+              AppColors.warning);
+        }
+        return _badge('${b.plan.name} · ${formatGhs(b.previewMonthPesewas)} / month',
+            'For your ${b.peakStudents} students, or ${formatGhs(b.previewTermPesewas)} / term.',
+            AppColors.brand);
+      },
+    );
+  }
+
+  Widget _badge(String title, String body, Color color) => Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: .35)),
+        ),
+        child: Row(children: [
+          Icon(Icons.workspace_premium_outlined, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title,
+                  style: TextStyle(fontWeight: FontWeight.w700, color: color)),
+              Text(body, style: TextStyle(fontSize: 12, color: AppColors.body)),
+            ]),
+          ),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -39,6 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           body: ListView(
             padding: const EdgeInsets.only(top: 8, bottom: 32),
             children: [
+              _billingBadge(),
               // -------------------------------------------------------------
               const SvSectionTitle('Appearance'),
               _Card(

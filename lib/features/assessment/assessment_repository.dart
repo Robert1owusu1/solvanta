@@ -132,6 +132,100 @@ class AssessmentRepository {
     }
   }
 
+  /// Records a single manual score (schools that mark on paper). Writes the
+  /// submission to the local store first, then mirrors it to the API — the
+  /// offline outbox replays the write if there is no connection.
+  Future<void> recordScore({
+    required Assessment assessment,
+    required String studentId,
+    double? score,
+    bool absent = false,
+    String remark = '',
+    bool override = false,
+  }) async {
+    final subs = await _store.loadSubmissions();
+    final existing = subs.where((s) =>
+        s.assessmentId == assessment.id && s.studentId == studentId);
+    final id = existing.isNotEmpty
+        ? existing.first.id
+        : 'SUB-${DateTime.now().millisecondsSinceEpoch}';
+    final date = existing.isNotEmpty && existing.first.date.isNotEmpty
+        ? existing.first.date
+        : _today();
+    final sub = AssessmentSubmission(
+      id: id,
+      assessmentId: assessment.id,
+      studentId: studentId,
+      classId: assessment.classId,
+      date: date,
+      answers: const {},
+      teacherMarks: const {},
+      earned: absent ? 0 : (score ?? 0),
+      source: SubmissionSource.manual,
+      remark: remark,
+      absent: absent,
+    );
+    subs.removeWhere((s) =>
+        s.assessmentId == assessment.id && s.studentId == studentId);
+    await _store.saveSubmissions([...subs, sub]);
+
+    await ServerSync.instance.send(
+      'PUT',
+      '/api/assessments/${assessment.id}/scores/$studentId',
+      body: {
+        'absent': absent,
+        if (!absent && score != null) 'score': score,
+        if (remark.isNotEmpty) 'remark': remark,
+        if (override) 'override': true,
+      },
+    );
+  }
+
+  /// Records many manual scores in one batch. [rows] is the confirmed bulk
+  /// payload (see [scorePayload] in manual_scores/score_io.dart): each element
+  /// is `{studentId, absent, score?, remark?}`.
+  Future<void> bulkRecordScores({
+    required Assessment assessment,
+    required List<Map<String, dynamic>> rows,
+    bool override = false,
+  }) async {
+    final subs = await _store.loadSubmissions();
+    for (final row in rows) {
+      final studentId = row['studentId'] as String;
+      final absent = (row['absent'] ?? false) as bool;
+      final score = (row['score'] as num?)?.toDouble();
+      final remark = (row['remark'] ?? '') as String;
+      final existing = subs.where((s) =>
+          s.assessmentId == assessment.id && s.studentId == studentId);
+      final id = existing.isNotEmpty
+          ? existing.first.id
+          : 'SUB-${DateTime.now().microsecondsSinceEpoch}-$studentId';
+      subs
+        ..removeWhere((s) =>
+            s.assessmentId == assessment.id && s.studentId == studentId)
+        ..add(AssessmentSubmission(
+          id: id,
+          assessmentId: assessment.id,
+          studentId: studentId,
+          classId: assessment.classId,
+          date: _today(),
+          answers: const {},
+          teacherMarks: const {},
+          earned: absent ? 0 : (score ?? 0),
+          source: SubmissionSource.manual,
+          remark: remark,
+          absent: absent,
+        ));
+    }
+    await _store.saveSubmissions(subs);
+
+    await ServerSync.instance.send(
+      'POST',
+      '/api/assessments/${assessment.id}/scores/bulk',
+      body: override ? {'override': true, 'scores': rows} : rows,
+    );
+  }
+
   Future<List<({Assessment assessment, AssessmentSubmission? submission})>>
       resultsForStudent(String studentId) async {
     final assessments = await _store.loadAssessments();

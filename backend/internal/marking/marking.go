@@ -175,25 +175,40 @@ func (c ClassPerformance) assessment(id string) (domain.Assessment, bool) {
 }
 
 // AssessmentAverage returns the mean earned ratio (0..1) for an assessment.
+// Absent pupils are excluded — an absence is not a zero and must not drag the
+// mean down — and the ratio is taken against the effective total.
 func (c ClassPerformance) AssessmentAverage(a domain.Assessment) float64 {
-	list := c.subsFor(a.ID)
-	if len(list) == 0 || a.TotalMarks() <= 0 {
+	total := a.EffectiveTotal()
+	if total <= 0 {
 		return 0
 	}
 	var sum float64
-	for _, s := range list {
-		sum += s.Earned / a.TotalMarks()
+	var n int
+	for _, s := range c.subsFor(a.ID) {
+		if s.Absent {
+			continue
+		}
+		sum += s.Earned / total
+		n++
 	}
-	return sum / float64(len(list))
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
-// Distribution returns grade → count for an assessment (doc §26).
+// Distribution returns grade → count for an assessment (doc §26). Absent
+// pupils are not graded, so they are left out of the distribution.
 func (c ClassPerformance) Distribution(a domain.Assessment) map[string]int {
 	out := map[string]int{"A": 0, "B": 0, "C": 0, "D": 0, "F": 0}
+	total := a.EffectiveTotal()
 	for _, s := range c.subsFor(a.ID) {
+		if s.Absent {
+			continue
+		}
 		pct := 0.0
-		if tm := a.TotalMarks(); tm > 0 {
-			pct = 100 * s.Earned / tm
+		if total > 0 {
+			pct = 100 * s.Earned / total
 		}
 		out[GradeLetter(pct)]++
 	}
@@ -256,12 +271,15 @@ func (c ClassPerformance) AtRisk(threshold float64) []StudentAlert {
 		}
 		var earned, possible float64
 		for _, m := range mine {
+			if m.Absent {
+				continue
+			}
 			a, ok := c.assessment(m.AssessmentID)
 			if !ok {
 				continue
 			}
 			earned += m.Earned
-			possible += a.TotalMarks()
+			possible += a.EffectiveTotal()
 		}
 		pct := 0.0
 		if possible > 0 {

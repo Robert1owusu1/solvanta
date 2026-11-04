@@ -8,6 +8,74 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Plans, pricing & free-vs-paid machinery (Phase 4), built in full but **shipped
+  switched off**. A platform-wide **billing mode** (`testing` | `live`, default
+  `testing`, super-admin only): in testing nothing is blocked and no invoices
+  are raised, but **usage is still counted**. Going live is confirmed, audited
+  and effective only from a chosen start date (before which nothing is
+  enforced). **Plans** (`plans` / `plan_features` / `plan_limits`, amounts in
+  pesewas) with per-feature toggles and per-limit values (**NULL = unlimited**),
+  seeded with a free "Independent — Testing" plan (every feature, no limits,
+  price 0). A super-admin **Plans & Pricing** screen to edit plans, prices and
+  limits with a live "a teacher with 45 students pays GHS X/month or Y/term"
+  preview; price changes are recorded in history and apply from the next period,
+  never retroactively. **Enforcement** (live mode only) blocks new actions that
+  exceed a plan limit or use a feature the plan excludes (with an upgrade hint),
+  never reads/edits/exports of existing data, with a configurable `past_due`
+  grace period. **Usage counters** per tenant per month (peak students, classes,
+  AI pages, OCR cost) feed `GET /api/platform/usage`. Independent teachers see a
+  "Testing — free access" badge (and a pre-live warning) in Settings. A
+  `PaymentProvider` interface with a mock implementation stands in for the real
+  mobile-money gateway. New endpoints under `/api/platform/*`, `/api/plans`,
+  `/api/subscriptions` and `/api/billing/me`.
+
+- Independent teacher workspaces (Phase 3). A teacher whose school is not on
+  SOLVANTA can self-register an **independent workspace** — a tenant of their
+  own (`school.kind = independent`, owned by them), fixing the old bug that
+  dropped every self-registered teacher into the default school. They accept a
+  data-protection notice at registration (stored with a timestamp), and inside
+  their workspace they create classes, register students and build assessments
+  of any type, use AI marking, manual score entry and the score sheet. A shared
+  **capability catalogue** (`capabilities.go` / `capabilities.dart`) keyed on
+  `school.kind` keeps the workspace out of the school-only modules — fees, gate,
+  SMS, staff management, parent/student logins, announcements, report-card
+  approval, school-wide analytics and audit — hidden in the module grid and
+  returning 403 on the API. New `POST /auth/register`. A super admin can
+  **transfer** a workspace into a school: `POST /api/schools/:id/transfers/preview`
+  (dry-run counts + conflicts) and `POST /api/schools/:id/transfers` (moves the
+  classes, students, assessments and scores, keeping ids or remapping with a
+  stored old→new map, turns the teacher into a normal teacher, and archives the
+  workspace read-only). Every transfer is audited in both tenants.
+
+- Score sheet / gradebook (Phase 2): a per-class, per-subject grid of students
+  (rows) against assessments (columns), each cell the score out of the max and
+  marked AI / Manual / Absent, with empty cells highlighted. A term-total column
+  applies the school's grading config (class-score/exam split and grade bands)
+  and shows each pupil's position in class; absent scores are excluded from the
+  total. Filters for class, subject, term and assessment type; tapping a cell
+  opens manual entry, a column header opens the assessment. Download the sheet
+  as `.xlsx`, PDF or `.csv` (and a single assessment's results), shared via
+  `saveAndShareFile` on mobile. New endpoint
+  `GET /api/reports/score-sheet?classId=&subjectId=&term=` with the same RBAC as
+  the class-results report. Bulk score upload now accepts a picked `.xlsx`/`.csv`
+  file (file_picker) as well as pasted text.
+
+- Manual score entry (Phase 1) for schools that mark on paper. A school-level
+  **marking mode** (`ai` / `manual` / `both`, default `both`) set by school
+  admins hides the AI capture/marking entry points when `manual`, and manual
+  entry when `ai`, enforced on the API (403) as well as the UI. Assessments can
+  be **score-only** — a title, type, subject, class, date and max score with no
+  questions; every grade, percentage and average is computed against the
+  effective total (max score when set, else the sum of the question marks).
+  Scores carry a **source** (`ai` / `manual` / `online`), an optional remark,
+  and an **absent** flag (not a zero — excluded from averages). Teachers record
+  a single score against the class roster, or bulk-upload from a prefilled
+  `.xlsx` / `.csv` template with a valid/warning/error preview before saving.
+  New endpoints `PUT /api/assessments/:id/scores/:studentId` and
+  `POST /api/assessments/:id/scores/bulk` (idempotent, atomic), same RBAC as
+  marking; edits are allowed until the term is finished, each is audited
+  old→new, and overwriting an AI-marked score needs an explicit override.
+
 - Quick search (Ctrl/⌘+K, or the search button): jump to any page and, for
   staff, a student by name or admission number or an assessment by title;
   arrow keys and Enter, Esc to close, with a hand-off to the full search.

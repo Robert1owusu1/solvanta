@@ -467,13 +467,13 @@ func assertOCROnResponse(t *testing.T, body []byte, wantProvider, wantText strin
 	t.Helper()
 	var resp struct {
 		OCR struct {
-			Text       string     `json:"text"`
-			Provider   ocr.Kind   `json:"provider"`
+			Text       string       `json:"text"`
+			Provider   ocr.Kind     `json:"provider"`
 			CostTier   ocr.CostTier `json:"costTier"`
-			Lines      int        `json:"lines"`
-			Confidence float64    `json:"confidence"`
-			Warnings   []string   `json:"warnings"`
-			Confirmed  bool       `json:"confirmed"`
+			Lines      int          `json:"lines"`
+			Confidence float64      `json:"confidence"`
+			Warnings   []string     `json:"warnings"`
+			Confirmed  bool         `json:"confirmed"`
 		} `json:"ocr"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {

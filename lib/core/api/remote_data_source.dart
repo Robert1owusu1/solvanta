@@ -133,6 +133,34 @@ class RemoteDataSource {
     return (token: token, user: User.fromJson(res['user'] as JsonMap));
   }
 
+  /// Registers an independent teacher, creating their own workspace tenant on
+  /// the server (`POST /auth/register`) and returning the signed-in session.
+  Future<LoginResult> registerIndependent({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    String workspaceName = '',
+  }) async {
+    final res = await client.request(
+      'POST',
+      '/auth/register',
+      body: {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'password': password,
+        if (workspaceName.isNotEmpty) 'workspaceName': workspaceName,
+        'independent': true,
+        'acceptDataProtection': true,
+      },
+      offlineQueue: false,
+    ) as JsonMap;
+    final token = res['token'] as String;
+    client.token = token;
+    return (token: token, user: User.fromJson(res['user'] as JsonMap));
+  }
+
   Future<void> logout({
     bool? offlineQueue,
     String? syncKind,

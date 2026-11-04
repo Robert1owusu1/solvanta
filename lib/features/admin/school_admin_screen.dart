@@ -45,6 +45,7 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
     final phone = TextEditingController(text: school.phone);
     final email = TextEditingController(text: school.email);
     final region = TextEditingController(text: school.region);
+    var mode = school.markingMode;
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -56,7 +57,8 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
             right: 16,
             top: 16),
         child: SingleChildScrollView(
-          child: Column(
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('School details',
@@ -73,6 +75,33 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
               TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
               const SizedBox(height: 12),
               TextField(controller: region, decoration: const InputDecoration(labelText: 'Region')),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Marking mode',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, color: AppColors.ink)),
+              ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Manual hides AI capture/marking; AI hides manual score '
+                  'entry. Existing data is kept either way.',
+                  style: TextStyle(fontSize: 12, color: AppColors.body),
+                ),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<MarkingMode>(
+                isExpanded: true,
+                initialValue: mode,
+                decoration: const InputDecoration(labelText: 'How scores are recorded'),
+                items: [
+                  for (final m in MarkingMode.values)
+                    DropdownMenuItem(value: m, child: Text(m.label)),
+                ],
+                onChanged: (v) => setSheet(() => mode = v ?? MarkingMode.both),
+              ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -88,6 +117,7 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
                       phone: phone.text.trim(),
                       email: email.text.trim(),
                       region: region.text.trim(),
+                      markingMode: mode,
                     ));
                     await AuditRepository().log(
                       action: 'school.update',
@@ -104,6 +134,7 @@ class _SchoolAdminScreenState extends State<SchoolAdminScreen> {
               ),
               const SizedBox(height: 16),
             ],
+            ),
           ),
         ),
       ),

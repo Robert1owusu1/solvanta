@@ -78,9 +78,9 @@ func NewRouter(cfg Config) *Router {
 	}
 
 	return &Router{
-		math:  mathP,
-		text:  textP,
-		mock:  mock,
+		math: mathP,
+		text: textP,
+		mock: mock,
 		status: fmt.Sprintf("OCR routes — math-notation: %s (%s) · plain-text: %s (%s)",
 			mathP.Kind(), mathWhy, textP.Kind(), textWhy),
 	}

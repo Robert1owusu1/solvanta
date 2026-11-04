@@ -1,10 +1,15 @@
 name: ci
 
-# Runs on every push/PR to the default branch once a remote repository exists.
+# Runs on every push (any branch) and every pull request, so feature branches
+# are checked before they reach main, not only after.
 on:
   push:
-    branches: [main]
   pull_request:
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -30,11 +35,21 @@ jobs:
         with:
           go-version: "1.27"
           cache-dependency-path: backend/go.sum
-      - run: go vet ./...
-      - run: go build ./...
+      - name: go vet
+        run: go vet ./...
+      - name: gofmt (no diffs)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+      - name: go build
+        run: go build ./...
       # -p 1: the store and API packages share this database and the store
-      # tests truncate every table, so the packages must not run at once.
-      - run: go test -p 1 ./...
+      # tests truncate every table, so the packages must not run at once. The
+      # DSN also exercises the migrations on real PostgreSQL.
+      - name: go test (with PostgreSQL)
+        run: go test -count=1 -p 1 ./...
         env:
           TEST_POSTGRES_DSN: postgres://solvanta:test@127.0.0.1:5433/solvanta?sslmode=disable
 
@@ -46,9 +61,31 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "3.x"
+          flutter-version: "3.47.4"
           cache: true
       - run: flutter pub get
       - run: flutter analyze
       # The parity suite runs only against a live API; it self-skips otherwise.
       - run: flutter test
+
+  # CD: build the production web bundle on main once both check jobs pass, and
+  # keep it as a downloadable artifact ready to deploy (see docs/DEPLOYMENT.md).
+  build-web:
+    name: Build web bundle (main)
+    needs: [backend, client]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.4"
+          cache: true
+      - run: flutter pub get
+      - run: flutter build web --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: solvanta-web
+          path: build/web
+          if-no-files-found: error

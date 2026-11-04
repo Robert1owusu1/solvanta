@@ -29,6 +29,7 @@ func (s *Server) studentResults(c *gin.Context) {
 		Total      float64           `json:"total"`
 		Percent    float64           `json:"percent"`
 		Grade      string            `json:"grade"`
+		Absent     bool              `json:"absent"`
 	}
 	var out []result
 	for _, a := range s.db(c).Assessments() {
@@ -39,7 +40,12 @@ func (s *Server) studentResults(c *gin.Context) {
 		if !found || sub.ClassID != st.ClassID {
 			continue
 		}
-		total := a.TotalMarks()
+		total := a.EffectiveTotal()
+		if sub.Absent {
+			out = append(out, result{Assessment: a, Subject: domain.SubjectName(a.SubjectID),
+				Total: total, Absent: true})
+			continue
+		}
 		pct := 0.0
 		if total > 0 {
 			pct = 100 * sub.Earned / total

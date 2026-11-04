@@ -18,7 +18,7 @@ type studentFeedback struct {
 	Student struct {
 		ID string `json:"id"`
 	} `json:"student"`
-	Papers []feedbackPaper `json:"papers"`
+	Papers  []feedbackPaper `json:"papers"`
 	Summary struct {
 		Papers         int          `json:"papers"`
 		WrongQuestions int          `json:"wrongQuestions"`

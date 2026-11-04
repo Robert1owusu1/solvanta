@@ -51,6 +51,25 @@ const (
 	QTypePractical   = "practical"
 )
 
+// MarkingMode mirrors MarkingMode.name values: a school-level setting that
+// decides whether scores come from AI/OCR marking, from manual entry, or both.
+// An empty stored value means the default, Both (see School.EffectiveMarkingMode).
+const (
+	MarkingModeAI     = "ai"
+	MarkingModeManual = "manual"
+	MarkingModeBoth   = "both"
+)
+
+// SubmissionSource mirrors SubmissionSource.name values: where a submission's
+// score came from. An empty stored value is treated as the historical default,
+// Online (a question-by-question submission); AI is a finalized marking draft,
+// Manual a score recorded by hand.
+const (
+	SourceAI     = "ai"
+	SourceManual = "manual"
+	SourceOnline = "online"
+)
+
 // AttendanceStatus mirrors AttendanceStatus.name values.
 const (
 	AttPresent = "present"
@@ -184,6 +203,14 @@ type ClassRoom struct {
 	TeacherID string `json:"teacherId,omitempty"`
 }
 
+// SchoolKind mirrors SchoolKind.name: a normal school, or an independent
+// teacher's own workspace (a tenant owned by one teacher, with a reduced
+// feature set). Empty means the default, `school`.
+const (
+	SchoolKindSchool      = "school"
+	SchoolKindIndependent = "independent"
+)
+
 // School mirrors the client School model.
 type School struct {
 	ID      string `json:"id"`
@@ -193,6 +220,55 @@ type School struct {
 	Phone   string `json:"phone"`
 	Email   string `json:"email"`
 	Region  string `json:"region"`
+	// MarkingMode decides how this school records scores: ai, manual or both.
+	// Empty means the default (both); read it through EffectiveMarkingMode so
+	// an un-set school is never silently locked out of either path.
+	MarkingMode string `json:"markingMode,omitempty"`
+	// Kind is `school` (default) or `independent`. An independent workspace is
+	// owned by OwnerUserID (the teacher who registered it) and may use only the
+	// features SchoolAllows lets it.
+	Kind        string `json:"kind,omitempty"`
+	OwnerUserID string `json:"ownerUserId,omitempty"`
+	// DataProtectionAcceptedAt records when the independent teacher accepted the
+	// data-protection notice at registration (empty for normal schools).
+	DataProtectionAcceptedAt string `json:"dataProtectionAcceptedAt,omitempty"`
+	// Archived marks a workspace that has been transferred into a school and is
+	// now read-only; writes to it are refused.
+	Archived bool `json:"archived,omitempty"`
+}
+
+// EffectiveKind returns the school's kind, defaulting an empty value to School.
+func (s School) EffectiveKind() string {
+	if s.Kind == SchoolKindIndependent {
+		return SchoolKindIndependent
+	}
+	return SchoolKindSchool
+}
+
+// IsIndependent reports an independent teacher's workspace.
+func (s School) IsIndependent() bool { return s.EffectiveKind() == SchoolKindIndependent }
+
+// EffectiveMarkingMode returns the school's marking mode, defaulting to Both
+// when none has been chosen. Handlers gate on this, never on the raw field.
+func (s School) EffectiveMarkingMode() string {
+	switch s.MarkingMode {
+	case MarkingModeAI, MarkingModeManual, MarkingModeBoth:
+		return s.MarkingMode
+	default:
+		return MarkingModeBoth
+	}
+}
+
+// AllowsAIMarking reports whether the school's mode permits the AI/OCR marking
+// path (ai or both). In manual mode the AI entry points are closed.
+func (s School) AllowsAIMarking() bool {
+	return s.EffectiveMarkingMode() != MarkingModeManual
+}
+
+// AllowsManualScores reports whether the school's mode permits recording a
+// score by hand (manual or both). In ai mode manual entry is closed.
+func (s School) AllowsManualScores() bool {
+	return s.EffectiveMarkingMode() != MarkingModeAI
 }
 
 // SchoolTerm mirrors the client SchoolTerm model (doc §7, §19).
@@ -277,6 +353,12 @@ func (q Question) IsObjective() bool {
 }
 
 // Assessment mirrors the client Assessment model (doc §16).
+//
+// MaxScore supports "score-only" assessments — ones a school marks on paper and
+// only records a final mark for, with no questions. When it is set the paper's
+// effective total is MaxScore; otherwise it is the sum of the question marks.
+// Read the total through EffectiveTotal, never TotalMarks directly, so a
+// score-only paper is never treated as being out of 0.
 type Assessment struct {
 	ID        string     `json:"id"`
 	Title     string     `json:"title"`
@@ -286,8 +368,12 @@ type Assessment struct {
 	Date      string     `json:"date"`
 	CreatedBy string     `json:"createdBy"`
 	Questions []Question `json:"questions"`
+	// MaxScore is the explicit total for a score-only assessment. Nullable: a
+	// nil pointer means "derive from the questions", a set one wins.
+	MaxScore *float64 `json:"maxScore,omitempty"`
 }
 
+// TotalMarks is the sum of the question marks (0 when there are no questions).
 func (a Assessment) TotalMarks() (m float64) {
 	for _, q := range a.Questions {
 		m += q.Marks
@@ -295,7 +381,30 @@ func (a Assessment) TotalMarks() (m float64) {
 	return m
 }
 
+// EffectiveTotal is the mark the paper is out of: MaxScore when one is set,
+// otherwise the sum of the question marks. Every grade, percentage and average
+// is computed against this.
+func (a Assessment) EffectiveTotal() float64 {
+	if a.MaxScore != nil {
+		return *a.MaxScore
+	}
+	return a.TotalMarks()
+}
+
+// IsScoreOnly reports a paper created with an explicit max score and no
+// questions — marked on paper, only the final mark recorded.
+func (a Assessment) IsScoreOnly() bool {
+	return a.MaxScore != nil && len(a.Questions) == 0
+}
+
 // Submission mirrors the client AssessmentSubmission model.
+//
+// Source records where the score came from: online (a question-by-question
+// submission, the historical default and the empty value), ai (a finalized
+// marking draft) or manual (a score recorded by hand). A manual submission has
+// Earned set and empty Answers. Absent marks a pupil who did not sit the paper
+// — not the same as a zero, and excluded from averages — and Remark is an
+// optional per-score note.
 type Submission struct {
 	ID                   string             `json:"id"`
 	AssessmentID         string             `json:"assessmentId"`
@@ -305,8 +414,20 @@ type Submission struct {
 	Answers              map[string]string  `json:"answers"`
 	TeacherMarks         map[string]float64 `json:"teacherMarks"`
 	Earned               float64            `json:"earned"`
+	Source               string             `json:"source,omitempty"`
+	Remark               string             `json:"remark,omitempty"`
+	Absent               bool               `json:"absent"`
 	MarkingSchemeID      string             `json:"markingSchemeId,omitempty"`
 	MarkingSchemeVersion int                `json:"markingSchemeVersion,omitempty"`
+}
+
+// EffectiveSource returns the submission's source, defaulting an empty stored
+// value to Online — the historical behaviour before scores had a source.
+func (s Submission) EffectiveSource() string {
+	if s.Source == "" {
+		return SourceOnline
+	}
+	return s.Source
 }
 
 // Intervention mirrors the client Intervention model (doc §31).

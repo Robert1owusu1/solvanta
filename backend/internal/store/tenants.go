@@ -41,6 +41,12 @@ type Tenants interface {
 	// Delete removes a school and everything in it. The default school
 	// cannot be deleted.
 	Delete(schoolID string) error
+	// ReassignEmail re-points a sign-in email from one school's account to
+	// another (used when a teacher's independent workspace is transferred into
+	// a school and their account becomes one of the school's). It overwrites the
+	// directory entry rather than claiming, so the email is never briefly taken
+	// in two places.
+	ReassignEmail(email, fromSchool, toSchool, newUserID string) error
 }
 
 // ErrUnknownSchool is returned for a school the platform has not registered.
@@ -162,6 +168,14 @@ func (t *MemoryTenants) Create(schoolID string) (Store, error) {
 	t.schools[schoolID] = NewUnseeded()
 	t.mu.Unlock()
 	return t.For(schoolID)
+}
+
+func (t *MemoryTenants) ReassignEmail(email, fromSchool, toSchool, newUserID string) error {
+	e := strings.ToLower(strings.TrimSpace(email))
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.dir[e] = dirEntry{toSchool, newUserID}
+	return nil
 }
 
 func (t *MemoryTenants) Schools() []string {
@@ -348,6 +362,15 @@ func (t *PostgresTenants) claim(email, school, userID string) error {
 		return ErrEmailTaken
 	}
 	return nil
+}
+
+func (t *PostgresTenants) ReassignEmail(email, fromSchool, toSchool, newUserID string) error {
+	e := strings.ToLower(strings.TrimSpace(email))
+	_, err := t.registry.Exec(`
+		INSERT INTO public.user_directory (email, school_id, user_id) VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO UPDATE SET school_id = EXCLUDED.school_id, user_id = EXCLUDED.user_id`,
+		e, toSchool, newUserID)
+	return err
 }
 
 // schemaFor is the schema holding a school's tables.
@@ -609,3 +632,7 @@ func (t singleSchool) SetSuspended(string, bool) error {
 }
 
 func (t singleSchool) Delete(string) error { return ErrDefaultSchool }
+
+func (t singleSchool) ReassignEmail(string, string, string, string) error {
+	return errors.New("this server holds a single school")
+}

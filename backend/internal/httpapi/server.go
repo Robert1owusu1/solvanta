@@ -45,6 +45,10 @@ type Server struct {
 	// state today and must leave the server answering, not failing to boot.
 	ocrs *ocr.Router
 
+	// platform holds the platform-wide billing data (mode switch, plans,
+	// subscriptions, usage) that lives in `public`, shared by every tenant.
+	platform store.Platform
+
 	sessionsMu sync.Mutex
 	// revoked maps a token's jti to the time it expires (when it can be
 	// dropped from the blacklist).
@@ -79,12 +83,13 @@ func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 		sender = sms.FromEnv()
 	}
 	srv := &Server{
-		tenants: t,
-		sms:     sender,
-		cfg:     cfg,
-		secret:  []byte(cfg.Secret),
-		ocrs:    ocr.NewRouter(ocr.FromEnv()),
-		revoked: map[string]time.Time{},
+		tenants:  t,
+		sms:      sender,
+		cfg:      cfg,
+		secret:   []byte(cfg.Secret),
+		ocrs:     ocr.NewRouter(ocr.FromEnv()),
+		platform: store.NewMemoryPlatform(time.Now().Format("2006-01-02 15:04")),
+		revoked:  map[string]time.Time{},
 	}
 	if !cfg.SMSInline {
 		srv.smsJobs = make(chan smsJob, 1000)
@@ -277,6 +282,82 @@ func requireRole(roles ...string) gin.HandlerFunc {
 	}
 }
 
+// requireAIMarkingAllowed refuses the AI capture/marking routes for a school
+// whose markingMode is `manual`. The school marks on paper, so the AI entry
+// points are closed on the API as well as in the UI — existing data is left
+// untouched, only new AI actions are blocked. Runs after requireAuth, so the
+// request's own school store is already bound.
+func (s *Server) requireAIMarkingAllowed() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.db(c).School().AllowsAIMarking() {
+			fail(c, http.StatusForbidden,
+				"This school records scores manually; AI marking is turned off")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// requireManualScoresAllowed refuses manual score entry for a school whose
+// markingMode is `ai`. Mirror of requireAIMarkingAllowed for the other path.
+func (s *Server) requireManualScoresAllowed() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.db(c).School().AllowsManualScores() {
+			fail(c, http.StatusForbidden,
+				"This school records scores through AI marking; manual entry is turned off")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// requireFeature refuses a request whose school's kind does not include the
+// given feature (domain.SchoolAllows). This is how an independent teacher's
+// workspace is kept out of the school-only modules — fees, gate, SMS, staff
+// management, announcements, audit — on the API, matching the hidden module
+// grid on the client. Runs after requireAuth so the school store is bound.
+func (s *Server) requireFeature(feature string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !domain.SchoolAllows(s.db(c).School().EffectiveKind(), feature) {
+			fail(c, http.StatusForbidden, "This workspace does not include this feature")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// afterSuccess runs fn after the handler, only when it answered 2xx — used to
+// record usage counters after a successful write without editing handlers.
+func (s *Server) afterSuccess(fn func(*gin.Context)) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		if c.Writer.Status() < 300 {
+			fn(c)
+		}
+	}
+}
+
+// blockArchivedWrites makes a transferred (archived) workspace read-only: every
+// write is refused, reads still work. Applied once on the /api group.
+func (s *Server) blockArchivedWrites() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		switch c.Request.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			c.Next()
+			return
+		}
+		if s.db(c).School().Archived {
+			fail(c, http.StatusForbidden, "This workspace has been transferred to a school and is read-only")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // schoolScope ensures the user belongs to the school being addressed, or is a
 // super admin (which may address any school).
 func (s *Server) schoolScope() gin.HandlerFunc {
@@ -380,6 +461,7 @@ func (s *Server) Router() *gin.Engine {
 	auth := r.Group("/auth", limitRequestBody())
 	{
 		auth.POST("/login", s.loginRateLimit(), s.login)
+		auth.POST("/register", s.loginRateLimit(), s.register)
 		auth.POST("/logout", s.requireAuth(), s.logout)
 		auth.GET("/me", s.requireAuth(), func(c *gin.Context) {
 			sendJSON(c, gin.H{"user": currentUser(c)})
@@ -387,7 +469,7 @@ func (s *Server) Router() *gin.Engine {
 	}
 
 	api := r.Group("/api", limitRequestBody())
-	api.Use(s.requireAuth(), s.apiRateLimit())
+	api.Use(s.requireAuth(), s.apiRateLimit(), s.blockArchivedWrites())
 
 	api.GET("/subjects", func(c *gin.Context) { sendJSON(c, domain.Subjects) })
 
@@ -400,9 +482,31 @@ func (s *Server) Router() *gin.Engine {
 	api.GET("/schools/:id/export", requireRole(domain.RoleSuperAdmin), s.exportSchool)
 	api.DELETE("/schools/:id", requireRole(domain.RoleSuperAdmin), s.deleteSchool)
 
+	// Transfer an independent teacher's workspace into a school (super admin).
+	api.POST("/schools/:id/transfers/preview", requireRole(domain.RoleSuperAdmin), s.transferPreview)
+	api.POST("/schools/:id/transfers", requireRole(domain.RoleSuperAdmin), s.transferExecute)
+
+	// Plans, pricing and the platform billing switch (super admin). The whole
+	// machinery ships switched off — the platform defaults to testing mode.
+	platform := api.Group("/platform", requireRole(domain.RoleSuperAdmin))
+	{
+		platform.GET("/billing", s.getBilling)
+		platform.PUT("/billing", s.putBilling)
+		platform.GET("/usage", s.platformUsage)
+	}
+	plans := api.Group("/plans", requireRole(domain.RoleSuperAdmin))
+	{
+		plans.GET("", s.listPlans)
+		plans.POST("", s.createPlan)
+		plans.PUT("/:id", s.updatePlan)
+	}
+	api.POST("/subscriptions", requireRole(domain.RoleSuperAdmin), s.assignPlan)
+	// Any signed-in user can read their own billing status (Account badge/banner).
+	api.GET("/billing/me", s.myBilling)
+
 	// Texts to parents (sms.go): what the school sends, and what went out.
 	leaders := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher)
-	smsGroup := api.Group("/sms", s.schoolScope())
+	smsGroup := api.Group("/sms", s.schoolScope(), s.requireFeature(domain.FeatSMS))
 	{
 		smsGroup.GET("/settings", leaders, s.smsSettingsGet)
 		smsGroup.PUT("/settings", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.smsSettingsPut)
@@ -427,7 +531,9 @@ func (s *Server) Router() *gin.Engine {
 	users := api.Group("/users", s.schoolScope())
 	{
 		users.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.listUsers)
-		users.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.createUser)
+		// Creating staff, parent and student accounts is a school-only action:
+		// an independent workspace has none of these.
+		users.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.requireFeature(domain.FeatStaffManage), s.createUser)
 		users.PATCH("/:id/password", s.changePassword)
 		users.POST("/:id/reset-password", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.resetPassword)
 		users.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin), s.updateUser)
@@ -436,7 +542,9 @@ func (s *Server) Router() *gin.Engine {
 	students := api.Group("/students", s.schoolScope())
 	{
 		students.GET("", s.listStudents)
-		students.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.createStudent)
+		students.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher),
+			s.requirePlanLimit(domain.LimitMaxStudents, func(c *gin.Context) int { return len(s.db(c).Students()) }),
+			s.afterSuccess(s.recordTenantUsage), s.createStudent)
 		students.GET("/:id", s.studentDetail)
 		students.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.updateStudent)
 		students.POST("/:id/promote", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.promoteStudent)
@@ -456,7 +564,7 @@ func (s *Server) Router() *gin.Engine {
 		attendance.POST("/correction", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.attendanceCorrection)
 	}
 
-	gate := api.Group("/gate", s.schoolScope())
+	gate := api.Group("/gate", s.schoolScope(), s.requireFeature(domain.FeatGate))
 	{
 		gate.GET("/events", s.gateEvents)
 		gate.POST("/events", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createGateEvent)
@@ -470,12 +578,17 @@ func (s *Server) Router() *gin.Engine {
 		questions.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.createQuestion)
 		questions.PATCH("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.updateQuestion)
 		questions.DELETE("/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher), s.deleteQuestion)
-		questions.GET("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.aiRequests)
-		questions.POST("/ai/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequest)
-		questions.POST("/ai/requests/:id/generate", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiGenerate)
-		questions.GET("/ai/requests/:id/ocr", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequestOCR)
-		questions.POST("/ai/requests/:id/publish", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiPublish)
-		questions.POST("/ai/requests/:id/reject", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiReject)
+		// AI capture/generation: closed on the API for a school in `manual`
+		// marking mode (requireAIMarkingAllowed), the same way the UI hides it.
+		ai := questions.Group("/ai", s.requireAIMarkingAllowed())
+		ai.GET("/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.aiRequests)
+		ai.POST("/requests", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequest)
+		ai.POST("/requests/:id/generate", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher),
+			s.requirePlanFeature(domain.FeatMarkingAI),
+			s.afterSuccess(func(c *gin.Context) { s.recordAIUsage(c, 1, 0) }), s.aiGenerate)
+		ai.GET("/requests/:id/ocr", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiRequestOCR)
+		ai.POST("/requests/:id/publish", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiPublish)
+		ai.POST("/requests/:id/reject", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.aiReject)
 	}
 
 	assessments := api.Group("/assessments", s.schoolScope())
@@ -487,6 +600,12 @@ func (s *Server) Router() *gin.Engine {
 		assessments.POST("/:id/blueprint", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.blueprintGenerate)
 		assessments.POST("/:id/submit", s.submitAssessment)
 		assessments.POST("/:id/verdicts", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher), s.markVerdicts)
+
+		// Manual score entry (schools that mark on paper). Same RBAC as marking;
+		// closed on the API for a school whose markingMode is `ai`.
+		scoreWriters := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher)
+		assessments.PUT("/:id/scores/:studentId", scoreWriters, s.requireManualScoresAllowed(), s.putScore)
+		assessments.POST("/:id/scores/bulk", scoreWriters, s.requireManualScoresAllowed(), s.bulkScores)
 		assessments.GET("/:id/results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.assessmentResults)
 
 		// Marking schemes for this assessment
@@ -514,7 +633,8 @@ func (s *Server) Router() *gin.Engine {
 	// marks. Grading is a teacher's action; students, parents and staff
 	// have no access.
 	drafts := api.Group("/marking-drafts", s.schoolScope(),
-		requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher))
+		requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher),
+		s.requireAIMarkingAllowed())
 	{
 		drafts.POST("", s.createMarkingDraft)
 		drafts.GET("", s.listMarkingDrafts)
@@ -545,8 +665,8 @@ func (s *Server) Router() *gin.Engine {
 	comm := api.Group("", s.schoolScope())
 	{
 		comm.GET("/announcements", s.listAnnouncements)
-		comm.POST("/announcements", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createAnnouncement)
-		comm.DELETE("/announcements/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.deleteAnnouncement)
+		comm.POST("/announcements", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.requireFeature(domain.FeatAnnouncements), s.createAnnouncement)
+		comm.DELETE("/announcements/:id", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.requireFeature(domain.FeatAnnouncements), s.deleteAnnouncement)
 		comm.GET("/messages", s.listMessages)
 		comm.POST("/messages", s.sendMessage)
 		comm.POST("/messages/:id/receipt", s.messageReceipt)
@@ -589,7 +709,7 @@ func (s *Server) Router() *gin.Engine {
 	// role allow-list on a write is IsSchoolStaff() — the same five roles the
 	// client's fee screens gate the "Record payment" affordance on, so the API
 	// never rejects an action the app just offered, nor accepts one it hides.
-	payments := api.Group("/payments", s.schoolScope())
+	payments := api.Group("/payments", s.schoolScope(), s.requireFeature(domain.FeatFees))
 	{
 		payments.GET("", s.listPayments)
 		payments.POST("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.createPayment)
@@ -598,7 +718,7 @@ func (s *Server) Router() *gin.Engine {
 	// Invoices are the bill, payments against it are the money — the two
 	// halves of one fee screen, hence the same scoping and the same write
 	// allow-list as /payments above.
-	invoices := api.Group("/invoices", s.schoolScope())
+	invoices := api.Group("/invoices", s.schoolScope(), s.requireFeature(domain.FeatFees))
 	{
 		invoices.GET("", s.listInvoices)
 		invoices.GET("/:id", s.invoiceDetail)
@@ -609,6 +729,8 @@ func (s *Server) Router() *gin.Engine {
 	{
 		reports.GET("/students/:studentId/report-card", s.studentReportCard)
 		reports.GET("/assessments/:id/class-results", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classResultsReport)
+		// Score sheet (gradebook) for a class + subject in a term; same RBAC.
+		reports.GET("/score-sheet", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.scoreSheetReport)
 		// Feedback from finalized AI-assisted marking (marking_reports.go):
 		// a student's own report follows the report card's visibility, a
 		// class aggregate the class-results roles; a teacher sees only their
@@ -617,7 +739,7 @@ func (s *Server) Router() *gin.Engine {
 		reports.GET("/marking/classes/:classId", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher, domain.RoleStaff), s.classMarkingFeedback)
 	}
 
-	audit := api.Group("/audit", s.schoolScope())
+	audit := api.Group("/audit", s.schoolScope(), s.requireFeature(domain.FeatAudit))
 	audit.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher),
 		func(c *gin.Context) { sendJSON(c, s.db(c).AuditLogs()) })
 

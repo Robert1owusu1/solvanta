@@ -1,6 +1,7 @@
 import '../../core/api/api_client.dart';
 import '../../core/api/remote_data_source.dart';
 import '../../core/models/role.dart';
+import '../../core/models/school.dart';
 import '../../core/models/user.dart';
 import '../../core/security/secret_hash.dart';
 import '../../core/storage/local_store.dart';
@@ -96,7 +97,21 @@ class AuthRepository {
     required String phone,
     required String password,
     required AppRole role,
+    bool independent = false,
+    bool acceptDataProtection = false,
   }) async {
+    // An independent teacher gets their own isolated workspace — never the
+    // default school (the old hardcoded SCH-001, a data-isolation bug).
+    if (independent) {
+      return _registerIndependent(
+        name: name,
+        email: email,
+        phone: phone,
+        password: password,
+        acceptDataProtection: acceptDataProtection,
+      );
+    }
+
     final users = await _store.loadUsers();
     final exists = users.any((u) =>
         u.email.toLowerCase() == email.trim().toLowerCase());
@@ -120,6 +135,62 @@ class AuthRepository {
     );
     users.add(user);
     await _store.saveUsers(users);
+    await _store.setSessionUser(user.id);
+    return user;
+  }
+
+  Future<User?> _registerIndependent({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required bool acceptDataProtection,
+  }) async {
+    if (!acceptDataProtection) return null;
+    final remote = _remote;
+    if (remote != null) {
+      // The server creates the workspace tenant and signs the teacher in.
+      final res = await remote.registerIndependent(
+        name: name, email: email, phone: phone, password: password);
+      final u = res.user;
+      await _store.clearSchoolData();
+      await _store.setDataOwner(u.id);
+      await _store.saveUsers([u]);
+      await _store.setSessionUser(u.id);
+      await _store.setApiToken(res.token);
+      ServerSync.instance.start();
+      await ServerSync.instance
+          .pull()
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      return u;
+    }
+
+    // Offline: a private workspace that is this teacher's alone.
+    final users = await _store.loadUsers();
+    if (users.any((u) => u.email.toLowerCase() == email.trim().toLowerCase())) {
+      return null;
+    }
+    final workspaceId = 'WS-${DateTime.now().millisecondsSinceEpoch}';
+    final userId = 'USR-${DateTime.now().millisecondsSinceEpoch}';
+    final user = User(
+      id: userId,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      password: hashSecret(password),
+      // Owner of their own workspace: schoolAdmin rights inside it.
+      role: AppRole.schoolAdmin,
+      schoolId: workspaceId,
+    );
+    await _store.saveUsers([...users, user]);
+    final now = DateTime.now().toIso8601String();
+    await _store.saveSchool(School(
+      id: workspaceId,
+      name: '${name.trim()}’s workspace',
+      kind: SchoolKind.independent,
+      ownerUserId: userId,
+      dataProtectionAcceptedAt: now,
+    ));
     await _store.setSessionUser(user.id);
     return user;
   }

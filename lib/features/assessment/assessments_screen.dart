@@ -9,7 +9,22 @@ import '../../core/ui/ui_kit.dart';
 import 'assessment_builder_screen.dart';
 import 'assessment_repository.dart';
 import 'capture_screen.dart';
+import 'manual_scores/score_entry_screen.dart';
 import 'marking_scheme_editor_screen.dart';
+import 'score_sheet/score_sheet_screen.dart';
+
+/// Opens the right screen for an assessment: score-only papers go straight to
+/// manual score entry (they have no questions to capture), everything else to
+/// the capture flow.
+void _openAssessment(BuildContext context, Assessment a) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => a.isScoreOnly
+          ? ScoreEntryScreen(assessment: a)
+          : CaptureScreen(assessment: a),
+    ),
+  );
+}
 
 class AssessmentsScreen extends StatefulWidget {
   const AssessmentsScreen({super.key});
@@ -39,7 +54,18 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: SvScreenHeader(title: 'Assessments'),
+      appBar: SvScreenHeader(
+        title: 'Assessments',
+        actions: [
+          IconButton(
+            tooltip: 'Score sheet',
+            icon: const Icon(Icons.grid_on, color: Colors.white),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ScoreSheetScreen()),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _create,
         icon: const Icon(Icons.add),
@@ -78,9 +104,7 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
             desktop: (context) => SvDataTable<Assessment>(
               rows: assessments,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              onOpen: (a) => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => CaptureScreen(assessment: a)),
-              ),
+              onOpen: (a) => _openAssessment(context, a),
               actions: (a) => IconButton(
                 icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
                 color: AppColors.brand,
@@ -100,8 +124,8 @@ class _AssessmentsScreenState extends State<AssessmentsScreen> {
                 SvColumn(label: 'Subject', sortKey: (a) => subjectName(a.subjectId), cell: (a) => Text(subjectName(a.subjectId))),
                 SvColumn(label: 'Class', flex: 1, sortKey: (a) => a.classId, cell: (a) => Text(a.classId)),
                 SvColumn(label: 'Date', sortKey: (a) => a.date, cell: (a) => Text(a.date)),
-                SvColumn(label: 'Marks', flex: 1, numeric: true, sortKey: (a) => a.totalMarks,
-                    cell: (a) => Text(a.totalMarks.toStringAsFixed(0))),
+                SvColumn(label: 'Marks', flex: 1, numeric: true, sortKey: (a) => a.effectiveTotal,
+                    cell: (a) => Text(a.effectiveTotal.toStringAsFixed(0))),
               ],
             ),
           );
@@ -131,16 +155,27 @@ class _AssessmentListItem extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+                icon: const Icon(Icons.edit_note, size: 22),
                 color: AppColors.brand,
-                tooltip: 'Marking scheme',
+                tooltip: 'Enter scores',
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => MarkingSchemeEditorScreen(assessment: assessment),
+                    builder: (_) => ScoreEntryScreen(assessment: assessment),
                   ),
                 ),
               ),
-              Text('${assessment.totalMarks.toStringAsFixed(0)} marks',
+              if (!assessment.isScoreOnly)
+                IconButton(
+                  icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+                  color: AppColors.brand,
+                  tooltip: 'Marking scheme',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MarkingSchemeEditorScreen(assessment: assessment),
+                    ),
+                  ),
+                ),
+              Text('${assessment.effectiveTotal.toStringAsFixed(0)} marks',
                   style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
@@ -150,11 +185,7 @@ class _AssessmentListItem extends StatelessWidget {
                   size: 20, color: AppColors.muted),
             ],
           ),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => CaptureScreen(assessment: assessment),
-            ),
-          ),
+          onTap: () => _openAssessment(context, assessment),
         ),
       ),
     );
@@ -201,11 +232,7 @@ class _AssessmentGridCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => CaptureScreen(assessment: assessment),
-          ),
-        ),
+        onTap: () => _openAssessment(context, assessment),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -272,7 +299,7 @@ class _AssessmentGridCard extends StatelessWidget {
                   Icon(Icons.grade_outlined, size: 14, color: AppColors.muted),
                   const SizedBox(width: 4),
                   Text(
-                    '${assessment.totalMarks.toStringAsFixed(0)} marks',
+                    '${assessment.effectiveTotal.toStringAsFixed(0)} marks',
                     style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 12,

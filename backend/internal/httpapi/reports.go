@@ -54,7 +54,12 @@ func (s *Server) studentReportCard(c *gin.Context) {
 		if !found {
 			continue
 		}
-		total := a.TotalMarks()
+		// An absence is not a zero: it neither shows as a graded row nor drags
+		// the subject average down.
+		if sub.Absent {
+			continue
+		}
+		total := a.EffectiveTotal()
 		pct := 0.0
 		if total > 0 {
 			pct = 100 * sub.Earned / total
@@ -121,6 +126,8 @@ type classResultRow struct {
 	Total     float64 `json:"total"`
 	Percent   float64 `json:"percent"`
 	Grade     string  `json:"grade"`
+	Absent    bool    `json:"absent"`
+	Source    string  `json:"source,omitempty"`
 }
 
 func (s *Server) classResultsReport(c *gin.Context) {
@@ -133,24 +140,46 @@ func (s *Server) classResultsReport(c *gin.Context) {
 		fail(c, http.StatusForbidden, "You may only view your own class's results")
 		return
 	}
-	total := a.TotalMarks()
+	total := a.EffectiveTotal()
 	var rows []classResultRow
+	var avgSum float64
+	var graded int
 	for _, st := range s.db(c).Students() {
 		sub, found := s.db(c).SubmissionFor(a.ID, st.ID)
 		if !found {
+			continue
+		}
+		if sub.Absent {
+			rows = append(rows, classResultRow{StudentID: st.ID, Name: st.FullName(),
+				Class: st.ClassID, Total: total, Absent: true, Source: sub.EffectiveSource()})
 			continue
 		}
 		pct := 0.0
 		if total > 0 {
 			pct = 100 * sub.Earned / total
 		}
-		rows = append(rows, classResultRow{StudentID: st.ID, Name: st.FullName(), Class: st.ClassID, Marks: sub.Earned, Total: total, Percent: pct, Grade: marking.GradeLetter(pct)})
+		avgSum += pct
+		graded++
+		rows = append(rows, classResultRow{StudentID: st.ID, Name: st.FullName(), Class: st.ClassID,
+			Marks: sub.Earned, Total: total, Percent: pct, Grade: marking.GradeLetter(pct),
+			Source: sub.EffectiveSource()})
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Percent > rows[j].Percent })
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Absent != rows[j].Absent {
+			return !rows[i].Absent
+		}
+		return rows[i].Percent > rows[j].Percent
+	})
+	avg := 0.0
+	if graded > 0 {
+		avg = avgSum / float64(graded)
+	}
 	sendJSON(c, gin.H{
 		"assessment": a,
 		"rows":       rows,
 		"totalMarks": total,
+		"average":    avg,
+		"graded":     graded,
 		"csv":        renderCSV(a, rows),
 	})
 }
@@ -161,8 +190,13 @@ func renderCSV(a domain.Assessment, rows []classResultRow) string {
 	b += csvField(a.Title) + "," + csvField(a.SubjectID) + "," + csvField(a.ClassID) + "\n\n"
 	b += "Name,Class,Marks,Total,Percent(%),Grade\n"
 	for _, r := range rows {
+		if r.Absent {
+			b += csvField(r.Name) + "," + csvField(r.Class) + ",Absent," +
+				formatMarks(r.Total) + ",,\n"
+			continue
+		}
 		b += csvField(r.Name) + "," + csvField(r.Class) + "," +
-			itoa(int(r.Marks)) + "," + itoa(int(r.Total)) + "," +
+			formatMarks(r.Marks) + "," + formatMarks(r.Total) + "," +
 			itoa(int(r.Percent)) + "," + csvField(r.Grade) + "\n"
 	}
 	return b
