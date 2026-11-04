@@ -15,6 +15,7 @@ import '../fees/fees_repository.dart';
 import '../students/students_repository.dart';
 import '../../core/models/term_report.dart';
 import 'report_card_pdf.dart';
+import 'reporting_service.dart';
 import 'term_reports_repository.dart';
 
 /// Everything a report card is built from, read from the local store so it
@@ -36,6 +37,7 @@ class ReportCardSource {
     this.invoices = const [],
     this.feeStructures = const [],
     this.reports = const {},
+    this.assignmentRows = const {},
   });
 
   final List<Student> students;
@@ -63,6 +65,11 @@ class ReportCardSource {
   /// This term's reports (remarks, approval), by student id.
   final Map<String, TermReport> reports;
 
+  /// Report-card rows for each student's finalized assignments, by student id.
+  /// An assignment's marks live only in its finalized marking draft, so they
+  /// are read once here rather than once per card.
+  final Map<String, List<ReportCardRow>> assignmentRows;
+
   static Future<ReportCardSource> load({LocalStore? store}) async {
     final s = store ?? LocalStore();
     final repo = AssessmentRepository();
@@ -89,6 +96,11 @@ class ReportCardSource {
       feeStructures: await fees.structures(),
       reports: await TermReportsRepository(store: s)
           .forTerm(term.year, term.name),
+      assignmentRows: ReportingService.assignmentRowsFor(
+        assignments: await s.loadAssignments(),
+        assignmentSubs: await s.loadAssignmentSubmissions(),
+        drafts: await s.loadMarkingDrafts(),
+      ),
     );
   }
 
@@ -156,6 +168,7 @@ class ReportCardSource {
       term: term,
       assessments: assessments,
       subs: subs,
+      assignmentRows: assignmentRows,
       roster: students,
       pastTerms: pastTerms,
       grading: grading,

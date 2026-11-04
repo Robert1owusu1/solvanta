@@ -700,12 +700,24 @@ class ReportCardDataBuilder {
     List<ClassRoom> classes = const [],
     int? feesOwing,
     int? Function(String classId)? nextTermFeesFor,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final config = grading ?? GradingConfig.fallback;
     final inTerm = [
       for (final a in assessments)
         if (a.date.isEmpty || term.contains(a.date)) a,
     ];
+    // Assignment rows are term-scoped by their deadline, exactly as an
+    // assessment is by its date, so a Term 1 piece of homework is not
+    // counted again on the Term 2 card.
+    final inTermAssignments = <String, List<ReportCardRow>>{};
+    for (final e in assignmentRows.entries) {
+      final kept = [
+        for (final r in e.value)
+          if (r.date.isEmpty || term.contains(r.date)) r,
+      ];
+      if (kept.isNotEmpty) inTermAssignments[e.key] = kept;
+    }
     // The class the term was sat in: read off the student's own marked work,
     // so a card re-printed after end-of-year promotion (JHS2A → JHS3A)
     // still reports the JHS2A term. Their current class when nothing is
@@ -728,6 +740,7 @@ class ReportCardDataBuilder {
       classId: termClass,
       assessments: inTerm,
       subs: subs,
+      assignmentRows: inTermAssignments,
       cohort: classmates,
     );
 
@@ -754,6 +767,7 @@ class ReportCardDataBuilder {
               roster,
               f.grading,
               classes,
+              assignmentRows,
             ),
           ),
     ];
@@ -853,11 +867,22 @@ class ReportCardDataBuilder {
     List<Student> roster,
     GradingConfig grading,
     List<ClassRoom> classes,
+    Map<String, List<ReportCardRow>> assignmentRows,
   ) {
     final inTerm = [
       for (final a in assessments)
         if (term.contains(a.date)) a,
     ];
+    // A past term keeps its own assignments: the same strict date test the
+    // assessments above get, since a finished term has no open-ended dates.
+    final inTermAssignments = <String, List<ReportCardRow>>{};
+    for (final e in assignmentRows.entries) {
+      final kept = [
+        for (final r in e.value)
+          if (term.contains(r.date)) r,
+      ];
+      if (kept.isNotEmpty) inTermAssignments[e.key] = kept;
+    }
     final classId = _classSatIn(student, inTerm, subs);
     if (classId == null) return null;
     final classIds = {
@@ -874,6 +899,7 @@ class ReportCardDataBuilder {
       classId: classId,
       assessments: inTerm,
       subs: subs,
+      assignmentRows: inTermAssignments,
       cohort: [
         for (final s in roster)
           if (sat.contains(s.id)) s,
@@ -911,6 +937,7 @@ class ReportCardDataBuilder {
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
     required List<Student> cohort,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final svc = ReportingService();
     final rows = svc.rowsFor(
@@ -918,6 +945,7 @@ class ReportCardDataBuilder {
       assessments: assessments,
       subs: subs,
       classId: classId,
+      assignmentRows: assignmentRows,
     );
     final summaries = svc.subjectsFor(rows: rows);
     final scores = _terminalScores(rows, scheme);
@@ -934,6 +962,10 @@ class ReportCardDataBuilder {
           assessments: assessments,
           subs: subs,
           classId: classId,
+          // Every classmate is ranked on the same rows: a student with
+          // finalized homework must not be scored on more or fewer papers
+          // than the ones they are placed against.
+          assignmentRows: assignmentRows,
         ),
         scheme,
       );

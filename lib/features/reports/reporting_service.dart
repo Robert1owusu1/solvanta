@@ -5,7 +5,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/models/assessment.dart';
+import '../../core/models/assignment.dart';
+import '../../core/models/assignment_submission.dart';
 import '../../core/models/grading.dart';
+import '../../core/models/marking_draft.dart';
 import '../../core/models/student.dart';
 import '../../core/models/subjects.dart';
 import '../../core/models/submission.dart';
@@ -110,6 +113,7 @@ class ReportingService {
     required Student student,
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final buf = StringBuffer();
     buf.writeln('SOLVANTA — Student Report Card');
@@ -118,7 +122,10 @@ class ReportingService {
     buf.writeln('Generated,SOLVANTA offline report');
     buf.writeln('Subject,Assessment,Date,Total,Marks,Percent,Grade');
     for (final r in rowsFor(
-        student: student, assessments: assessments, subs: subs)) {
+        student: student,
+        assessments: assessments,
+        subs: subs,
+        assignmentRows: assignmentRows)) {
       buf.writeln([
         _q(r.subjectId),
         _q(r.title),
@@ -132,13 +139,76 @@ class ReportingService {
     return buf.toString();
   }
 
+  /// Rows for every assignment a student has had finalized, keyed by student
+  /// id.
+  ///
+  /// An assignment has no mark store of its own — the finalized marking draft
+  /// IS its record — so the marks are read straight off the drafts and joined
+  /// to their assignment through the submission. Only finalized drafts count:
+  /// a draft still open for review is a proposal, not a mark.
+  ///
+  /// These are class work and never the end-of-term exam, so the terminal
+  /// report weights them with class work (`AssessmentType.homework` is not
+  /// `endTerm`). Where a paper was re-drafted and re-finalized the newest one
+  /// wins, so a student is never counted twice for one assignment.
+  static Map<String, List<ReportCardRow>> assignmentRowsFor({
+    required List<Assignment> assignments,
+    required List<AssignmentSubmission> assignmentSubs,
+    required List<MarkingDraft> drafts,
+  }) {
+    final subToAssignment = {
+      for (final s in assignmentSubs) s.id: s.assignmentId,
+    };
+    final byId = {for (final a in assignments) a.id: a};
+
+    final newest = <(String, String), MarkingDraft>{};
+    for (final d in drafts) {
+      if (!d.isFinal || d.targetKind != 'assignment') continue;
+      final assignmentId = subToAssignment[d.submissionId];
+      if (assignmentId == null || !byId.containsKey(assignmentId)) continue;
+      final key = (d.studentId, assignmentId);
+      final prev = newest[key];
+      if (prev == null || d.finalizedAt.compareTo(prev.finalizedAt) > 0) {
+        newest[key] = d;
+      }
+    }
+
+    final out = <String, List<ReportCardRow>>{};
+    for (final e in newest.entries) {
+      final studentId = e.key.$1;
+      final a = byId[e.key.$2]!;
+      final d = e.value;
+      (out[studentId] ??= []).add(ReportCardRow(
+        subjectId: a.subjectId,
+        title: a.title,
+        date: a.deadline.isNotEmpty ? a.deadline : a.createdAt,
+        total: d.maxTotal,
+        earned: d.finalTotal,
+        type: AssessmentType.homework,
+        classId: a.classId,
+      ));
+    }
+    for (final rows in out.values) {
+      rows.sort((x, y) {
+        final byDate = x.date.compareTo(y.date);
+        return byDate != 0 ? byDate : x.title.compareTo(y.title);
+      });
+    }
+    return out;
+  }
+
   /// All assessments for the student's class ([classId] when given — e.g.
-  /// the class they were in last year), each paired with their outcome.
+  /// the class they were in last year), each paired with their outcome, plus
+  /// their finalized assignments.
   List<ReportCardRow> rowsFor({
     required Student student,
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
     String? classId,
+
+    /// Already-built assignment rows for this student — see
+    /// [assignmentRowsFor]. An assignment is only on a card once finalized.
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final rows = <ReportCardRow>[];
     for (final a in assessments) {
@@ -157,6 +227,7 @@ class ReportingService {
         classId: a.classId,
       ));
     }
+    rows.addAll(assignmentRows[student.id] ?? const <ReportCardRow>[]);
     return rows;
   }
 
@@ -266,9 +337,13 @@ class ReportingService {
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
     ({int total, int present})? attendance,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final rows = rowsFor(
-        student: student, assessments: assessments, subs: subs);
+        student: student,
+        assessments: assessments,
+        subs: subs,
+        assignmentRows: assignmentRows);
     final excel = Excel.createExcel();
     final sheet = excel['Report Card'];
     sheet.appendRow([TextCellValue('SOLVANTA — Term Report Card')]);
@@ -336,9 +411,13 @@ class ReportingService {
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
     ({int total, int present})? attendance,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) async {
     final rows = rowsFor(
-        student: student, assessments: assessments, subs: subs);
+        student: student,
+        assessments: assessments,
+        subs: subs,
+        assignmentRows: assignmentRows);
     final doc = pw.Document();
 
     pw.Widget header(String text, String value) => pw.Padding(
@@ -453,6 +532,7 @@ class ReportingService {
     required List<Assessment> assessments,
     required List<AssessmentSubmission> subs,
     required String termLabel,
+    Map<String, List<ReportCardRow>> assignmentRows = const {},
   }) {
     final excel = Excel.createExcel();
     final sheet = excel['School Summary'];
@@ -465,8 +545,11 @@ class ReportingService {
       TextCellValue('Grade'),
     ]);
     for (final s in students) {
-      final rows =
-          rowsFor(student: s, assessments: assessments, subs: subs);
+      final rows = rowsFor(
+          student: s,
+          assessments: assessments,
+          subs: subs,
+          assignmentRows: assignmentRows);
       final overall = overallFor(rows: rows);
       sheet.appendRow([
         TextCellValue(s.fullName),

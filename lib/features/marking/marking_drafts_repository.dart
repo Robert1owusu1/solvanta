@@ -24,6 +24,10 @@ class MarkingDraftsRepository {
 
   Future<List<MarkingDraftRequest>> pending() => _store.loadDraftRequests();
 
+  /// Every draft on this device, across all papers — what a report card
+  /// reads to find the assignments a student has had finalized.
+  Future<List<MarkingDraft>> all() => _store.loadMarkingDrafts();
+
   /// Drafts for one paper, newest last.
   Future<List<MarkingDraft>> draftsFor(String submissionId) async =>
       (await _store.loadMarkingDrafts())

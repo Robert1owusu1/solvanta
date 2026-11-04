@@ -13,8 +13,11 @@ import '../../core/platform/file_share.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../assessment/assessment_repository.dart';
+import '../assignments/assignment_submissions_repository.dart';
+import '../assignments/assignments_repository.dart';
 import '../attendance/attendance_repository.dart';
 import '../calendar/term_repository.dart';
+import '../marking/marking_drafts_repository.dart';
 import '../students/students_repository.dart';
 import 'marking_feedback_screen.dart';
 import 'report_card_screen.dart';
@@ -50,7 +53,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
         assessments: assessments,
         subs: subs,
         students: students,
-        term: term);
+        term: term,
+        assignmentRows: ReportingService.assignmentRowsFor(
+          assignments: await AssignmentsRepository().all(),
+          assignmentSubs: await AssignmentSubmissionsRepository().all(),
+          drafts: await MarkingDraftsRepository().all(),
+        ));
   }
 
   Future<void> _save(Uint8List bytes, String name, String extension,
@@ -144,6 +152,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     assessments: d.assessments,
                     subs: d.subs,
                     attendance: await _attendance(student.id),
+                    assignmentRows: d.assignmentRows,
                   );
                   if (mounted) {
                     await _save(bytes, 'report_${student.id}', 'pdf',
@@ -157,6 +166,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     assessments: d.assessments,
                     subs: d.subs,
                     attendance: await _attendance(student.id),
+                    assignmentRows: d.assignmentRows,
                   );
                   if (mounted) {
                     await _save(bytes, 'report_${student.id}', 'xlsx',
@@ -168,7 +178,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ReportingService().studentReportCsv(
                       student: student,
                       assessments: d.assessments,
-                      subs: d.subs),
+                      subs: d.subs,
+                      assignmentRows: d.assignmentRows),
                   'report_${student.id}',
                 ),
               ),
@@ -259,6 +270,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     assessments: d.assessments,
                     subs: d.subs,
                     termLabel: d.term.label,
+                    assignmentRows: d.assignmentRows,
                   );
                   if (mounted) {
                     await _save(bytes, 'school_summary', 'xlsx',
@@ -332,7 +344,10 @@ class _StudentReportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = ReportingService().rowsFor(
-        student: student, assessments: d.assessments, subs: d.subs);
+        student: student,
+        assessments: d.assessments,
+        subs: d.subs,
+        assignmentRows: d.assignmentRows);
     final subjects = ReportingService().subjectsFor(rows: rows);
     final overall = ReportingService().overallFor(rows: rows);
     return Card(
@@ -424,8 +439,11 @@ class _SchoolSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final summaries = <(Student, double?)>[];
     for (final s in d.students) {
-      final rows = ReportingService()
-          .rowsFor(student: s, assessments: d.assessments, subs: d.subs);
+      final rows = ReportingService().rowsFor(
+          student: s,
+          assessments: d.assessments,
+          subs: d.subs,
+          assignmentRows: d.assignmentRows);
       summaries.add((s, ReportingService().overallFor(rows: rows)));
     }
     summaries.sort((a, b) => (b.$2 ?? -1).compareTo(a.$2 ?? -1));
@@ -482,11 +500,17 @@ class ReportsData {
   final List<Student> students;
   final SchoolTerm term;
 
+  /// Report-card rows for each student's finalized assignments, by student id —
+  /// see [ReportingService.assignmentRowsFor]. Empty where nothing has been
+  /// finalized yet, which is the normal state before marking.
+  final Map<String, List<ReportCardRow>> assignmentRows;
+
   const ReportsData({
     required this.assessments,
     required this.subs,
     required this.students,
     required this.term,
+    this.assignmentRows = const {},
   });
 
   static const empty = ReportsData(
