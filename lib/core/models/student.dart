@@ -18,6 +18,54 @@ class Person {
       {'name': name, 'phone': phone, 'relation': relation};
 }
 
+/// A pupil's optional emergency medical record.
+class StudentHealth {
+  final String bloodGroup;
+  final List<String> allergies;
+  final List<String> conditions;
+  final List<String> medications;
+  final List<String> immunizations;
+  final String notes;
+
+  const StudentHealth({
+    this.bloodGroup = '',
+    this.allergies = const [],
+    this.conditions = const [],
+    this.medications = const [],
+    this.immunizations = const [],
+    this.notes = '',
+  });
+
+  bool get isEmpty =>
+      bloodGroup.isEmpty &&
+      allergies.isEmpty &&
+      conditions.isEmpty &&
+      medications.isEmpty &&
+      immunizations.isEmpty &&
+      notes.isEmpty;
+
+  static List<String> _list(dynamic v) =>
+      [for (final e in (v ?? const []) as List) e as String];
+
+  factory StudentHealth.fromJson(Map<String, dynamic> j) => StudentHealth(
+        bloodGroup: (j['bloodGroup'] ?? '') as String,
+        allergies: _list(j['allergies']),
+        conditions: _list(j['conditions']),
+        medications: _list(j['medications']),
+        immunizations: _list(j['immunizations']),
+        notes: (j['notes'] ?? '') as String,
+      );
+
+  Map<String, dynamic> toJson() => {
+        if (bloodGroup.isNotEmpty) 'bloodGroup': bloodGroup,
+        if (allergies.isNotEmpty) 'allergies': allergies,
+        if (conditions.isNotEmpty) 'conditions': conditions,
+        if (medications.isNotEmpty) 'medications': medications,
+        if (immunizations.isNotEmpty) 'immunizations': immunizations,
+        if (notes.isNotEmpty) 'notes': notes,
+      };
+}
+
 class Student {
   final String id;
   final String firstName;
@@ -33,6 +81,7 @@ class Student {
   final List<Person> guardians;
   final List<Person> emergencyContacts;
   final List<Person> authorizedPickup;
+  final StudentHealth? health;
 
   const Student({
     required this.id,
@@ -49,6 +98,7 @@ class Student {
     this.guardians = const [],
     this.emergencyContacts = const [],
     this.authorizedPickup = const [],
+    this.health,
   });
 
   String get fullName => '$firstName $lastName';
@@ -83,6 +133,9 @@ class Student {
         authorizedPickup: ((json['authorizedPickup'] ?? const []) as List)
             .map((e) => Person.fromJson(e as Map<String, dynamic>))
             .toList(),
+        health: json['health'] is Map<String, dynamic>
+            ? StudentHealth.fromJson(json['health'] as Map<String, dynamic>)
+            : null,
       );
 
   Map<String, dynamic> toJson() => {
@@ -100,6 +153,7 @@ class Student {
         'guardians': guardians.map((e) => e.toJson()).toList(),
         'emergencyContacts': emergencyContacts.map((e) => e.toJson()).toList(),
         'authorizedPickup': authorizedPickup.map((e) => e.toJson()).toList(),
+        if (health != null && !health!.isEmpty) 'health': health!.toJson(),
       };
 
   Student copyWith({
@@ -116,6 +170,7 @@ class Student {
     List<Person>? guardians,
     List<Person>? emergencyContacts,
     List<Person>? authorizedPickup,
+    StudentHealth? health,
   }) =>
       Student(
         id: id,
@@ -132,5 +187,6 @@ class Student {
         guardians: guardians ?? this.guardians,
         emergencyContacts: emergencyContacts ?? this.emergencyContacts,
         authorizedPickup: authorizedPickup ?? this.authorizedPickup,
+        health: health ?? this.health,
       );
 }

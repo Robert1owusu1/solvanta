@@ -74,20 +74,21 @@ func (s *Server) canViewStudent(u domain.User, st domain.Student) bool {
 }
 
 type studentRequest struct {
-	ID                string          `json:"id"`
-	FirstName         string          `json:"firstName"`
-	LastName          string          `json:"lastName"`
-	Gender            string          `json:"gender"`
-	DateOfBirth       string          `json:"dateOfBirth"`
-	AdmissionDate     string          `json:"admissionDate"`
-	AdmissionNo       string          `json:"admissionNo"`
-	ClassID           string          `json:"classId"`
-	SchoolID          string          `json:"schoolId"`
-	Guardians         []domain.Person `json:"guardians"`
-	EmergencyContacts []domain.Person `json:"emergencyContacts"`
-	AuthorizedPickup  []domain.Person `json:"authorizedPickup"`
-	ParentUserID      *string         `json:"parentUserId,omitempty"`
-	Status            string          `json:"status,omitempty"`
+	ID                string                `json:"id"`
+	FirstName         string                `json:"firstName"`
+	LastName          string                `json:"lastName"`
+	Gender            string                `json:"gender"`
+	DateOfBirth       string                `json:"dateOfBirth"`
+	AdmissionDate     string                `json:"admissionDate"`
+	AdmissionNo       string                `json:"admissionNo"`
+	ClassID           string                `json:"classId"`
+	SchoolID          string                `json:"schoolId"`
+	Guardians         []domain.Person       `json:"guardians"`
+	EmergencyContacts []domain.Person       `json:"emergencyContacts"`
+	AuthorizedPickup  []domain.Person       `json:"authorizedPickup"`
+	ParentUserID      *string               `json:"parentUserId,omitempty"`
+	Status            string                `json:"status,omitempty"`
+	Health            *domain.StudentHealth `json:"health,omitempty"`
 }
 
 // createStudent adds a student (doc §10).
@@ -125,6 +126,7 @@ func (s *Server) createStudent(c *gin.Context) {
 		SchoolID:          firstNonEmpty(body.SchoolID, s.userSchool(u)),
 		ParentUserID:      deref(body.ParentUserID),
 		Status:            firstNonEmpty(body.Status, "Active"),
+		Health:            body.Health,
 		Guardians:         body.Guardians,
 		EmergencyContacts: body.EmergencyContacts,
 		AuthorizedPickup:  body.AuthorizedPickup,
@@ -221,6 +223,9 @@ func (s *Server) updateStudent(c *gin.Context) {
 	}
 	if body.AuthorizedPickup != nil {
 		st.AuthorizedPickup = body.AuthorizedPickup
+	}
+	if body.Health != nil {
+		st.Health = body.Health
 	}
 	if writeFailed(c, s.db(c).SaveStudent(st)) {
 		return

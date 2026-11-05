@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Student health records: an optional emergency medical record per pupil (blood
+  group, allergies, conditions, medications, immunizations, notes), carried on
+  the student model/API (migration adds a `health` JSONB column) and shown as a
+  "Health & emergency" section on the student profile — visible to staff and the
+  child's own family, with allergies highlighted. (An in-app editor form for it
+  is a small follow-up; the data is settable via the student API today.)
+
 - Remote push notifications (infrastructure): an `internal/push` provider
   (Firebase Cloud Messaging via `FCM_SERVER_KEY`, log-only until set), device
   token registration (`POST /api/push/register`), and fan-out — every in-app

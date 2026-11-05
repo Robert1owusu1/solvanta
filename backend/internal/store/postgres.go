@@ -201,6 +201,19 @@ func nullFloat(f *float64) any {
 	return *f
 }
 
+// healthJSON marshals a student's optional health record to JSON, or SQL NULL
+// when there is none.
+func healthJSON(h *domain.StudentHealth) any {
+	if h == nil {
+		return nil
+	}
+	b, err := json.Marshal(h)
+	if err != nil {
+		return nil
+	}
+	return string(b)
+}
+
 func firstNonEmpty(a, b string) string {
 	if a != "" {
 		return a
@@ -548,12 +561,19 @@ func (p *Postgres) SaveClass(c domain.ClassRoom) error {
 
 const studentColumns = `id, first_name, last_name, COALESCE(gender,''), COALESCE(date_of_birth::text,''),
 	COALESCE(admission_date::text,''), COALESCE(admission_no,''), COALESCE(class_id,''),
-	COALESCE(school_id,''), COALESCE(status,''), COALESCE(parent_user_id,'')`
+	COALESCE(school_id,''), COALESCE(status,''), COALESCE(parent_user_id,''), COALESCE(health::text,'')`
 
 func scanStudent(row interface{ Scan(...any) error }) (domain.Student, error) {
 	var s domain.Student
+	var health string
 	err := row.Scan(&s.ID, &s.FirstName, &s.LastName, &s.Gender, &s.DateOfBirth,
-		&s.AdmissionDate, &s.AdmissionNo, &s.ClassID, &s.SchoolID, &s.Status, &s.ParentUserID)
+		&s.AdmissionDate, &s.AdmissionNo, &s.ClassID, &s.SchoolID, &s.Status, &s.ParentUserID, &health)
+	if err == nil && health != "" {
+		var h domain.StudentHealth
+		if json.Unmarshal([]byte(health), &h) == nil {
+			s.Health = &h
+		}
+	}
 	return s, err
 }
 
@@ -686,16 +706,17 @@ func (p *Postgres) SaveStudent(s domain.Student) error {
 
 	if _, err := tx.ExecContext(contextTODO(), `
 		INSERT INTO students (id, first_name, last_name, gender, date_of_birth, admission_date,
-			admission_no, class_id, school_id, status, parent_user_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			admission_no, class_id, school_id, status, parent_user_id, health)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
 		ON CONFLICT (id) DO UPDATE SET
 			first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, gender = EXCLUDED.gender,
 			date_of_birth = EXCLUDED.date_of_birth, admission_date = EXCLUDED.admission_date,
 			admission_no = EXCLUDED.admission_no, class_id = EXCLUDED.class_id,
-			school_id = EXCLUDED.school_id, status = EXCLUDED.status, parent_user_id = EXCLUDED.parent_user_id`,
+			school_id = EXCLUDED.school_id, status = EXCLUDED.status, parent_user_id = EXCLUDED.parent_user_id,
+			health = EXCLUDED.health`,
 		s.ID, s.FirstName, s.LastName, nullStr(s.Gender), nullStr(s.DateOfBirth),
 		nullStr(s.AdmissionDate), nullStr(s.AdmissionNo), nullStr(s.ClassID),
-		nullStr(s.SchoolID), firstNonEmpty(s.Status, "active"), nullStr(s.ParentUserID)); err != nil {
+		nullStr(s.SchoolID), firstNonEmpty(s.Status, "active"), nullStr(s.ParentUserID), healthJSON(s.Health)); err != nil {
 		p.errLog("SaveStudent", err)
 		return err
 	}

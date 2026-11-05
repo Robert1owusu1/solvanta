@@ -213,6 +213,8 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                       (i) => i.status != InterventionStatus.cancelled))
                     _interventionRow(it),
                 ]),
+              if (student.health != null && !student.health!.isEmpty)
+                _healthSection(student.health!),
               _section('Guardians', [
                 for (final g in student.guardians)
                   _personRow(Icons.contact_page_outlined, g.name, g.phone,
@@ -241,6 +243,43 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
         },
       ),
     );
+  }
+
+  Widget _healthSection(StudentHealth h) {
+    Widget row(IconData icon, String label, String value, {bool alert = false}) {
+      final color = alert ? AppColors.danger : AppColors.body;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 10),
+          SizedBox(
+              width: 96,
+              child: Text(label,
+                  style: TextStyle(fontSize: 12, color: AppColors.muted))),
+          Expanded(
+              child: Text(value,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: alert ? FontWeight.w700 : FontWeight.w500,
+                      color: alert ? AppColors.danger : AppColors.ink))),
+        ]),
+      );
+    }
+
+    return _section('Health & emergency', [
+      if (h.bloodGroup.isNotEmpty)
+        row(Icons.bloodtype_outlined, 'Blood group', h.bloodGroup),
+      if (h.allergies.isNotEmpty)
+        row(Icons.warning_amber, 'Allergies', h.allergies.join(', '), alert: true),
+      if (h.conditions.isNotEmpty)
+        row(Icons.healing_outlined, 'Conditions', h.conditions.join(', ')),
+      if (h.medications.isNotEmpty)
+        row(Icons.medication_outlined, 'Medications', h.medications.join(', ')),
+      if (h.immunizations.isNotEmpty)
+        row(Icons.vaccines_outlined, 'Immunizations', h.immunizations.join(', ')),
+      if (h.notes.isNotEmpty) row(Icons.notes_outlined, 'Notes', h.notes),
+    ]);
   }
 
   Widget _learningProgress(Student student, _Learning l, List<Question> bank,

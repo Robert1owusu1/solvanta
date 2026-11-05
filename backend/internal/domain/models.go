@@ -186,6 +186,20 @@ type Student struct {
 	Guardians         []Person `json:"guardians"`
 	EmergencyContacts []Person `json:"emergencyContacts"`
 	AuthorizedPickup  []Person `json:"authorizedPickup"`
+	// Health is optional emergency medical information (blood group, allergies,
+	// conditions, medications, immunizations, notes), shown to staff and the
+	// child's own family — useful at the gate and in an emergency.
+	Health *StudentHealth `json:"health,omitempty"`
+}
+
+// StudentHealth is a pupil's emergency medical record.
+type StudentHealth struct {
+	BloodGroup    string   `json:"bloodGroup,omitempty"`
+	Allergies     []string `json:"allergies,omitempty"`
+	Conditions    []string `json:"conditions,omitempty"`
+	Medications   []string `json:"medications,omitempty"`
+	Immunizations []string `json:"immunizations,omitempty"`
+	Notes         string   `json:"notes,omitempty"`
 }
 
 func (s Student) FullName() string { return s.FirstName + " " + s.LastName }
