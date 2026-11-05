@@ -49,6 +49,9 @@ type Store interface {
 	UserByID(id string) (domain.User, bool)
 	UserByEmail(email string) (domain.User, bool)
 	SaveUser(u domain.User) error
+	// DeleteUser removes an account (data-protection erasure). The caller also
+	// forgets the email in the directory (Tenants.ForgetEmail).
+	DeleteUser(id string) error
 
 	// Classes
 	Classes() []domain.ClassRoom
@@ -380,6 +383,19 @@ func (m *Memory) SaveUser(u domain.User) error {
 	defer m.mu.Unlock()
 	m.users = upsert(m.users, u.ID, u)
 
+	return nil
+}
+
+func (m *Memory) DeleteUser(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.User, 0, len(m.users))
+	for _, u := range m.users {
+		if u.ID != id {
+			out = append(out, u)
+		}
+	}
+	m.users = out
 	return nil
 }
 

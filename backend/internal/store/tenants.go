@@ -47,6 +47,8 @@ type Tenants interface {
 	// directory entry rather than claiming, so the email is never briefly taken
 	// in two places.
 	ReassignEmail(email, fromSchool, toSchool, newUserID string) error
+	// ForgetEmail removes a sign-in email from the directory (account erasure).
+	ForgetEmail(email string) error
 }
 
 // ErrUnknownSchool is returned for a school the platform has not registered.
@@ -175,6 +177,13 @@ func (t *MemoryTenants) ReassignEmail(email, fromSchool, toSchool, newUserID str
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.dir[e] = dirEntry{toSchool, newUserID}
+	return nil
+}
+
+func (t *MemoryTenants) ForgetEmail(email string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.dir, strings.ToLower(strings.TrimSpace(email)))
 	return nil
 }
 
@@ -370,6 +379,12 @@ func (t *PostgresTenants) ReassignEmail(email, fromSchool, toSchool, newUserID s
 		INSERT INTO public.user_directory (email, school_id, user_id) VALUES ($1, $2, $3)
 		ON CONFLICT (email) DO UPDATE SET school_id = EXCLUDED.school_id, user_id = EXCLUDED.user_id`,
 		e, toSchool, newUserID)
+	return err
+}
+
+func (t *PostgresTenants) ForgetEmail(email string) error {
+	_, err := t.registry.Exec(`DELETE FROM public.user_directory WHERE email = $1`,
+		strings.ToLower(strings.TrimSpace(email)))
 	return err
 }
 
@@ -636,3 +651,5 @@ func (t singleSchool) Delete(string) error { return ErrDefaultSchool }
 func (t singleSchool) ReassignEmail(string, string, string, string) error {
 	return errors.New("this server holds a single school")
 }
+
+func (t singleSchool) ForgetEmail(string) error { return nil }

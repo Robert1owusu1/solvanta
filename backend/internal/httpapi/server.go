@@ -527,6 +527,10 @@ func (s *Server) Router() *gin.Engine {
 	// Any signed-in user can read their own billing status (Account badge/banner).
 	api.GET("/billing/me", s.myBilling)
 
+	// Data-subject rights: export a copy of your own data, or erase your account.
+	api.GET("/me/export", s.meExport)
+	api.DELETE("/me", s.meDelete)
+
 	// Texts to parents (sms.go): what the school sends, and what went out.
 	leaders := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher)
 	smsGroup := api.Group("/sms", s.schoolScope(), s.requireFeature(domain.FeatSMS))

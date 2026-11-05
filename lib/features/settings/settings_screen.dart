@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/platform/file_share.dart';
+import '../auth/auth_repository.dart';
 import '../../core/models/billing.dart';
 import '../../core/models/capabilities.dart';
 import '../../core/models/school.dart';
@@ -32,6 +36,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     // Make sure persisted values are in before the first frame renders them.
     _settings.load();
+  }
+
+  Future<void> _downloadMyData() async {
+    try {
+      final data = await ApiClient().get('/api/me/export');
+      await saveAndShareFile(
+        Uint8List.fromList(utf8.encode(const JsonEncoder.withIndent('  ').convert(data))),
+        'my-solvanta-data.json',
+        'application/json',
+      );
+    } catch (_) {
+      if (mounted) svSnack(context, 'Could not export your data.', error: true);
+    }
+  }
+
+  Future<void> _deleteMyAccount() async {
+    if (!await svConfirm(context,
+        title: 'Delete your account?',
+        message: 'This permanently removes your account. It cannot be undone. '
+            'You will need your password to confirm.',
+        confirmLabel: 'Continue',
+        destructive: true)) {
+      return;
+    }
+    if (!mounted) return;
+    final pw = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm with your password'),
+        content: TextField(
+          controller: pw,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Password'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete account'),
+          ),
+        ],
+      ),
+    );
+    final password = pw.text;
+    pw.dispose();
+    if (confirmed != true || password.isEmpty) return;
+    try {
+      await ApiClient()
+          .request('DELETE', '/api/me', body: {'password': password}, offlineQueue: false);
+      await AuthRepository().logout();
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+    } on ApiException catch (e) {
+      if (mounted) svSnack(context, e.message, error: true);
+    }
   }
 
   /// For an independent workspace, a badge showing the billing status: a
@@ -277,6 +341,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (_) => const MfaSettingsScreen())),
                 ),
               ),
+
+              if (ApiClient.isConfigured) ...[
+                // -----------------------------------------------------------
+                const SvSectionTitle('Your data'),
+                _Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading:
+                            Icon(Icons.download_outlined, color: AppColors.muted),
+                        title: const Text('Download my data'),
+                        subtitle: const Text('A copy of your personal data (JSON)'),
+                        onTap: _downloadMyData,
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_forever_outlined,
+                            color: AppColors.danger),
+                        title: Text('Delete my account',
+                            style: TextStyle(color: AppColors.danger)),
+                        subtitle: const Text('Permanently erase your account'),
+                        onTap: _deleteMyAccount,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // -------------------------------------------------------------
               const SvSectionTitle('Legal'),

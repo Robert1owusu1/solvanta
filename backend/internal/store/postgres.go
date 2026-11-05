@@ -472,6 +472,28 @@ func (p *Postgres) SaveUser(u domain.User) error {
 	return nil
 }
 
+func (p *Postgres) DeleteUser(id string) error {
+	tx, err := p.db.BeginTx(contextTODO(), nil)
+	if err != nil {
+		p.errLog("DeleteUser begin", err)
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM user_students WHERE user_id = $1`, id); err != nil {
+		p.errLog("DeleteUser links", err)
+		return err
+	}
+	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM users WHERE id = $1`, id); err != nil {
+		p.errLog("DeleteUser", err)
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("DeleteUser commit", err)
+		return err
+	}
+	return nil
+}
+
 // --- Classes ---
 
 func (p *Postgres) Classes() []domain.ClassRoom {

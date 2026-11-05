@@ -8,6 +8,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Data-subject rights (data protection). Any signed-in user can **download a
+  copy of their own data** (`GET /api/me/export` — account plus, for a student
+  or parent, the records SOLVANTA holds about them/their children; passwords are
+  never included) and **erase their account** (`DELETE /api/me`, password
+  required). Erasure refuses accounts whose removal would orphan data or lock a
+  school out — the platform operator, an independent workspace owner, and the
+  last admin of a school — and revokes the session on success. Both are exposed
+  in Settings → Your data.
+
 - Two-factor authentication (TOTP). Any user can enrol from Settings → Account
   security: scan the QR with an authenticator app, confirm a code to turn it on,
   and turn it off with a current code. Sign-in then becomes two-step — the
