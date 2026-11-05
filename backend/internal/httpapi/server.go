@@ -593,6 +593,9 @@ func (s *Server) Router() *gin.Engine {
 		plans.GET("", s.listPlans)
 		plans.POST("", s.createPlan)
 		plans.PUT("/:id", s.updatePlan)
+		// Move every tenant from one plan to another (with a dry-run count).
+		plans.GET("/:id/move", s.movePlanPreview)
+		plans.POST("/:id/move", s.movePlan)
 	}
 	api.POST("/subscriptions", requireRole(domain.RoleSuperAdmin), s.assignPlan)
 	// Any signed-in user can read their own billing status (Account badge/banner).

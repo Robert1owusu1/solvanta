@@ -8,6 +8,14 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Super admins can move every tenant from one plan to another in one step, with
+  a dry-run count first: `GET /api/plans/:id/move?fromPlanId=…` and
+  `POST /api/plans/:id/move`.
+- `docs/OPERATIONS.md`: backup/restore runbook (per-schema `pg_dump`, retention,
+  PITR), the offline sync & conflict strategy (idempotent client ids,
+  last-writer-wins on mutable rows, server-enforced protected transitions), and
+  observability/security-ops notes.
+
 - Transactional email channel (`internal/email`, env-configured SMTP, log-only
   until set — mirrors the SMS design) and self-service password reset:
   `POST /auth/password/forgot` emails a short-lived, one-time reset code (always

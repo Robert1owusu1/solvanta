@@ -229,6 +229,58 @@ func (s *Server) assignPlan(c *gin.Context) {
 	sendJSON(c, body)
 }
 
+// movePlanPreview counts how many tenants would move from one plan to another.
+// GET /api/plans/:id/move?fromPlanId=X
+func (s *Server) movePlanPreview(c *gin.Context) {
+	to := c.Param("id")
+	from := c.Query("fromPlanId")
+	if _, ok := s.platform.PlanByID(to); !ok {
+		fail(c, http.StatusNotFound, "Destination plan not found")
+		return
+	}
+	affected := 0
+	for _, sub := range s.platform.Subscriptions() {
+		if sub.PlanID == from {
+			affected++
+		}
+	}
+	sendJSON(c, gin.H{"fromPlanId": from, "toPlanId": to, "affected": affected})
+}
+
+// movePlan reassigns every tenant on one plan to another in one go.
+// POST /api/plans/:id/move  { "fromPlanId": "..." }
+func (s *Server) movePlan(c *gin.Context) {
+	to := c.Param("id")
+	var body struct {
+		FromPlanID string `json:"fromPlanId"`
+	}
+	if !bind(c, &body) {
+		return
+	}
+	if body.FromPlanID == "" || body.FromPlanID == to {
+		fail(c, http.StatusBadRequest, "a different source plan is required")
+		return
+	}
+	if _, ok := s.platform.PlanByID(to); !ok {
+		fail(c, http.StatusNotFound, "Destination plan not found")
+		return
+	}
+	moved := 0
+	for _, sub := range s.platform.Subscriptions() {
+		if sub.PlanID == body.FromPlanID {
+			sub.PlanID = to
+			if err := s.platform.SaveSubscription(sub); err != nil {
+				fail(c, http.StatusInternalServerError, "Could not move all tenants; some may have moved")
+				return
+			}
+			moved++
+		}
+	}
+	s.audit(c, "plan.move", to,
+		"Moved "+itoa(moved)+" tenant(s) from plan "+body.FromPlanID+" to "+to, "")
+	sendJSON(c, gin.H{"moved": moved, "fromPlanId": body.FromPlanID, "toPlanId": to})
+}
+
 // --- Super-admin: usage ---
 
 func (s *Server) platformUsage(c *gin.Context) {
