@@ -32,6 +32,7 @@ func main() {
 	}
 	cfg.AllowedOrigins = splitList(os.Getenv("ALLOWED_ORIGINS"))
 	cfg.TrustedProxies = splitList(os.Getenv("TRUSTED_PROXIES"))
+	cfg.MetricsToken = os.Getenv("METRICS_TOKEN")
 
 	// Every school gets a store of its own (store.Tenants): a PostgreSQL
 	// schema each in production, or an in-memory store each for development.

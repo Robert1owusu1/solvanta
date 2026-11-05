@@ -8,6 +8,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Observability baseline: a Prometheus `/metrics` endpoint (request counts by
+  status, total request duration, uptime), gated behind `METRICS_TOKEN` when
+  set and open otherwise, plus one structured log line per request
+  (method/path/status/latency/ip) in place of Gin's default logger.
+
 - Data-subject rights (data protection). Any signed-in user can **download a
   copy of their own data** (`GET /api/me/export` — account plus, for a student
   or parent, the records SOLVANTA holds about them/their children; passwords are

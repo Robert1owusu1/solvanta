@@ -47,6 +47,9 @@ type Config struct {
 	// SMSInline sends texts inside the request instead of in the background
 	// — for tests, which read the log straight after.
 	SMSInline bool
+	// MetricsToken, when set (METRICS_TOKEN env), gates the /metrics endpoint
+	// behind a bearer token. Empty leaves it open (dev / private network).
+	MetricsToken string
 }
 
 // sharedPasswordHashes precomputes bcrypt hashes once per process so repeated

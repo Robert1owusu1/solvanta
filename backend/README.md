@@ -271,6 +271,7 @@ Environment variables:
 | `ENV`             | dev     | Set `production` to enforce `SECRET`, HSTS and quiet logging |
 | `POSTGRES_DSN`    | (none)  | Enable PostgreSQL storage; schema is applied at boot |
 | `SEED`            | on in dev, off in production | Seed the demo dataset on boot (`false` to skip; never `true` in production) |
+| `METRICS_TOKEN`   | (none)  | Require `Authorization: Bearer <token>` on `GET /metrics`. Empty leaves metrics open (dev / firewalled scrape port) |
 
 > Storage uses the `Store` interface as its seam: `store.New()` is the in-memory
 > in-process store (default), `store.NewPostgres(dsn, seed)` talks to PostgreSQL
@@ -284,6 +285,10 @@ Environment variables:
 > gate events and a shifted attendance window that never collided with the
 > previous day's — the tables grew daily and drifted away from the client's
 > seed, which `LocalStore` computes once at first launch and then freezes.
+>
+> `GET /metrics` exposes Prometheus metrics (request counts by status, total
+> request duration, uptime). It is open by default; set `METRICS_TOKEN` to
+> require a bearer token when the scrape endpoint is reachable from outside.
 >
 > `GET /health` reports storage trouble alongside `"status": "ok"`. It stays `ok`
 > deliberately: the client reads that field to decide whether the server is

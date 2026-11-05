@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/metrics"
 	"solvanta/backend/internal/ocr"
 	"solvanta/backend/internal/sms"
 	"solvanta/backend/internal/store"
@@ -48,6 +49,9 @@ type Server struct {
 	// platform holds the platform-wide billing data (mode switch, plans,
 	// subscriptions, usage) that lives in `public`, shared by every tenant.
 	platform store.Platform
+
+	// metrics collects request counts/latency for the /metrics endpoint.
+	metrics *metrics.Registry
 
 	sessionsMu sync.Mutex
 	// revoked maps a token's jti to the time it expires (when it can be
@@ -89,6 +93,7 @@ func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 		secret:   []byte(cfg.Secret),
 		ocrs:     ocr.NewRouter(ocr.FromEnv()),
 		platform: store.NewMemoryPlatform(time.Now().Format("2006-01-02 15:04")),
+		metrics:  metrics.New(),
 		revoked:  map[string]time.Time{},
 	}
 	if !cfg.SMSInline {
@@ -404,6 +409,27 @@ func (s *Server) userSchool(u domain.User) string {
 	return u.SchoolID
 }
 
+// observeMetrics records every request's status and latency for /metrics.
+func (s *Server) observeMetrics() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		s.metrics.Observe(c.Writer.Status(), time.Since(start))
+	}
+}
+
+// structuredLogger emits one structured line per request (method, path,
+// status, latency, client) — greppable and ready for log shipping, instead of
+// Gin's default coloured line.
+func structuredLogger() gin.HandlerFunc {
+	return gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+		return fmt.Sprintf(
+			"level=info ts=%s method=%s path=%q status=%d latency=%s ip=%s\n",
+			p.TimeStamp.UTC().Format(time.RFC3339), p.Method, p.Path,
+			p.StatusCode, p.Latency, p.ClientIP)
+	})
+}
+
 // sendJSON writes a JSON body. Nil slices are emitted as [] so clients can
 // always decode list endpoints as arrays, never null.
 func sendJSON(c *gin.Context, v any) {
@@ -454,7 +480,19 @@ func (s *Server) Router() *gin.Engine {
 	// login throttle (and forge audit addresses). The list was validated in
 	// NewServer, so this cannot fail.
 	_ = r.SetTrustedProxies(s.cfg.TrustedProxies)
-	r.Use(gin.Logger(), gin.Recovery(), s.securityHeaders(), s.cors())
+	r.Use(structuredLogger(), gin.Recovery(), s.securityHeaders(), s.cors(), s.observeMetrics())
+
+	// Prometheus metrics. Gated behind METRICS_TOKEN when set, open otherwise
+	// (dev / a private network where the scrape port is firewalled).
+	r.GET("/metrics", func(c *gin.Context) {
+		if s.cfg.MetricsToken != "" &&
+			c.GetHeader("Authorization") != "Bearer "+s.cfg.MetricsToken {
+			fail(c, http.StatusUnauthorized, "metrics token required")
+			return
+		}
+		c.Header("Content-Type", "text/plain; version=0.0.4")
+		c.String(http.StatusOK, s.metrics.Render())
+	})
 
 	// Liveness stays "ok" while the process is up: the client reads this to
 	// decide whether the server is reachable, and treating storage trouble as
