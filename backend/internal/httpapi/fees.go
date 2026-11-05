@@ -57,6 +57,7 @@ func (s *Server) createPayment(c *gin.Context) {
 	}
 	s.audit(c, "payment.record", p.ID,
 		"Recorded "+itoa(p.Amount)+" GHS against invoice "+p.InvoiceID, p.Reference)
+	s.fireEvent(c, "payment.recorded", p)
 	sendCreated(c, p)
 }
 

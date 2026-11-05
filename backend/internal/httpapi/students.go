@@ -135,6 +135,7 @@ func (s *Server) createStudent(c *gin.Context) {
 		return
 	}
 	s.audit(c, "student.create", st.ID, "Created student "+st.FullName(), "")
+	s.fireEvent(c, "student.created", st)
 	sendCreated(c, st)
 }
 

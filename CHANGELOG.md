@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Outbound webhooks: school leaders can register URLs
+  (`GET/POST/DELETE /api/webhooks`) that receive a signed JSON event
+  (`X-Solvanta-Signature: sha256=HMAC(secret, body)`) when a student is
+  registered, a payment recorded or a gate event logged. Delivery is async,
+  best-effort with retries, and never affects the triggering request; the
+  signing secret is shown once and never returned again.
+
 - Student health records: an optional emergency medical record per pupil (blood
   group, allergies, conditions, medications, immunizations, notes), carried on
   the student model/API (migration adds a `health` JSONB column) and shown as a

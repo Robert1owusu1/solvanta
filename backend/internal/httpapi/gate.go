@@ -67,6 +67,7 @@ func (s *Server) createGateEvent(c *gin.Context) {
 		return
 	}
 	s.audit(c, "gate.update", ev.ID, "Gate event "+ev.Type+" for "+st.FullName(), body.Detail)
+	s.fireEvent(c, "gate.event", ev)
 
 	if p := userForStudent(c, s, st); p.ID != "" {
 		switch ev.Type {

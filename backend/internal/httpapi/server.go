@@ -617,6 +617,15 @@ func (s *Server) Router() *gin.Engine {
 	// Register this device for remote push notifications.
 	api.POST("/push/register", s.registerPushToken)
 
+	// Outbound webhooks (school leaders): wire SOLVANTA into other systems.
+	webhooks := api.Group("/webhooks", s.schoolScope(),
+		requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher))
+	{
+		webhooks.GET("", s.listWebhooks)
+		webhooks.POST("", s.createWebhook)
+		webhooks.DELETE("/:id", s.deleteWebhook)
+	}
+
 	// Texts to parents (sms.go): what the school sends, and what went out.
 	leaders := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher)
 	smsGroup := api.Group("/sms", s.schoolScope(), s.requireFeature(domain.FeatSMS))
