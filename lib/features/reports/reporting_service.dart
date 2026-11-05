@@ -68,7 +68,7 @@ class ReportingService {
     buf.writeln('Assessment,${_q(assessment.title)}');
     buf.writeln(
         'Subject,${_q(assessment.subjectId)} · Total marks,'
-        '${assessment.totalMarks.toStringAsFixed(2)}');
+        '${assessment.effectiveTotal.toStringAsFixed(2)}');
     buf.writeln(
         'Student ID,Name,Class,Total,Earned,Percent,Grade');
     var earned = 0.0, possible = 0.0;
@@ -87,17 +87,17 @@ class ReportingService {
           earned: 0,
         ),
       );
-      final pct = assessment.totalMarks > 0
-          ? 100 * sub.earned / assessment.totalMarks
+      final pct = assessment.effectiveTotal > 0
+          ? 100 * sub.earned / assessment.effectiveTotal
           : 0.0;
       final marked = sub.id.isNotEmpty;
       earned += sub.earned;
-      possible += assessment.totalMarks;
+      possible += assessment.effectiveTotal;
       buf.writeln([
         _q(s.id),
         _q(s.fullName),
         _q(s.classId),
-        _q(assessment.totalMarks.toStringAsFixed(2)),
+        _q(assessment.effectiveTotal.toStringAsFixed(2)),
         marked ? _q(sub.earned.toStringAsFixed(1)) : _q('pending'),
         marked ? _q('${pct.toStringAsFixed(1)}%') : _q('–'),
         marked ? _q(schoolGrade(pct, assessment.classId)) : _q('–'),
@@ -221,7 +221,11 @@ class ReportingService {
         subjectId: a.subjectId,
         title: a.title,
         date: a.date,
-        total: a.totalMarks,
+        // The mark the paper is out of: maxScore for a score-only
+        // assessment (marked on paper, no questions), else the question
+        // total. Reading totalMarks here would put 0 in the row and drop a
+        // manually-recorded score from every average as un-graded.
+        total: a.effectiveTotal,
         earned: sub.id.isNotEmpty ? sub.earned : null,
         type: a.type,
         classId: a.classId,
@@ -302,16 +306,16 @@ class ReportingService {
         ),
       );
       final marked = sub.id.isNotEmpty;
-      final pct = assessment.totalMarks > 0
-          ? 100 * sub.earned / assessment.totalMarks
+      final pct = assessment.effectiveTotal > 0
+          ? 100 * sub.earned / assessment.effectiveTotal
           : 0.0;
       earned += sub.earned;
-      possible += assessment.totalMarks;
+      possible += assessment.effectiveTotal;
       sheet.appendRow([
         TextCellValue(s.id),
         TextCellValue(s.fullName),
         TextCellValue(s.classId),
-        TextCellValue(assessment.totalMarks.toStringAsFixed(1)),
+        TextCellValue(assessment.effectiveTotal.toStringAsFixed(1)),
         TextCellValue(marked ? sub.earned.toStringAsFixed(1) : 'pending'),
         TextCellValue(marked ? '${pct.toStringAsFixed(1)}%' : '–'),
         TextCellValue(marked ? schoolGrade(pct, assessment.classId) : '–'),
