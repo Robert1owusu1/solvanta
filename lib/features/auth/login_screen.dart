@@ -6,6 +6,7 @@ import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import 'auth_repository.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -295,13 +296,22 @@ class _LoginScreenState extends State<LoginScreen> {
                             // Against a live backend accounts are created by
                             // the school (the API has no public sign-up), so
                             // a device-only account would never sync.
-                            if (ApiClient.isConfigured)
+                            if (ApiClient.isConfigured) ...[
+                              TextButton(
+                                onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) => ForgotPasswordScreen(
+                                            initialEmail: _email.text.trim()))),
+                                child: const Text('Forgot password?',
+                                    style: TextStyle(color: Colors.white)),
+                              ),
                               Text(
                                 'Need an account? Ask your school administrator.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                     color: Colors.white.withValues(alpha: .8)),
-                              )
+                              ),
+                            ]
                             else
                               TextButton(
                                 onPressed: () =>

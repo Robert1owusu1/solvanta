@@ -144,6 +144,19 @@ class RemoteDataSource {
     );
   }
 
+  /// Requests a password-reset email. Always succeeds server-side (it never
+  /// reveals whether the address is registered).
+  Future<void> forgotPassword(String email) async {
+    await client.request('POST', '/auth/password/forgot',
+        body: {'email': email}, offlineQueue: false);
+  }
+
+  /// Sets a new password using the code from the reset email.
+  Future<void> resetPassword(String token, String newPassword) async {
+    await client.request('POST', '/auth/password/reset',
+        body: {'token': token, 'newPassword': newPassword}, offlineQueue: false);
+  }
+
   /// Whether two-factor is on for the signed-in user.
   Future<bool> mfaEnabled() async {
     final res = await client.get('/auth/me') as JsonMap;

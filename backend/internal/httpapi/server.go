@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/email"
 	"solvanta/backend/internal/metrics"
 	"solvanta/backend/internal/ocr"
 	"solvanta/backend/internal/sms"
@@ -40,6 +41,9 @@ type Server struct {
 	// sms texts parents; smsJobs feeds the background sender.
 	sms     sms.Sender
 	smsJobs chan smsJob
+
+	// email sends transactional mail (password resets).
+	email email.Sender
 
 	// ocrs routes a page to Mathpix, Cloud Vision, or the mock. It is built
 	// once at startup from the environment: absent credentials are the normal
@@ -86,9 +90,14 @@ func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 	if sender == nil {
 		sender = sms.FromEnv()
 	}
+	mailer := cfg.Email
+	if mailer == nil {
+		mailer = email.FromEnv()
+	}
 	srv := &Server{
 		tenants:  t,
 		sms:      sender,
+		email:    mailer,
 		cfg:      cfg,
 		secret:   []byte(cfg.Secret),
 		ocrs:     ocr.NewRouter(ocr.FromEnv()),
@@ -130,12 +139,28 @@ func (s *Server) signMFAChallenge(u domain.User) string {
 	return s.signClaims(u, 5*time.Minute, true)
 }
 
+// signReset issues a short-lived token emailed for a password reset; only
+// /auth/password/reset accepts it.
+func (s *Server) signReset(u domain.User) string {
+	now := time.Now()
+	claims, _ := json.Marshal(tokenClaims{
+		Sub: u.ID, Sch: u.SchoolID, Exp: now.Add(30 * time.Minute).Unix(),
+		Iat: now.Unix(), Jti: randomHex(16), Reset: true,
+	})
+	return s.signBytes(claims)
+}
+
 func (s *Server) signClaims(u domain.User, ttl time.Duration, mfa bool) string {
 	now := time.Now()
 	claims, _ := json.Marshal(tokenClaims{
 		Sub: u.ID, Sch: u.SchoolID, Exp: now.Add(ttl).Unix(), Iat: now.Unix(),
 		Jti: randomHex(16), Mfa: mfa,
 	})
+	return s.signBytes(claims)
+}
+
+// signBytes HMACs a claims payload into the "<b64claims>.<b64mac>" token form.
+func (s *Server) signBytes(claims []byte) string {
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write(claims)
 	return base64.RawURLEncoding.EncodeToString(claims) + "." +
@@ -246,9 +271,14 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		// A challenge token only unlocks /auth/mfa/verify, never the API.
+		// Challenge/reset tokens unlock only their one endpoint, never the API.
 		if tc.Mfa {
 			fail(c, http.StatusUnauthorized, "Complete two-factor sign-in first")
+			c.Abort()
+			return
+		}
+		if tc.Reset {
+			fail(c, http.StatusUnauthorized, "This link is for resetting your password only")
 			c.Abort()
 			return
 		}
@@ -523,6 +553,9 @@ func (s *Server) Router() *gin.Engine {
 		auth.POST("/mfa/enable", s.requireAuth(), s.mfaEnable)
 		auth.POST("/mfa/disable", s.requireAuth(), s.mfaDisable)
 		auth.POST("/mfa/verify", s.loginRateLimit(), s.mfaVerify)
+		// Self-service password reset (public; the token arrives by email).
+		auth.POST("/password/forgot", s.loginRateLimit(), s.forgotPassword)
+		auth.POST("/password/reset", s.loginRateLimit(), s.selfResetPassword)
 		auth.POST("/logout", s.requireAuth(), s.logout)
 		auth.GET("/me", s.requireAuth(), func(c *gin.Context) {
 			sendJSON(c, gin.H{"user": currentUser(c), "mfaEnabled": currentUser(c).MFAEnabled})

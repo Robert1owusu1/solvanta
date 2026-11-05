@@ -8,6 +8,14 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Transactional email channel (`internal/email`, env-configured SMTP, log-only
+  until set — mirrors the SMS design) and self-service password reset:
+  `POST /auth/password/forgot` emails a short-lived, one-time reset code (always
+  answering the same way, so it never reveals whether an address is registered),
+  and `POST /auth/password/reset` exchanges the code plus a new password. A
+  "Forgot password?" link on the login screen drives the flow. The reset token
+  is accepted only by the reset endpoint, never as a session.
+
 - Tamper-evident audit log: every entry is hash-chained to the previous one, so
   altering or dropping any entry breaks the chain. `GET /api/audit/verify`
   recomputes it and reports whether it is intact (and the first broken index).

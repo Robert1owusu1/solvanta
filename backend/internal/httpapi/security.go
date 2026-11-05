@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 
+	"solvanta/backend/internal/email"
 	sec "solvanta/backend/internal/security"
 
 	"solvanta/backend/internal/sms"
@@ -44,6 +45,9 @@ type Config struct {
 	// SMS sends texts to parents; nil picks the provider from the
 	// environment (sms.FromEnv: the log-only provider unless configured).
 	SMS sms.Sender
+	// Email sends transactional email (password resets); nil picks the provider
+	// from the environment (email.FromEnv: log-only unless SMTP is configured).
+	Email email.Sender
 	// SMSInline sends texts inside the request instead of in the background
 	// — for tests, which read the log straight after.
 	SMSInline bool
@@ -324,4 +328,7 @@ type tokenClaims struct {
 	// it lets them call /auth/mfa/verify but nothing else, until they exchange
 	// it for a full token by passing their one-time code.
 	Mfa bool `json:"mfa,omitempty"`
+	// Reset marks a short-lived password-reset token (emailed to the user):
+	// it is accepted only by /auth/password/reset, never as a session.
+	Reset bool `json:"rst,omitempty"`
 }

@@ -272,6 +272,7 @@ Environment variables:
 | `POSTGRES_DSN`    | (none)  | Enable PostgreSQL storage; schema is applied at boot |
 | `SEED`            | on in dev, off in production | Seed the demo dataset on boot (`false` to skip; never `true` in production) |
 | `METRICS_TOKEN`   | (none)  | Require `Authorization: Bearer <token>` on `GET /metrics`. Empty leaves metrics open (dev / firewalled scrape port) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (none) | Transactional email (password resets). Unset = log-only provider (nothing sent; the reset code is logged in dev) |
 
 > Storage uses the `Store` interface as its seam: `store.New()` is the in-memory
 > in-process store (default), `store.NewPostgres(dsn, seed)` talks to PostgreSQL
