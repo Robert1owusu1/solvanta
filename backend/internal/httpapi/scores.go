@@ -175,7 +175,7 @@ func (s *Server) putScore(c *gin.Context) {
 		fail(c, http.StatusNotFound, reason)
 		return
 	}
-	if !teacherCoversClass(currentUser(c), st.ClassID) {
+	if !mayWorkOnClass(currentUser(c), st.ClassID) {
 		fail(c, http.StatusForbidden, "You may only record scores for your own class")
 		return
 	}
@@ -232,7 +232,7 @@ func (s *Server) bulkScores(c *gin.Context) {
 	if !bindBulkScores(c, &rows, &batchOverride) {
 		return // bind already answered
 	}
-	if !teacherCoversClass(currentUser(c), a.ClassID) {
+	if !mayWorkOnClass(currentUser(c), a.ClassID) {
 		fail(c, http.StatusForbidden, "You may only record scores for your own class")
 		return
 	}

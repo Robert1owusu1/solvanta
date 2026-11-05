@@ -33,7 +33,7 @@ func (s *Server) scoreSheetReport(c *gin.Context) {
 		fail(c, http.StatusNotFound, "Class not found")
 		return
 	}
-	if !teacherCoversClass(currentUser(c), classID) {
+	if !mayWorkOnClass(currentUser(c), classID) {
 		fail(c, http.StatusForbidden, "You may only view your own class's score sheet")
 		return
 	}
