@@ -552,6 +552,10 @@ func (s *Server) Router() *gin.Engine {
 		sendJSON(c, body)
 	})
 
+	// Public API reference: GET /openapi.json (the spec) and GET /docs (a Redoc
+	// viewer over it).
+	s.registerDocs(r)
+
 	auth := r.Group("/auth", limitRequestBody())
 	{
 		auth.POST("/login", s.loginRateLimit(), s.login)

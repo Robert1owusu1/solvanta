@@ -1,0 +1,194 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SOLVANTA API",
+    "version": "1.0.0",
+    "description": "School management, assessment and student-safety platform. All responses are camelCase JSON. Errors are `{\"error\": \"message\"}`. Most endpoints require a Bearer token from /auth/login; access is role-based and scoped per school."
+  },
+  "servers": [{ "url": "/", "description": "This server" }],
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer", "description": "Token from POST /auth/login (or /auth/mfa/verify when 2FA is on)." }
+    },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "error": { "type": "string" } } },
+      "LoginRequest": {
+        "type": "object", "required": ["email", "password"],
+        "properties": { "email": { "type": "string" }, "password": { "type": "string" } }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": { "type": "string" },
+          "user": { "$ref": "#/components/schemas/User" },
+          "mfaRequired": { "type": "boolean", "description": "When true, no token is issued; call /auth/mfa/verify with mfaToken + code." },
+          "mfaToken": { "type": "string" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "name": { "type": "string" },
+          "email": { "type": "string" }, "role": { "type": "string" },
+          "schoolId": { "type": "string" }, "classId": { "type": "string" }
+        }
+      },
+      "Student": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "firstName": { "type": "string" },
+          "lastName": { "type": "string" }, "gender": { "type": "string", "enum": ["M", "F"] },
+          "classId": { "type": "string" }, "admissionNo": { "type": "string" },
+          "health": { "$ref": "#/components/schemas/StudentHealth" }
+        }
+      },
+      "StudentHealth": {
+        "type": "object",
+        "properties": {
+          "bloodGroup": { "type": "string" },
+          "allergies": { "type": "array", "items": { "type": "string" } },
+          "conditions": { "type": "array", "items": { "type": "string" } },
+          "notes": { "type": "string" }
+        }
+      },
+      "Assessment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "title": { "type": "string" }, "type": { "type": "string" },
+          "subjectId": { "type": "string" }, "classId": { "type": "string" },
+          "maxScore": { "type": "number", "nullable": true, "description": "Set for a score-only assessment (no questions)." }
+        }
+      },
+      "ScoreRow": {
+        "type": "object",
+        "properties": {
+          "studentId": { "type": "string" }, "admissionNo": { "type": "string" },
+          "score": { "type": "number", "nullable": true },
+          "absent": { "type": "boolean" }, "remark": { "type": "string" }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "invoiceId": { "type": "string" },
+          "studentId": { "type": "string" }, "amount": { "type": "integer" },
+          "method": { "type": "string", "enum": ["cash", "card", "mobileMoney", "bank"] }
+        }
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "url": { "type": "string" },
+          "events": { "type": "array", "items": { "type": "string" } },
+          "active": { "type": "boolean" }
+        }
+      }
+    }
+  },
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Sign in", "tags": ["Auth"], "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } } },
+        "responses": {
+          "200": { "description": "Signed in (or an MFA challenge)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } } },
+          "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "Register an independent teacher workspace", "tags": ["Auth"], "security": [],
+        "responses": { "201": { "description": "Workspace created and signed in" } }
+      }
+    },
+    "/auth/mfa/verify": {
+      "post": { "summary": "Complete two-factor sign-in", "tags": ["Auth"], "security": [], "responses": { "200": { "description": "Signed in" } } }
+    },
+    "/auth/password/forgot": {
+      "post": { "summary": "Request a password-reset code by email", "tags": ["Auth"], "security": [], "responses": { "200": { "description": "Always ok (no account enumeration)" } } }
+    },
+    "/auth/password/reset": {
+      "post": { "summary": "Reset a password with the emailed code", "tags": ["Auth"], "security": [], "responses": { "200": { "description": "Password changed" } } }
+    },
+    "/api/students": {
+      "get": {
+        "summary": "List students (scoped by role)", "tags": ["Students"],
+        "responses": { "200": { "description": "Students", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Student" } } } } } }
+      },
+      "post": {
+        "summary": "Register a student (admins/headteachers)", "tags": ["Students"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Student" } } } },
+        "responses": { "201": { "description": "Created" }, "403": { "description": "Not permitted / plan limit reached" } }
+      }
+    },
+    "/api/students/{id}": {
+      "get": { "summary": "Student detail", "tags": ["Students"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Student" } } },
+      "patch": { "summary": "Update a student", "tags": ["Students"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Updated" } } }
+    },
+    "/api/assessments": {
+      "get": { "summary": "List assessments", "tags": ["Assessments"], "responses": { "200": { "description": "Assessments" } } },
+      "post": { "summary": "Create an assessment (questions or a maxScore)", "tags": ["Assessments"], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Assessment" } } } }, "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/assessments/{id}/scores/{studentId}": {
+      "put": {
+        "summary": "Record one manual score", "tags": ["Assessments"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "studentId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScoreRow" } } } },
+        "responses": { "200": { "description": "Saved" }, "409": { "description": "Term finished, or an AI score needs override" } }
+      }
+    },
+    "/api/assessments/{id}/scores/bulk": {
+      "post": {
+        "summary": "Record many scores (atomic, idempotent)", "tags": ["Assessments"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ScoreRow" } } } } },
+        "responses": { "200": { "description": "All saved" }, "422": { "description": "Validation errors (nothing saved)" } }
+      }
+    },
+    "/api/reports/score-sheet": {
+      "get": {
+        "summary": "Gradebook for a class + subject in a term", "tags": ["Reports"],
+        "parameters": [
+          { "name": "classId", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "subjectId", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "term", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Score sheet" } }
+      }
+    },
+    "/api/payments": {
+      "get": { "summary": "List payments (scoped)", "tags": ["Fees"], "responses": { "200": { "description": "Payments" } } },
+      "post": { "summary": "Record a payment", "tags": ["Fees"], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payment" } } } }, "responses": { "201": { "description": "Recorded" } } }
+    },
+    "/api/webhooks": {
+      "get": { "summary": "List webhook subscriptions (leaders)", "tags": ["Webhooks"], "responses": { "200": { "description": "Webhooks", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Webhook" } } } } } } },
+      "post": { "summary": "Create a webhook (secret returned once)", "tags": ["Webhooks"], "responses": { "201": { "description": "Created" } } }
+    },
+    "/api/webhooks/{id}": {
+      "delete": { "summary": "Delete a webhook", "tags": ["Webhooks"], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/push/register": {
+      "post": { "summary": "Register a device push token", "tags": ["Account"], "responses": { "200": { "description": "Registered" } } }
+    },
+    "/api/me/export": {
+      "get": { "summary": "Export your own personal data", "tags": ["Account"], "responses": { "200": { "description": "A JSON copy of your data" } } }
+    },
+    "/api/me": {
+      "delete": { "summary": "Erase your own account (password required)", "tags": ["Account"], "responses": { "200": { "description": "Deleted" }, "409": { "description": "Blocked (would orphan data / lock a school)" } } }
+    },
+    "/api/billing/me": {
+      "get": { "summary": "Your billing status (mode, plan, usage, preview)", "tags": ["Billing"], "responses": { "200": { "description": "Billing status" } } }
+    },
+    "/metrics": {
+      "get": { "summary": "Prometheus metrics", "tags": ["Ops"], "security": [], "responses": { "200": { "description": "Metrics (text exposition)" } } }
+    },
+    "/health": {
+      "get": { "summary": "Liveness", "tags": ["Ops"], "security": [], "responses": { "200": { "description": "ok" } } }
+    }
+  }
+}

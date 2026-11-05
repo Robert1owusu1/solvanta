@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Public API reference: the REST contract is described in an OpenAPI 3.0.3 spec
+  embedded in the server (`backend/internal/httpapi/openapi.json`) and served at
+  `GET /openapi.json`, with a rendered Redoc viewer at `GET /docs`. Both are
+  public (the spec describes the contract, not data) and cover auth, students,
+  assessments/scores, reports, fees, webhooks, account self-service, billing and
+  ops endpoints. Embedding keeps the spec from drifting from the build.
+
 - Outbound webhooks: school leaders can register URLs
   (`GET/POST/DELETE /api/webhooks`) that receive a signed JSON event
   (`X-Solvanta-Signature: sha256=HMAC(secret, body)`) when a student is
