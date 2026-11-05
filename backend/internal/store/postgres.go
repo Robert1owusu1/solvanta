@@ -1898,7 +1898,7 @@ func (p *Postgres) Payments() []domain.Payment {
 func (p *Postgres) AuditLogs() []domain.AuditEntry {
 	rows, err := p.db.QueryContext(contextTODO(), `
 		SELECT id::text, action, actor, COALESCE(target,''), COALESCE(detail,''),
-		       COALESCE(reason,''), timestamp
+		       COALESCE(reason,''), timestamp, COALESCE(hash,'')
 		FROM audit_logs ORDER BY id`)
 	if err != nil {
 		p.errLog("AuditLogs", err)
@@ -1908,7 +1908,7 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 	var out []domain.AuditEntry
 	for rows.Next() {
 		var e domain.AuditEntry
-		if err := rows.Scan(&e.ID, &e.Action, &e.Actor, &e.Target, &e.Detail, &e.Reason, &e.Timestamp); err != nil {
+		if err := rows.Scan(&e.ID, &e.Action, &e.Actor, &e.Target, &e.Detail, &e.Reason, &e.Timestamp, &e.Hash); err != nil {
 			p.errLog("AuditLogs scan", err)
 			continue
 		}
@@ -1918,12 +1918,30 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 }
 
 func (p *Postgres) AddAudit(e domain.AuditEntry) {
-	_, err := p.db.ExecContext(contextTODO(), `
-		INSERT INTO audit_logs (action, actor, target, detail, reason, timestamp)
-		VALUES ($1,$2,$3,$4,$5,$6)`,
-		e.Action, e.Actor, nullStr(e.Target), nullStr(e.Detail), nullStr(e.Reason), e.Timestamp)
+	// Chain the entry to the previous one inside a transaction so concurrent
+	// writers cannot interleave and break the hash chain.
+	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
+		p.errLog("AddAudit begin", err)
+		return
+	}
+	defer tx.Rollback()
+	var prev string
+	if err := tx.QueryRowContext(contextTODO(),
+		`SELECT COALESCE(hash,'') FROM audit_logs ORDER BY id DESC LIMIT 1`).Scan(&prev); err != nil && err != sql.ErrNoRows {
+		p.errLog("AddAudit prev", err)
+		return
+	}
+	e.Hash = domain.AuditChainHash(prev, e)
+	if _, err := tx.ExecContext(contextTODO(), `
+		INSERT INTO audit_logs (action, actor, target, detail, reason, timestamp, hash)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		e.Action, e.Actor, nullStr(e.Target), nullStr(e.Detail), nullStr(e.Reason), e.Timestamp, e.Hash); err != nil {
 		p.errLog("AddAudit", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("AddAudit commit", err)
 	}
 }
 

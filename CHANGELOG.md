@@ -8,6 +8,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Tamper-evident audit log: every entry is hash-chained to the previous one, so
+  altering or dropping any entry breaks the chain. `GET /api/audit/verify`
+  recomputes it and reports whether it is intact (and the first broken index).
+- In-app Help & support screen (common questions + where to get help), linked
+  from Settings.
+
 - Observability baseline: a Prometheus `/metrics` endpoint (request counts by
   status, total request duration, uptime), gated behind `METRICS_TOKEN` when
   set and open otherwise, plus one structured log line per request

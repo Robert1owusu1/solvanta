@@ -4,7 +4,11 @@
 // toJson(), enum values stored as their Dart enum .name strings).
 package domain
 
-import "encoding/json"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+)
 
 const (
 	defaultSchoolID = "SCH-001"
@@ -510,6 +514,36 @@ type AuditEntry struct {
 	Detail    string `json:"detail"`
 	Timestamp string `json:"timestamp"`
 	Reason    string `json:"reason,omitempty"`
+	// Hash chains this entry to the previous one (see AuditChainHash), making
+	// the log tamper-evident: altering or dropping any entry breaks the chain
+	// from that point on, which VerifyAuditChain detects.
+	Hash string `json:"hash,omitempty"`
+}
+
+// AuditChainHash is the hash of an entry folded onto the previous entry's hash.
+// The row id is deliberately excluded (the database assigns it on insert, so it
+// is not known when hashing), which does not weaken tamper-evidence: the
+// content and ordering are what the chain protects.
+func AuditChainHash(prev string, e AuditEntry) string {
+	h := sha256.New()
+	for _, part := range []string{prev, e.Action, e.Actor, e.Target, e.Detail, e.Timestamp, e.Reason} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// VerifyAuditChain recomputes the chain over entries (in recorded order) and
+// returns whether it is intact, and the index of the first broken link (or -1).
+func VerifyAuditChain(entries []AuditEntry) (ok bool, brokenAt int) {
+	prev := ""
+	for i, e := range entries {
+		if e.Hash != AuditChainHash(prev, e) {
+			return false, i
+		}
+		prev = e.Hash
+	}
+	return true, -1
 }
 
 // GenRequest mirrors the client QuestionGenRequest model (doc §43).

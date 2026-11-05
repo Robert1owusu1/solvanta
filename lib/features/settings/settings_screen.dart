@@ -13,6 +13,7 @@ import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../auth/mfa_settings_screen.dart';
+import '../help/help_screen.dart';
 import '../legal/legal_screen.dart';
 import '../security/security.dart';
 
@@ -371,10 +372,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
 
               // -------------------------------------------------------------
-              const SvSectionTitle('Legal'),
+              const SvSectionTitle('Help & legal'),
               _Card(
                 child: Column(
                   children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading:
+                          Icon(Icons.help_outline, color: AppColors.muted),
+                      title: const Text('Help & support'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const HelpScreen())),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.description_outlined,

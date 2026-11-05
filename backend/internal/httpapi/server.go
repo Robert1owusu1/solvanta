@@ -807,6 +807,13 @@ func (s *Server) Router() *gin.Engine {
 	audit := api.Group("/audit", s.schoolScope(), s.requireFeature(domain.FeatAudit))
 	audit.GET("", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher),
 		func(c *gin.Context) { sendJSON(c, s.db(c).AuditLogs()) })
+	// Tamper-evidence: recompute the hash chain and report whether it is intact.
+	audit.GET("/verify", requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher),
+		func(c *gin.Context) {
+			logs := s.db(c).AuditLogs()
+			ok, brokenAt := domain.VerifyAuditChain(logs)
+			sendJSON(c, gin.H{"valid": ok, "entries": len(logs), "brokenAt": brokenAt})
+		})
 
 	return r
 }

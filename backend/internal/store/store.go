@@ -1027,6 +1027,11 @@ func (m *Memory) AuditLogs() []domain.AuditEntry {
 func (m *Memory) AddAudit(e domain.AuditEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	prev := ""
+	if n := len(m.audit); n > 0 {
+		prev = m.audit[n-1].Hash
+	}
+	e.Hash = domain.AuditChainHash(prev, e)
 	m.audit = append(m.audit, e)
 }
 
