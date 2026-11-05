@@ -8,6 +8,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- In-app student health editor: staff can add or edit a pupil's emergency
+  medical record (blood group, allergies, conditions, medications,
+  immunizations, notes) directly from the student profile ("Add/Edit health"),
+  closing the earlier follow-up where the data was only settable via the API.
+  List fields accept one item per line; saving is audited.
+
 - Public API reference: the REST contract is described in an OpenAPI 3.0.3 spec
   embedded in the server (`backend/internal/httpapi/openapi.json`) and served at
   `GET /openapi.json`, with a rendered Redoc viewer at `GET /docs`. Both are

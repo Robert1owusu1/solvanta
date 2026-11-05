@@ -17,6 +17,7 @@ import '../interventions/interventions_repository.dart';
 import '../prep/mock_take_screen.dart';
 import '../safety/safety_repository.dart';
 import 'student_editor_screen.dart';
+import 'student_health_editor_screen.dart';
 import 'students_repository.dart';
 
 typedef _Summary = ({int total, int present, int late, int absent, int excused});
@@ -413,6 +414,22 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
                   builder: (_) => StudentEditorScreen(initial: s),
                 ));
                 if (mounted) setState(() { _data = _load(); });
+              },
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.medical_services_outlined, size: 16),
+              label: Text(s.health != null && !s.health!.isEmpty
+                  ? 'Edit health'
+                  : 'Add health'),
+              onPressed: () async {
+                final saved = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => StudentHealthEditorScreen(student: s),
+                  ),
+                );
+                if (saved == true && mounted) {
+                  setState(() => _data = _load());
+                }
               },
             ),
             ActionChip(
