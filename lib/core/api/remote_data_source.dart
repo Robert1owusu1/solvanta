@@ -144,6 +144,14 @@ class RemoteDataSource {
     );
   }
 
+  /// Registers this device's push token so remote notifications reach it.
+  /// Call this once the app obtains a token from the messaging SDK. (Acquiring
+  /// the token needs the project's Firebase config; the server side is ready.)
+  Future<void> registerPushToken(String token, {String platform = ''}) async {
+    await client.request('POST', '/api/push/register',
+        body: {'token': token, 'platform': platform}, offlineQueue: false);
+  }
+
   /// Requests a password-reset email. Always succeeds server-side (it never
   /// reveals whether the address is registered).
   Future<void> forgotPassword(String email) async {

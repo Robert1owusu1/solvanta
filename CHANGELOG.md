@@ -8,6 +8,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Remote push notifications (infrastructure): an `internal/push` provider
+  (Firebase Cloud Messaging via `FCM_SERVER_KEY`, log-only until set), device
+  token registration (`POST /api/push/register`), and fan-out — every in-app
+  notification now also pushes to that user's registered devices (best-effort).
+  Ships working with no keys; add `FCM_SERVER_KEY` and the client's Firebase
+  config to light it up.
+- CD: a `deploy` workflow builds and publishes the backend container image to
+  GHCR on every push to `main` and every version tag (authenticates with the
+  built-in token — no external credentials), ready to pull and run.
+
 - Super admins can move every tenant from one plan to another in one step, with
   a dry-run count first: `GET /api/plans/:id/move?fromPlanId=…` and
   `POST /api/plans/:id/move`.

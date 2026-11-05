@@ -66,6 +66,8 @@ var recordKinds = map[string]recordKind{
 		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher},
 		readable: termReportReadable, check: checkTermReport},
 	domain.RecordParentMeetings: {scope: scopeStudent, writers: staffRoles, check: checkParentMeeting},
+	// Any signed-in user registers their own device push tokens.
+	domain.RecordPushTokens: {scope: scopeOwner},
 }
 
 // recordFields are the fields lifted out of a record's JSON.

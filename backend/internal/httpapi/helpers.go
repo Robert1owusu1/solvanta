@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -9,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"solvanta/backend/internal/domain"
+	"solvanta/backend/internal/push"
 )
 
 // intIDBase seeds a strictly monotonic id sequence shared by newID and
@@ -99,7 +102,8 @@ func (s *Server) audit(c *gin.Context, action, target, detail, reason string) {
 }
 
 // notify fans out a notification to the given user id (prepended, newest
-// first, matching the app's notification ordering).
+// first, matching the app's notification ordering) and, best-effort, to that
+// user's registered devices as a remote push.
 func (s *Server) notify(c *gin.Context, userID, kind, title, body, studentID string) {
 	s.db(c).AddNotification(domain.Notification{
 		ID:        newID("NOTIF"),
@@ -110,4 +114,35 @@ func (s *Server) notify(c *gin.Context, userID, kind, title, body, studentID str
 		StudentID: studentID,
 		UserID:    userID,
 	})
+	s.pushTo(c, userID, title, body)
+}
+
+// pushTo sends a remote push to a user's registered devices. Best-effort and
+// never blocks or fails the caller — the in-app notification is the source of
+// truth; the push is a convenience.
+func (s *Server) pushTo(c *gin.Context, userID, title, body string) {
+	if userID == "" {
+		return
+	}
+	var tokens []string
+	for _, r := range s.db(c).Records(domain.RecordPushTokens) {
+		if r.OwnerID != userID {
+			continue
+		}
+		var d struct {
+			Token string `json:"token"`
+		}
+		if json.Unmarshal(r.Data, &d) == nil && d.Token != "" {
+			tokens = append(tokens, d.Token)
+		}
+	}
+	if len(tokens) == 0 {
+		return
+	}
+	msg := push.Message{Tokens: tokens, Title: title, Body: body}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = s.push.Send(ctx, msg)
+	}()
 }

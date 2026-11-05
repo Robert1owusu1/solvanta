@@ -273,6 +273,7 @@ Environment variables:
 | `SEED`            | on in dev, off in production | Seed the demo dataset on boot (`false` to skip; never `true` in production) |
 | `METRICS_TOKEN`   | (none)  | Require `Authorization: Bearer <token>` on `GET /metrics`. Empty leaves metrics open (dev / firewalled scrape port) |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | (none) | Transactional email (password resets). Unset = log-only provider (nothing sent; the reset code is logged in dev) |
+| `FCM_SERVER_KEY`  | (none)  | Firebase Cloud Messaging key for remote push. Unset = log-only (in-app notifications still work; nothing is pushed) |
 
 > Storage uses the `Store` interface as its seam: `store.New()` is the in-memory
 > in-process store (default), `store.NewPostgres(dsn, seed)` talks to PostgreSQL

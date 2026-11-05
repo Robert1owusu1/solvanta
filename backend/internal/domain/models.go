@@ -763,6 +763,9 @@ const (
 	// remark, and — once approved — a frozen copy of the whole card. See
 	// httpapi/term_reports.go for who may write which part.
 	RecordTermReports = "term_reports"
+	// RecordPushTokens holds a user's registered device push tokens (one record
+	// per device, owner-scoped). Remote notifications fan out to these.
+	RecordPushTokens = "push_tokens"
 	// RecordParentMeetings follows up a report card's "parent meeting
 	// requested": requested → scheduled (date, place; the family is told) →
 	// held (what was agreed) or cancelled. Staff write; families read their

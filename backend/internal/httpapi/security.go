@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"solvanta/backend/internal/email"
+	"solvanta/backend/internal/push"
 	sec "solvanta/backend/internal/security"
 
 	"solvanta/backend/internal/sms"
@@ -48,6 +49,9 @@ type Config struct {
 	// Email sends transactional email (password resets); nil picks the provider
 	// from the environment (email.FromEnv: log-only unless SMTP is configured).
 	Email email.Sender
+	// Push delivers remote notifications; nil picks the provider from the
+	// environment (push.FromEnv: log-only unless FCM is configured).
+	Push push.Sender
 	// SMSInline sends texts inside the request instead of in the background
 	// — for tests, which read the log straight after.
 	SMSInline bool

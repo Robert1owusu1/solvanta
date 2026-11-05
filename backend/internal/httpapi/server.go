@@ -23,6 +23,7 @@ import (
 	"solvanta/backend/internal/email"
 	"solvanta/backend/internal/metrics"
 	"solvanta/backend/internal/ocr"
+	"solvanta/backend/internal/push"
 	"solvanta/backend/internal/sms"
 	"solvanta/backend/internal/store"
 )
@@ -44,6 +45,9 @@ type Server struct {
 
 	// email sends transactional mail (password resets).
 	email email.Sender
+
+	// push delivers remote notifications to registered devices.
+	push push.Sender
 
 	// ocrs routes a page to Mathpix, Cloud Vision, or the mock. It is built
 	// once at startup from the environment: absent credentials are the normal
@@ -94,10 +98,15 @@ func NewTenantServer(t store.Tenants, cfg Config) (*Server, error) {
 	if mailer == nil {
 		mailer = email.FromEnv()
 	}
+	pusher := cfg.Push
+	if pusher == nil {
+		pusher = push.FromEnv()
+	}
 	srv := &Server{
 		tenants:  t,
 		sms:      sender,
 		email:    mailer,
+		push:     pusher,
 		cfg:      cfg,
 		secret:   []byte(cfg.Secret),
 		ocrs:     ocr.NewRouter(ocr.FromEnv()),
@@ -604,6 +613,9 @@ func (s *Server) Router() *gin.Engine {
 	// Data-subject rights: export a copy of your own data, or erase your account.
 	api.GET("/me/export", s.meExport)
 	api.DELETE("/me", s.meDelete)
+
+	// Register this device for remote push notifications.
+	api.POST("/push/register", s.registerPushToken)
 
 	// Texts to parents (sms.go): what the school sends, and what went out.
 	leaders := requireRole(domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher)
