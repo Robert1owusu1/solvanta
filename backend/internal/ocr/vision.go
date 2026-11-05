@@ -58,8 +58,8 @@ type visionRequest struct {
 }
 
 type visionRequestEntry struct {
-	Image       visionImage        `json:"image"`
-	Features    []visionFeature    `json:"features"`
+	Image        visionImage         `json:"image"`
+	Features     []visionFeature     `json:"features"`
 	ImageContext *visionImageContext `json:"imageContext,omitempty"`
 }
 

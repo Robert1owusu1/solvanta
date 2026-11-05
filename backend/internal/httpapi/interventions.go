@@ -203,10 +203,10 @@ func (s *Server) assessmentPercent(c *gin.Context, studentID, assessmentID strin
 		return 0
 	}
 	sub, ok := s.db(c).SubmissionFor(assessmentID, studentID)
-	if !ok {
+	if !ok || sub.Absent {
 		return 0
 	}
-	tm := a.TotalMarks()
+	tm := a.EffectiveTotal()
 	if tm <= 0 {
 		return 0
 	}

@@ -30,6 +30,10 @@ class Assessment {
   final String createdBy;
   final List<Question> questions;
 
+  /// Explicit total for a "score-only" assessment (marked on paper, no
+  /// questions). Null means "derive the total from the question marks".
+  final double? maxScore;
+
   const Assessment({
     required this.id,
     required this.title,
@@ -39,10 +43,18 @@ class Assessment {
     required this.date,
     required this.createdBy,
     required this.questions,
+    this.maxScore,
   });
 
-  double get totalMarks =>
-      questions.fold(0, (sum, q) => sum + q.marks);
+  /// Sum of the question marks (0 when there are no questions).
+  double get totalMarks => questions.fold(0, (sum, q) => sum + q.marks);
+
+  /// The mark the paper is out of: [maxScore] when set, else [totalMarks].
+  /// Every grade, percentage and average is computed against this.
+  double get effectiveTotal => maxScore ?? totalMarks;
+
+  /// A paper created with an explicit max score and no questions.
+  bool get isScoreOnly => maxScore != null && questions.isEmpty;
 
   factory Assessment.fromJson(Map<String, dynamic> json) => Assessment(
         id: json['id'] as String,
@@ -55,6 +67,7 @@ class Assessment {
         questions: ((json['questions'] ?? const []) as List)
             .map((e) => Question.fromJson(e as Map<String, dynamic>))
             .toList(),
+        maxScore: (json['maxScore'] as num?)?.toDouble(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -66,5 +79,6 @@ class Assessment {
         'date': date,
         'createdBy': createdBy,
         'questions': questions.map((e) => e.toJson()).toList(),
+        if (maxScore != null) 'maxScore': maxScore,
       };
 }

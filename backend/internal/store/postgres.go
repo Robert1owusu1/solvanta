@@ -192,6 +192,15 @@ func nullStr(s string) any {
 	return s
 }
 
+// nullFloat yields SQL NULL for a nil *float64 (e.g. an assessment with no
+// explicit max score), the value otherwise.
+func nullFloat(f *float64) any {
+	if f == nil {
+		return nil
+	}
+	return *f
+}
+
 func firstNonEmpty(a, b string) string {
 	if a != "" {
 		return a
@@ -204,8 +213,9 @@ func firstNonEmpty(a, b string) string {
 func (p *Postgres) School() domain.School {
 	var s domain.School
 	row := p.db.QueryRowContext(contextTODO(),
-		`SELECT id, name, COALESCE(motto,''), COALESCE(address,''), COALESCE(phone,''), COALESCE(email,''), COALESCE(region,'') FROM schools ORDER BY id LIMIT 1`)
-	err := row.Scan(&s.ID, &s.Name, &s.Motto, &s.Address, &s.Phone, &s.Email, &s.Region)
+		`SELECT id, name, COALESCE(motto,''), COALESCE(address,''), COALESCE(phone,''), COALESCE(email,''), COALESCE(region,''), COALESCE(marking_mode,''), COALESCE(kind,'school'), COALESCE(owner_user_id,''), COALESCE(data_protection_accepted_at,''), COALESCE(archived,FALSE) FROM schools ORDER BY id LIMIT 1`)
+	err := row.Scan(&s.ID, &s.Name, &s.Motto, &s.Address, &s.Phone, &s.Email, &s.Region, &s.MarkingMode,
+		&s.Kind, &s.OwnerUserID, &s.DataProtectionAcceptedAt, &s.Archived)
 	if err != nil && err != sql.ErrNoRows {
 		p.errLog("School", err)
 	}
@@ -216,13 +226,22 @@ func (p *Postgres) SaveSchool(s domain.School) error {
 	if s.ID == "" {
 		s.ID = domain.DefaultSchoolID()
 	}
+	kind := s.Kind
+	if kind == "" {
+		kind = domain.SchoolKindSchool
+	}
 	_, err := p.db.ExecContext(contextTODO(), `
-		INSERT INTO schools (id, name, motto, address, phone, email, region)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO schools (id, name, motto, address, phone, email, region, marking_mode, kind, owner_user_id, data_protection_accepted_at, archived)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name, motto = EXCLUDED.motto, address = EXCLUDED.address,
-			phone = EXCLUDED.phone, email = EXCLUDED.email, region = EXCLUDED.region`,
-		s.ID, s.Name, nullStr(s.Motto), nullStr(s.Address), nullStr(s.Phone), nullStr(s.Email), nullStr(s.Region))
+			phone = EXCLUDED.phone, email = EXCLUDED.email, region = EXCLUDED.region,
+			marking_mode = EXCLUDED.marking_mode, kind = EXCLUDED.kind,
+			owner_user_id = EXCLUDED.owner_user_id,
+			data_protection_accepted_at = EXCLUDED.data_protection_accepted_at,
+			archived = EXCLUDED.archived`,
+		s.ID, s.Name, nullStr(s.Motto), nullStr(s.Address), nullStr(s.Phone), nullStr(s.Email), nullStr(s.Region), nullStr(s.MarkingMode),
+		kind, nullStr(s.OwnerUserID), nullStr(s.DataProtectionAcceptedAt), s.Archived)
 	if err != nil {
 		p.errLog("SaveSchool", err)
 		return err
@@ -332,11 +351,12 @@ func (p *Postgres) SaveTerm(t domain.SchoolTerm) error {
 // --- Users (doc §9) ---
 
 const userColumns = `id, name, email, COALESCE(phone,''), password, role,
-	COALESCE(school_id,''), COALESCE(class_id,'')`
+	COALESCE(school_id,''), COALESCE(class_id,''), COALESCE(mfa_secret,''), COALESCE(mfa_enabled,FALSE)`
 
 func scanUser(row interface{ Scan(...any) error }) (domain.User, error) {
 	var u domain.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.Password, &u.Role, &u.SchoolID, &u.ClassID)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.Password, &u.Role, &u.SchoolID, &u.ClassID,
+		&u.MFASecret, &u.MFAEnabled)
 	return u, err
 }
 
@@ -415,13 +435,15 @@ func (p *Postgres) SaveUser(u domain.User) error {
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(contextTODO(), `
-		INSERT INTO users (id, name, email, phone, password, role, school_id, class_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, name, email, phone, password, role, school_id, class_id, mfa_secret, mfa_enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name, email = EXCLUDED.email, phone = EXCLUDED.phone,
 			password = EXCLUDED.password, role = EXCLUDED.role,
-			school_id = EXCLUDED.school_id, class_id = EXCLUDED.class_id`,
-		u.ID, u.Name, u.Email, nullStr(u.Phone), u.Password, u.Role, nullStr(u.SchoolID), nullStr(u.ClassID)); err != nil {
+			school_id = EXCLUDED.school_id, class_id = EXCLUDED.class_id,
+			mfa_secret = EXCLUDED.mfa_secret, mfa_enabled = EXCLUDED.mfa_enabled`,
+		u.ID, u.Name, u.Email, nullStr(u.Phone), u.Password, u.Role, nullStr(u.SchoolID), nullStr(u.ClassID),
+		nullStr(u.MFASecret), u.MFAEnabled); err != nil {
 		p.errLog("SaveUser", err)
 		return err
 	}
@@ -447,6 +469,28 @@ func (p *Postgres) SaveUser(u domain.User) error {
 		return err
 	}
 
+	return nil
+}
+
+func (p *Postgres) DeleteUser(id string) error {
+	tx, err := p.db.BeginTx(contextTODO(), nil)
+	if err != nil {
+		p.errLog("DeleteUser begin", err)
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM user_students WHERE user_id = $1`, id); err != nil {
+		p.errLog("DeleteUser links", err)
+		return err
+	}
+	if _, err := tx.ExecContext(contextTODO(), `DELETE FROM users WHERE id = $1`, id); err != nil {
+		p.errLog("DeleteUser", err)
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("DeleteUser commit", err)
+		return err
+	}
 	return nil
 }
 
@@ -1118,11 +1162,16 @@ func (p *Postgres) SaveAIRequest(r domain.GenRequest) error {
 
 // --- Assessments (doc §16) ---
 
-const assessmentColumns = `id, title, type, subject_id, class_id, date::text, COALESCE(created_by,'')`
+const assessmentColumns = `id, title, type, subject_id, class_id, date::text, COALESCE(created_by,''), max_score`
 
 func scanAssessment(row interface{ Scan(...any) error }) (domain.Assessment, error) {
 	var a domain.Assessment
-	err := row.Scan(&a.ID, &a.Title, &a.Type, &a.SubjectID, &a.ClassID, &a.Date, &a.CreatedBy)
+	var maxScore sql.NullFloat64
+	err := row.Scan(&a.ID, &a.Title, &a.Type, &a.SubjectID, &a.ClassID, &a.Date, &a.CreatedBy, &maxScore)
+	if maxScore.Valid {
+		v := maxScore.Float64
+		a.MaxScore = &v
+	}
 	return a, err
 }
 
@@ -1220,12 +1269,13 @@ func (p *Postgres) SaveAssessment(a domain.Assessment) error {
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(contextTODO(), `
-		INSERT INTO assessments (id, title, type, subject_id, class_id, date, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO assessments (id, title, type, subject_id, class_id, date, created_by, max_score)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (id) DO UPDATE SET
 			title = EXCLUDED.title, type = EXCLUDED.type, subject_id = EXCLUDED.subject_id,
-			class_id = EXCLUDED.class_id, date = EXCLUDED.date, created_by = EXCLUDED.created_by`,
-		a.ID, a.Title, a.Type, a.SubjectID, a.ClassID, a.Date, nullStr(a.CreatedBy)); err != nil {
+			class_id = EXCLUDED.class_id, date = EXCLUDED.date, created_by = EXCLUDED.created_by,
+			max_score = EXCLUDED.max_score`,
+		a.ID, a.Title, a.Type, a.SubjectID, a.ClassID, a.Date, nullStr(a.CreatedBy), nullFloat(a.MaxScore)); err != nil {
 		p.errLog("SaveAssessment", err)
 		return err
 	}
@@ -1254,13 +1304,14 @@ func (p *Postgres) SaveAssessment(a domain.Assessment) error {
 
 const submissionColumns = `id, assessment_id, student_id, class_id, date::text,
 	COALESCE(answers::text,'{}'), COALESCE(teacher_marks::text,'{}'), earned::float8,
-	COALESCE(marking_scheme_id,''), COALESCE(marking_scheme_version,0)`
+	COALESCE(marking_scheme_id,''), COALESCE(marking_scheme_version,0),
+	COALESCE(source,''), COALESCE(remark,''), COALESCE(absent,FALSE)`
 
 func scanSubmission(row interface{ Scan(...any) error }) (domain.Submission, error) {
 	var s domain.Submission
 	var answers, marks string
 	err := row.Scan(&s.ID, &s.AssessmentID, &s.StudentID, &s.ClassID, &s.Date, &answers, &marks, &s.Earned,
-		&s.MarkingSchemeID, &s.MarkingSchemeVersion)
+		&s.MarkingSchemeID, &s.MarkingSchemeVersion, &s.Source, &s.Remark, &s.Absent)
 	if err == nil {
 		_ = json.Unmarshal([]byte(answers), &s.Answers)
 		_ = json.Unmarshal([]byte(marks), &s.TeacherMarks)
@@ -1315,13 +1366,14 @@ func (p *Postgres) SubmissionFor(assessmentID, studentID string) (domain.Submiss
 func (p *Postgres) SaveSubmission(s domain.Submission) error {
 	_, err := p.db.ExecContext(contextTODO(), `
 		INSERT INTO submissions (id, assessment_id, student_id, class_id, date, answers, teacher_marks, earned, status,
-			marking_scheme_id, marking_scheme_version)
+			marking_scheme_id, marking_scheme_version, source, remark, absent)
 		VALUES ($1,$2,$3,$4,$5,COALESCE($6::jsonb,'{}'::jsonb),COALESCE($7::jsonb,'{}'::jsonb),$8,'auto_marked',
-			NULLIF($9,''), NULLIF($10,0))
+			NULLIF($9,''), NULLIF($10,0), NULLIF($11,''), NULLIF($12,''), $13)
 		ON CONFLICT (assessment_id, student_id) DO UPDATE SET
 			id = EXCLUDED.id, class_id = EXCLUDED.class_id, date = EXCLUDED.date,
 			answers = EXCLUDED.answers, teacher_marks = EXCLUDED.teacher_marks,
 			earned = EXCLUDED.earned, status = EXCLUDED.status,
+			source = EXCLUDED.source, remark = EXCLUDED.remark, absent = EXCLUDED.absent,
 			-- A save that names no scheme (every pre-marking path) keeps the
 			-- link it had: dropping it would hide marked work from the
 			-- versioning rule and let a scheme edit re-grade it in place.
@@ -1329,7 +1381,7 @@ func (p *Postgres) SaveSubmission(s domain.Submission) error {
 			marking_scheme_version = COALESCE(EXCLUDED.marking_scheme_version, submissions.marking_scheme_version)`,
 		s.ID, s.AssessmentID, s.StudentID, s.ClassID, s.Date,
 		toJSON(s.Answers), toJSON(s.TeacherMarks), s.Earned,
-		s.MarkingSchemeID, s.MarkingSchemeVersion)
+		s.MarkingSchemeID, s.MarkingSchemeVersion, s.Source, s.Remark, s.Absent)
 	if err != nil {
 		p.errLog("SaveSubmission", err)
 		return err
@@ -1846,7 +1898,7 @@ func (p *Postgres) Payments() []domain.Payment {
 func (p *Postgres) AuditLogs() []domain.AuditEntry {
 	rows, err := p.db.QueryContext(contextTODO(), `
 		SELECT id::text, action, actor, COALESCE(target,''), COALESCE(detail,''),
-		       COALESCE(reason,''), timestamp
+		       COALESCE(reason,''), timestamp, COALESCE(hash,'')
 		FROM audit_logs ORDER BY id`)
 	if err != nil {
 		p.errLog("AuditLogs", err)
@@ -1856,7 +1908,7 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 	var out []domain.AuditEntry
 	for rows.Next() {
 		var e domain.AuditEntry
-		if err := rows.Scan(&e.ID, &e.Action, &e.Actor, &e.Target, &e.Detail, &e.Reason, &e.Timestamp); err != nil {
+		if err := rows.Scan(&e.ID, &e.Action, &e.Actor, &e.Target, &e.Detail, &e.Reason, &e.Timestamp, &e.Hash); err != nil {
 			p.errLog("AuditLogs scan", err)
 			continue
 		}
@@ -1866,12 +1918,30 @@ func (p *Postgres) AuditLogs() []domain.AuditEntry {
 }
 
 func (p *Postgres) AddAudit(e domain.AuditEntry) {
-	_, err := p.db.ExecContext(contextTODO(), `
-		INSERT INTO audit_logs (action, actor, target, detail, reason, timestamp)
-		VALUES ($1,$2,$3,$4,$5,$6)`,
-		e.Action, e.Actor, nullStr(e.Target), nullStr(e.Detail), nullStr(e.Reason), e.Timestamp)
+	// Chain the entry to the previous one inside a transaction so concurrent
+	// writers cannot interleave and break the hash chain.
+	tx, err := p.db.BeginTx(contextTODO(), nil)
 	if err != nil {
+		p.errLog("AddAudit begin", err)
+		return
+	}
+	defer tx.Rollback()
+	var prev string
+	if err := tx.QueryRowContext(contextTODO(),
+		`SELECT COALESCE(hash,'') FROM audit_logs ORDER BY id DESC LIMIT 1`).Scan(&prev); err != nil && err != sql.ErrNoRows {
+		p.errLog("AddAudit prev", err)
+		return
+	}
+	e.Hash = domain.AuditChainHash(prev, e)
+	if _, err := tx.ExecContext(contextTODO(), `
+		INSERT INTO audit_logs (action, actor, target, detail, reason, timestamp, hash)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		e.Action, e.Actor, nullStr(e.Target), nullStr(e.Detail), nullStr(e.Reason), e.Timestamp, e.Hash); err != nil {
 		p.errLog("AddAudit", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		p.errLog("AddAudit commit", err)
 	}
 }
 

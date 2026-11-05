@@ -1,9 +1,20 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
+import '../../core/platform/file_share.dart';
+import '../auth/auth_repository.dart';
+import '../../core/models/billing.dart';
+import '../../core/models/capabilities.dart';
+import '../../core/models/school.dart';
 import '../../core/settings/app_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import '../auth/mfa_settings_screen.dart';
+import '../help/help_screen.dart';
+import '../legal/legal_screen.dart';
 import '../security/security.dart';
 
 /// Appearance, feedback, data, security and accessibility preferences.
@@ -28,6 +39,126 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _settings.load();
   }
 
+  Future<void> _downloadMyData() async {
+    try {
+      final data = await ApiClient().get('/api/me/export');
+      await saveAndShareFile(
+        Uint8List.fromList(utf8.encode(const JsonEncoder.withIndent('  ').convert(data))),
+        'my-solvanta-data.json',
+        'application/json',
+      );
+    } catch (_) {
+      if (mounted) svSnack(context, 'Could not export your data.', error: true);
+    }
+  }
+
+  Future<void> _deleteMyAccount() async {
+    if (!await svConfirm(context,
+        title: 'Delete your account?',
+        message: 'This permanently removes your account. It cannot be undone. '
+            'You will need your password to confirm.',
+        confirmLabel: 'Continue',
+        destructive: true)) {
+      return;
+    }
+    if (!mounted) return;
+    final pw = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm with your password'),
+        content: TextField(
+          controller: pw,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Password'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete account'),
+          ),
+        ],
+      ),
+    );
+    final password = pw.text;
+    pw.dispose();
+    if (confirmed != true || password.isEmpty) return;
+    try {
+      await ApiClient()
+          .request('DELETE', '/api/me', body: {'password': password}, offlineQueue: false);
+      await AuthRepository().logout();
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false);
+    } on ApiException catch (e) {
+      if (mounted) svSnack(context, e.message, error: true);
+    }
+  }
+
+  /// For an independent workspace, a badge showing the billing status: a
+  /// "Testing — free access" chip, or (once live is scheduled) a warning of the
+  /// coming change. Empty for normal schools.
+  Widget _billingBadge() {
+    if (Capabilities.currentKind != SchoolKind.independent) {
+      return const SizedBox.shrink();
+    }
+    // Default to the testing chip; refine from the server when reachable.
+    if (!ApiClient.isConfigured) {
+      return _badge('Testing — free access',
+          'Every feature is free while we test. Usage is counted so pricing can be set fairly.',
+          AppColors.success);
+    }
+    return FutureBuilder<MyBilling>(
+      future: ApiClient()
+          .get('/api/billing/me')
+          .then((r) => MyBilling.fromJson(r as Map<String, dynamic>)),
+      builder: (context, snap) {
+        final b = snap.data;
+        if (b == null || b.isTesting) {
+          return _badge('Testing — free access',
+              'Every feature is free while we test. Usage is counted so pricing can be set fairly.',
+              AppColors.success);
+        }
+        if (!b.liveOn && b.liveStartDate.isNotEmpty) {
+          return _badge('Paid billing starts ${b.liveStartDate}',
+              'From then, ${b.plan.name} is about ${formatGhs(b.previewMonthPesewas)} / month '
+              'for your ${b.peakStudents} students. Arrange it with sales ($salesContact) — '
+              'SOLVANTA does not take payments in the app.',
+              AppColors.warning);
+        }
+        return _badge('${b.plan.name} · contact sales',
+            'About ${formatGhs(b.previewMonthPesewas)} / month (or ${formatGhs(b.previewTermPesewas)} / term) '
+            'for your ${b.peakStudents} students. Arrange payment your own way with sales: $salesContact.',
+            AppColors.brand);
+      },
+    );
+  }
+
+  Widget _badge(String title, String body, Color color) => Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: .35)),
+        ),
+        child: Row(children: [
+          Icon(Icons.workspace_premium_outlined, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title,
+                  style: TextStyle(fontWeight: FontWeight.w700, color: color)),
+              Text(body, style: TextStyle(fontSize: 12, color: AppColors.body)),
+            ]),
+          ),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -39,6 +170,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           body: ListView(
             padding: const EdgeInsets.only(top: 8, bottom: 32),
             children: [
+              _billingBadge(),
               // -------------------------------------------------------------
               const SvSectionTitle('Appearance'),
               _Card(
@@ -194,6 +326,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Status is never shown by colour alone: every state carries an '
                 'icon and a text label, and the app respects your device '
                 'text size.',
+              ),
+
+              // -------------------------------------------------------------
+              const SvSectionTitle('Account security'),
+              _Card(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.verified_user_outlined,
+                      color: AppColors.muted),
+                  title: const Text('Two-factor authentication'),
+                  subtitle: const Text('An extra code at sign-in'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MfaSettingsScreen())),
+                ),
+              ),
+
+              if (ApiClient.isConfigured) ...[
+                // -----------------------------------------------------------
+                const SvSectionTitle('Your data'),
+                _Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading:
+                            Icon(Icons.download_outlined, color: AppColors.muted),
+                        title: const Text('Download my data'),
+                        subtitle: const Text('A copy of your personal data (JSON)'),
+                        onTap: _downloadMyData,
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_forever_outlined,
+                            color: AppColors.danger),
+                        title: Text('Delete my account',
+                            style: TextStyle(color: AppColors.danger)),
+                        subtitle: const Text('Permanently erase your account'),
+                        onTap: _deleteMyAccount,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // -------------------------------------------------------------
+              const SvSectionTitle('Help & legal'),
+              _Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading:
+                          Icon(Icons.help_outline, color: AppColors.muted),
+                      title: const Text('Help & support'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const HelpScreen())),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.description_outlined,
+                          color: AppColors.muted),
+                      title: const Text('Terms of Service'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) =>
+                              const LegalScreen(doc: LegalDoc.terms))),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.privacy_tip_outlined,
+                          color: AppColors.muted),
+                      title: const Text('Privacy Policy'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) =>
+                              const LegalScreen(doc: LegalDoc.privacy))),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

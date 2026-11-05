@@ -47,6 +47,9 @@ type Config struct {
 	// SMSInline sends texts inside the request instead of in the background
 	// — for tests, which read the log straight after.
 	SMSInline bool
+	// MetricsToken, when set (METRICS_TOKEN env), gates the /metrics endpoint
+	// behind a bearer token. Empty leaves it open (dev / private network).
+	MetricsToken string
 }
 
 // sharedPasswordHashes precomputes bcrypt hashes once per process so repeated
@@ -317,4 +320,8 @@ type tokenClaims struct {
 	Exp int64  `json:"exp"`
 	Iat int64  `json:"iat"`
 	Jti string `json:"jti"`
+	// Mfa marks a short-lived challenge token issued to a user who has MFA on:
+	// it lets them call /auth/mfa/verify but nothing else, until they exchange
+	// it for a full token by passing their one-time code.
+	Mfa bool `json:"mfa,omitempty"`
 }

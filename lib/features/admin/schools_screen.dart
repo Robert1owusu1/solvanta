@@ -9,6 +9,7 @@ import '../../core/models/school.dart';
 import '../../core/platform/file_share.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
+import 'workspace_transfer_screen.dart';
 
 /// The platform's schools (super admin only): each has its own store on the
 /// server. Onboarding a school creates it and its first school admin, who
@@ -190,6 +191,14 @@ final Set<String> _suspended = {};
               onTap: () =>
                   Navigator.pop(ctx, suspended ? 'activate' : 'suspend'),
             ),
+          if (!s.isIndependent)
+            ListTile(
+              leading: const Icon(Icons.swap_horiz),
+              title: const Text('Transfer a workspace here'),
+              subtitle: const Text(
+                  'Move an independent teacher’s workspace into this school'),
+              onTap: () => Navigator.pop(ctx, 'transfer'),
+            ),
           if (!platform && suspended)
             ListTile(
               leading: Icon(Icons.delete_forever, color: AppColors.danger),
@@ -218,6 +227,14 @@ final Set<String> _suspended = {};
       case 'activate':
         await _call('POST', '/api/schools/${s.id}/activate',
             '${s.name} is active again.');
+      case 'transfer':
+        final moved = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) =>
+                WorkspaceTransferScreen(target: s, client: widget.client),
+          ),
+        );
+        if (moved == true) _reload();
       case 'delete':
         await _delete(s);
     }

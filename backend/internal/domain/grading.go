@@ -187,6 +187,92 @@ func (g *GradingConfig) Normalize() error {
 	return nil
 }
 
+// DefaultScheme returns the scheme marked default (or the first one), mirroring
+// the client's GradingConfig.defaultScheme.
+func (g GradingConfig) DefaultScheme() GradingScheme {
+	for _, s := range g.Schemes {
+		if s.IsDefault {
+			return s
+		}
+	}
+	if len(g.Schemes) > 0 {
+		return g.Schemes[0]
+	}
+	return GradingScheme{ClassWeight: 30, ExamWeight: 70}
+}
+
+// SchemeFor returns the grading scheme for a class, mirroring the client's
+// GradingConfig.schemeFor: the class's level comes from `classes` when listed
+// there, else from the longest scheme class-name `classID` starts with.
+func (g GradingConfig) SchemeFor(classID string, classes []ClassRoom) GradingScheme {
+	id := strings.ToUpper(classID)
+	level := ""
+	for _, c := range classes {
+		if strings.ToUpper(c.ID) == id {
+			level = strings.ToUpper(c.Name)
+			break
+		}
+	}
+	if level != "" {
+		for _, s := range g.Schemes {
+			for _, n := range s.ClassNames {
+				if n == level {
+					return s
+				}
+			}
+		}
+	}
+	var best *GradingScheme
+	bestLen := 0
+	for i := range g.Schemes {
+		for _, n := range g.Schemes[i].ClassNames {
+			if n != "" && strings.HasPrefix(id, n) && len(n) > bestLen {
+				best = &g.Schemes[i]
+				bestLen = len(n)
+			}
+		}
+	}
+	if best != nil {
+		return *best
+	}
+	return g.DefaultScheme()
+}
+
+// BandFor returns the grade band a 0–100 total falls in (rounded, as printed),
+// mirroring the client's GradingScheme.bandFor. Bands are highest-first.
+func (s GradingScheme) BandFor(total float64) GradeBand {
+	t := round0(total)
+	for _, b := range s.Bands {
+		if t >= b.Min {
+			return b
+		}
+	}
+	if len(s.Bands) > 0 {
+		return s.Bands[len(s.Bands)-1]
+	}
+	return GradeBand{}
+}
+
+// round0 rounds half away from zero, matching Dart's num.round().
+func round0(v float64) float64 {
+	if v < 0 {
+		return -round0(-v)
+	}
+	return float64(int64(v + 0.5))
+}
+
+// IsExamType reports whether an assessment type counts as an examination for
+// the class-score/exam weighting (the exam-type assessments in the README:
+// Mid-Term, End-of-Term, Mock, Diagnostic, Remedial). The rest — quizzes,
+// class tests, exercises, homework, vacation work — are continuous assessment.
+func IsExamType(typ string) bool {
+	switch typ {
+	case TypeMidTerm, TypeEndTerm, TypeMock, TypeDiagnostic, TypeRemedial:
+		return true
+	}
+	return false
+}
+
 // FinishedTerm is a term the school has moved on from, kept with the grading
 // set-up in force when it ended so its results are always read the way they
 // were awarded — transcripts and the year chart on every device.

@@ -165,6 +165,14 @@ func (s *Server) saveRecord(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// The report-card approval workflow is a school-only feature: an
+	// independent workspace cannot write term reports or parent meetings.
+	if kind == domain.RecordTermReports || kind == domain.RecordParentMeetings {
+		if !domain.SchoolAllows(s.db(c).School().EffectiveKind(), domain.FeatReportApproval) {
+			fail(c, http.StatusForbidden, "This workspace does not include this feature")
+			return
+		}
+	}
 	u := currentUser(c)
 	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {

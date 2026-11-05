@@ -10,6 +10,7 @@ import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../audit/audit_repository.dart';
 import 'student_editor_screen.dart';
+import 'students_bulk_import_screen.dart';
 import 'student_profile_screen.dart';
 import 'students_repository.dart';
 import 'year_end_screen.dart';
@@ -151,6 +152,17 @@ class _StudentsScreenState extends State<StudentsScreen> {
       appBar: SvScreenHeader(
         title: 'Students',
         actions: [
+          if (_canManage)
+            IconButton(
+              tooltip: 'Import students (CSV/XLSX)',
+              icon: const Icon(Icons.upload_file, color: Colors.white),
+              onPressed: () async {
+                final added = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                        builder: (_) => const StudentsBulkImportScreen()));
+                if (added == true) _refresh();
+              },
+            ),
           if (_canManage)
             IconButton(
               tooltip: 'End-of-year promotions',

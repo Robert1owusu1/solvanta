@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:solvanta/core/models/assessment.dart';
+import 'package:solvanta/core/models/capabilities.dart';
 import 'package:solvanta/core/models/role.dart';
+import 'package:solvanta/core/models/school.dart';
 import 'package:solvanta/core/models/user.dart';
 import 'package:solvanta/features/auth/register_screen.dart';
 import 'package:solvanta/features/home/dashboards.dart';
@@ -28,10 +30,13 @@ void main() {
         modulesFor(role).map((m) => m.label).toList();
 
     test('admin sees the full school-management grid', () {
-      // The platform owner also onboards schools; school leaders don't.
+      // The platform owner also onboards schools and sets platform pricing;
+      // school leaders don't.
       expect(labels(AppRole.superAdmin),
-          ['Schools', ...labels(AppRole.schoolAdmin)]);
+          ['Schools', 'Plans & Pricing', 'Usage', ...labels(AppRole.schoolAdmin)]);
       expect(labels(AppRole.schoolAdmin), isNot(contains('Schools')));
+      expect(labels(AppRole.schoolAdmin), isNot(contains('Plans & Pricing')));
+      expect(labels(AppRole.schoolAdmin), isNot(contains('Usage')));
       expect(labels(AppRole.schoolAdmin), labels(AppRole.headteacher));
       expect(labels(AppRole.schoolAdmin), containsAll(<String>[
         'Students',
@@ -117,6 +122,31 @@ void main() {
 
     test('education authority routes like staff', () {
       expect(labels(AppRole.educationAuthority), labels(AppRole.staff));
+    });
+  });
+
+  group('independent workspace — module grid', () {
+    tearDown(() => Capabilities.currentKind = SchoolKind.school);
+
+    test('hides the school-only modules, keeps the classroom ones', () {
+      Capabilities.currentKind = SchoolKind.independent;
+      final grid = modulesFor(AppRole.schoolAdmin).map((m) => m.label).toList();
+      // School-only modules are gone.
+      expect(grid, isNot(contains('Staff & Teachers')));
+      expect(grid, isNot(contains('Parent Linking')));
+      expect(grid, isNot(contains('Safety Gate')));
+      expect(grid, isNot(contains('SMS to Parents')));
+      expect(grid, isNot(contains('Audit Log')));
+      expect(grid, isNot(contains('Announcements')));
+      expect(grid, isNot(contains('Fees & Payments')));
+      // Classroom modules stay.
+      expect(grid, containsAll(<String>['Students', 'Assessments', 'Mark Work']));
+    });
+
+    test('a normal school keeps the full grid', () {
+      Capabilities.currentKind = SchoolKind.school;
+      final grid = modulesFor(AppRole.schoolAdmin).map((m) => m.label).toList();
+      expect(grid, containsAll(<String>['Fees & Payments', 'Audit Log', 'SMS to Parents']));
     });
   });
 

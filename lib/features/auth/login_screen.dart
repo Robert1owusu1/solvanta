@@ -50,6 +50,40 @@ class _LoginScreenState extends State<LoginScreen> {
     _formKey.currentState?.validate();
   }
 
+  /// Asks for the 6-digit authenticator code when a sign-in needs two-factor.
+  Future<String?> _promptMfaCode() async {
+    if (!mounted) return null;
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Two-factor code'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            labelText: '6-digit code',
+            hintText: 'From your authenticator app',
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () =>
+                  Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Verify')),
+        ],
+      ),
+    );
+    controller.dispose();
+    return code;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -58,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final user = await AuthRepository().login(
         email: _email.text.trim(),
         password: _password.text,
+        requestMfaCode: _promptMfaCode,
       );
       if (!mounted) return;
       if (user != null) {

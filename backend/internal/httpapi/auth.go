@@ -47,6 +47,12 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	c.Set(ctxStoreKey, home)
+	// With two-factor on, the password is only the first step: return a
+	// short-lived challenge the client exchanges at /auth/mfa/verify.
+	if u.MFAEnabled {
+		sendJSON(c, gin.H{"mfaRequired": true, "mfaToken": s.signMFAChallenge(u)})
+		return
+	}
 	s.audit(c, "auth.login", u.ID, "Signed in as "+u.Name, "")
 	sendJSON(c, gin.H{"token": s.sign(u, tokenTTL), "user": u})
 }
@@ -68,12 +74,22 @@ func (s *Server) updateSchool(c *gin.Context) {
 	if body.ID == "" {
 		body.ID = domain.DefaultSchoolID()
 	}
+	// markingMode decides how the school records scores (ai | manual | both).
+	// Reject anything else so a typo cannot silently lock a school out of a
+	// path; an empty value is kept as-is and read as the default (both).
+	switch body.MarkingMode {
+	case "", domain.MarkingModeAI, domain.MarkingModeManual, domain.MarkingModeBoth:
+	default:
+		fail(c, http.StatusBadRequest, "markingMode must be ai, manual or both")
+		return
+	}
 	old := s.db(c).School()
 	if old.ID != "" && body.ID == old.ID {
 		body.Name, body.Motto, body.Address, body.Phone, body.Email, body.Region =
 			firstNonEmpty(body.Name, old.Name), firstNonEmpty(body.Motto, old.Motto),
 			firstNonEmpty(body.Address, old.Address), firstNonEmpty(body.Phone, old.Phone),
 			firstNonEmpty(body.Email, old.Email), firstNonEmpty(body.Region, old.Region)
+		body.MarkingMode = firstNonEmpty(body.MarkingMode, old.MarkingMode)
 	}
 	if writeFailed(c, s.db(c).SaveSchool(body)) {
 		return

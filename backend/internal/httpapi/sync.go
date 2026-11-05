@@ -245,8 +245,12 @@ func (s *Server) updateAssessment(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "classId does not exist")
 		return
 	}
-	if len(body.Questions) == 0 {
-		fail(c, http.StatusBadRequest, "at least one question is required")
+	if body.MaxScore != nil && *body.MaxScore <= 0 {
+		fail(c, http.StatusBadRequest, "maxScore must be greater than 0")
+		return
+	}
+	if len(body.Questions) == 0 && body.MaxScore == nil {
+		fail(c, http.StatusBadRequest, "an assessment needs at least one question or a max score")
 		return
 	}
 	a := domain.Assessment{
@@ -258,6 +262,7 @@ func (s *Server) updateAssessment(c *gin.Context) {
 		Date:      firstNonEmpty(body.Date, existing.Date),
 		CreatedBy: existing.CreatedBy,
 		Questions: body.Questions,
+		MaxScore:  body.MaxScore,
 	}
 	if writeFailed(c, s.db(c).SaveAssessment(a)) {
 		return

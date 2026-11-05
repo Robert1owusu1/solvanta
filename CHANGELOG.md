@@ -8,6 +8,128 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Tamper-evident audit log: every entry is hash-chained to the previous one, so
+  altering or dropping any entry breaks the chain. `GET /api/audit/verify`
+  recomputes it and reports whether it is intact (and the first broken index).
+- In-app Help & support screen (common questions + where to get help), linked
+  from Settings.
+
+- Observability baseline: a Prometheus `/metrics` endpoint (request counts by
+  status, total request duration, uptime), gated behind `METRICS_TOKEN` when
+  set and open otherwise, plus one structured log line per request
+  (method/path/status/latency/ip) in place of Gin's default logger.
+
+- Data-subject rights (data protection). Any signed-in user can **download a
+  copy of their own data** (`GET /api/me/export` — account plus, for a student
+  or parent, the records SOLVANTA holds about them/their children; passwords are
+  never included) and **erase their account** (`DELETE /api/me`, password
+  required). Erasure refuses accounts whose removal would orphan data or lock a
+  school out — the platform operator, an independent workspace owner, and the
+  last admin of a school — and revokes the session on success. Both are exposed
+  in Settings → Your data.
+
+- Two-factor authentication (TOTP). Any user can enrol from Settings → Account
+  security: scan the QR with an authenticator app, confirm a code to turn it on,
+  and turn it off with a current code. Sign-in then becomes two-step — the
+  password returns a short-lived challenge that only `/auth/mfa/verify` accepts,
+  exchanged for a session with the one-time code. RFC 6238 (SHA-1, 6 digits, 30s)
+  implemented with no external dependency and unit-tested against the RFC vector.
+- Terms of Service and Privacy Policy screens, linked from Settings and from the
+  registration form.
+- CI now reports test coverage (Go `-coverprofile`, Flutter `--coverage`) and
+  uploads it as an artifact.
+
+- Supply-chain scanning in CI: a (non-blocking) `govulncheck` step and a
+  Dependabot config (gomod / pub / github-actions, weekly); bumped `quic-go` to
+  v0.59.1 to clear a known advisory.
+- Student bulk import: register a whole class from a prefilled `.xlsx`/`.csv`
+  template with the same preview-then-confirm flow as scores and payments
+  (missing name, bad gender and unknown class are errors; a duplicate admission
+  number warns but still registers), wired into the Students screen.
+- Super-admin **Usage** screen: each tenant's activity this month (peak
+  students, classes, AI pages, OCR cost), exportable to `.xlsx`.
+
+- Bulk payment recording. SOLVANTA takes no money in-app — schools collect fees
+  their own way (cash, mobile money, bank) and record what they received: one at
+  a time (search a student on the Fees screen → their invoice → enter the
+  payment, which already existed) or in bulk from a prefilled `.xlsx`/`.csv`
+  template. The upload previews every row as valid / warning / error (unknown
+  student, no outstanding invoice, non-numeric amount, amount over the balance)
+  before anything is written, matching students on id then admission number —
+  never name — and applying each payment to the student's oldest outstanding
+  invoice (or a named one). Paid subscription plans are now explicitly
+  **"contact sales"** (only the free tier is self-serve); the app never charges,
+  so the Plans screen and the independent teacher's billing badge point to sales
+  rather than any in-app checkout.
+
+- Plans, pricing & free-vs-paid machinery (Phase 4), built in full but **shipped
+  switched off**. A platform-wide **billing mode** (`testing` | `live`, default
+  `testing`, super-admin only): in testing nothing is blocked and no invoices
+  are raised, but **usage is still counted**. Going live is confirmed, audited
+  and effective only from a chosen start date (before which nothing is
+  enforced). **Plans** (`plans` / `plan_features` / `plan_limits`, amounts in
+  pesewas) with per-feature toggles and per-limit values (**NULL = unlimited**),
+  seeded with a free "Independent — Testing" plan (every feature, no limits,
+  price 0). A super-admin **Plans & Pricing** screen to edit plans, prices and
+  limits with a live "a teacher with 45 students pays GHS X/month or Y/term"
+  preview; price changes are recorded in history and apply from the next period,
+  never retroactively. **Enforcement** (live mode only) blocks new actions that
+  exceed a plan limit or use a feature the plan excludes (with an upgrade hint),
+  never reads/edits/exports of existing data, with a configurable `past_due`
+  grace period. **Usage counters** per tenant per month (peak students, classes,
+  AI pages, OCR cost) feed `GET /api/platform/usage`. Independent teachers see a
+  "Testing — free access" badge (and a pre-live warning) in Settings. A
+  `PaymentProvider` interface with a mock implementation stands in for the real
+  mobile-money gateway. New endpoints under `/api/platform/*`, `/api/plans`,
+  `/api/subscriptions` and `/api/billing/me`.
+
+- Independent teacher workspaces (Phase 3). A teacher whose school is not on
+  SOLVANTA can self-register an **independent workspace** — a tenant of their
+  own (`school.kind = independent`, owned by them), fixing the old bug that
+  dropped every self-registered teacher into the default school. They accept a
+  data-protection notice at registration (stored with a timestamp), and inside
+  their workspace they create classes, register students and build assessments
+  of any type, use AI marking, manual score entry and the score sheet. A shared
+  **capability catalogue** (`capabilities.go` / `capabilities.dart`) keyed on
+  `school.kind` keeps the workspace out of the school-only modules — fees, gate,
+  SMS, staff management, parent/student logins, announcements, report-card
+  approval, school-wide analytics and audit — hidden in the module grid and
+  returning 403 on the API. New `POST /auth/register`. A super admin can
+  **transfer** a workspace into a school: `POST /api/schools/:id/transfers/preview`
+  (dry-run counts + conflicts) and `POST /api/schools/:id/transfers` (moves the
+  classes, students, assessments and scores, keeping ids or remapping with a
+  stored old→new map, turns the teacher into a normal teacher, and archives the
+  workspace read-only). Every transfer is audited in both tenants.
+
+- Score sheet / gradebook (Phase 2): a per-class, per-subject grid of students
+  (rows) against assessments (columns), each cell the score out of the max and
+  marked AI / Manual / Absent, with empty cells highlighted. A term-total column
+  applies the school's grading config (class-score/exam split and grade bands)
+  and shows each pupil's position in class; absent scores are excluded from the
+  total. Filters for class, subject, term and assessment type; tapping a cell
+  opens manual entry, a column header opens the assessment. Download the sheet
+  as `.xlsx`, PDF or `.csv` (and a single assessment's results), shared via
+  `saveAndShareFile` on mobile. New endpoint
+  `GET /api/reports/score-sheet?classId=&subjectId=&term=` with the same RBAC as
+  the class-results report. Bulk score upload now accepts a picked `.xlsx`/`.csv`
+  file (file_picker) as well as pasted text.
+
+- Manual score entry (Phase 1) for schools that mark on paper. A school-level
+  **marking mode** (`ai` / `manual` / `both`, default `both`) set by school
+  admins hides the AI capture/marking entry points when `manual`, and manual
+  entry when `ai`, enforced on the API (403) as well as the UI. Assessments can
+  be **score-only** — a title, type, subject, class, date and max score with no
+  questions; every grade, percentage and average is computed against the
+  effective total (max score when set, else the sum of the question marks).
+  Scores carry a **source** (`ai` / `manual` / `online`), an optional remark,
+  and an **absent** flag (not a zero — excluded from averages). Teachers record
+  a single score against the class roster, or bulk-upload from a prefilled
+  `.xlsx` / `.csv` template with a valid/warning/error preview before saving.
+  New endpoints `PUT /api/assessments/:id/scores/:studentId` and
+  `POST /api/assessments/:id/scores/bulk` (idempotent, atomic), same RBAC as
+  marking; edits are allowed until the term is finished, each is audited
+  old→new, and overwriting an AI-marked score needs an explicit override.
+
 - Quick search (Ctrl/⌘+K, or the search button): jump to any page and, for
   staff, a student by name or admission number or an assessment by title;
   arrow keys and Enter, Esc to close, with a hand-off to the full search.

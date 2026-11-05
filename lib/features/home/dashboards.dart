@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../core/models/capabilities.dart';
 import '../../core/models/role.dart';
+import '../../core/models/school.dart';
 import '../../core/models/user.dart';
 import '../admin/parent_linking_screen.dart';
+import '../admin/plans_screen.dart';
+import '../admin/usage_screen.dart';
 import '../admin/school_admin_screen.dart';
 import '../admin/schools_screen.dart';
 import '../admin/sms_screen.dart';
@@ -131,6 +135,12 @@ final _superAdminModules = [
   Module(Icons.domain_add_outlined, 'Schools', NavSection.people,
       subtitle: 'Onboard schools & their admins',
       builder: (_) => const SchoolsScreen()),
+  Module(Icons.payments_outlined, 'Plans & Pricing', NavSection.records,
+      subtitle: 'Platform billing, plans & limits',
+      builder: (_) => const PlansScreen()),
+  Module(Icons.insights_outlined, 'Usage', NavSection.records,
+      subtitle: 'Per-tenant activity vs. cost',
+      builder: (_) => const UsageScreen()),
   ..._adminModules,
 ];
 
@@ -357,14 +367,40 @@ class StaffDashboard extends StatelessWidget {
 
 /// The module set a role may reach — the single source of truth that
 /// [`dashboardFor`] uses. Mirrors the backend's per-route role gates.
-List<Module> modulesFor(AppRole role) => switch (role) {
+List<Module> modulesFor(AppRole role) => _capabilityFiltered(switch (role) {
       AppRole.superAdmin => _superAdminModules,
       AppRole.schoolAdmin || AppRole.headteacher => _adminModules,
       AppRole.teacher => _teacherModules,
       AppRole.parent => _parentModules,
       AppRole.student => _studentModules,
       AppRole.staff || AppRole.educationAuthority => _staffModules,
-    };
+    });
+
+/// Module labels that belong to a school-only feature — hidden in an
+/// independent teacher's workspace (the API refuses them too). Keyed by the
+/// module's display label so no new field is needed on [Module].
+const _moduleFeature = <String, String>{
+  'Staff & Teachers': Feature.staffManage,
+  'Parent Linking': Feature.parentStudent,
+  'Safety Gate': Feature.gate,
+  'Safety Training': Feature.gate,
+  'Check-in': Feature.gate,
+  'SMS to Parents': Feature.sms,
+  'Audit Log': Feature.audit,
+  'Announcements': Feature.announcements,
+  'Parent Meetings': Feature.reportApproval,
+  FeesModule.adminLabel: Feature.fees,
+};
+
+/// Removes modules the current workspace's kind cannot use (independent
+/// teachers lose the school-only modules). A normal school keeps everything.
+List<Module> _capabilityFiltered(List<Module> modules) {
+  if (Capabilities.currentKind == SchoolKind.school) return modules;
+  return [
+    for (final m in modules)
+      if (Capabilities.current(_moduleFeature[m.label] ?? 'always')) m,
+  ];
+}
 
 /// The dashboard widget for a signed-in [user].
 Widget dashboardFor(User user) => switch (user.role) {

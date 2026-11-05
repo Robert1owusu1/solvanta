@@ -25,6 +25,7 @@ import '../models/question.dart';
 import '../models/qgen_request.dart';
 import '../models/role.dart';
 import '../models/scan_page.dart';
+import '../models/capabilities.dart';
 import '../models/school.dart';
 import '../models/school_term.dart';
 import '../models/student.dart';
@@ -319,10 +320,13 @@ class LocalStore {
       await saveSchool(school);
       return school;
     }
-    return School.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    final school = School.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    Capabilities.currentKind = school.kind;
+    return school;
   }
 
   Future<void> saveSchool(School school) async {
+    Capabilities.currentKind = school.kind;
     final prefs = await DataStore.instance();
     await prefs.setString(_schoolKey, jsonEncode(school.toJson()));
   }

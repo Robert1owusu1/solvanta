@@ -9,6 +9,7 @@ import '../../core/ui/ui_kit.dart';
 import '../students/students_repository.dart';
 import 'fee_models.dart';
 import 'fees_repository.dart';
+import 'payments_bulk_upload_screen.dart';
 import 'invoice_detail_screen.dart';
 
 // ---------------------------------------------------------------------------
@@ -125,9 +126,24 @@ class _FeesScreenState extends State<FeesScreen> {
       );
     }
     return Scaffold(
-      appBar: const SvScreenHeader(
+      appBar: SvScreenHeader(
         title: 'Fees & Payments',
         subtitle: 'Bills, payments & receipts',
+        actions: [
+          IconButton(
+            tooltip: 'Upload payments (CSV/XLSX)',
+            icon: const Icon(Icons.upload_file, color: Colors.white),
+            onPressed: () async {
+              final recorded = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PaymentsBulkUploadScreen(recordedBy: widget.user.name),
+                ),
+              );
+              if (recorded == true) _refresh();
+            },
+          ),
+        ],
       ),
       body: FutureBuilder<_AdminFeesData>(
         future: _data,
