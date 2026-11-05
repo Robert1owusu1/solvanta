@@ -105,7 +105,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                               fontSize: 16, fontWeight: .w700)),
                       const SizedBox(height: 4),
                       Text(
-                          '${a.type.label} · ${subjectName(a.subjectId)} · ${a.classId} · ${a.totalMarks.toStringAsFixed(0)} marks',
+                          '${a.type.label} · ${subjectName(a.subjectId)} · ${a.classId} · ${a.effectiveTotal.toStringAsFixed(0)} marks',
                           style: TextStyle(color: AppColors.body)),
                       const SizedBox(height: 8),
                       Text(
@@ -253,7 +253,7 @@ class _AnswerEntryScreenState extends State<AnswerEntryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-            '${widget.student.fullName}: ${_potentialEarned.toStringAsFixed(1)} / ${widget.assessment.totalMarks.toStringAsFixed(1)} marks'),
+            '${widget.student.fullName}: ${_potentialEarned.toStringAsFixed(1)} / ${widget.assessment.effectiveTotal.toStringAsFixed(1)} marks'),
       ),
     );
     Navigator.of(context).pop();
@@ -300,7 +300,7 @@ class _AnswerEntryScreenState extends State<AnswerEntryScreen> {
                     width: 20,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : Text('Save & mark — ${_potentialEarned.toStringAsFixed(1)} / '
-                    '${a.totalMarks.toStringAsFixed(1)}'),
+                    '${a.effectiveTotal.toStringAsFixed(1)}'),
           ),
         ],
       ),

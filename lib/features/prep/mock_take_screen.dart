@@ -294,8 +294,8 @@ class _ResultView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pct = assessment.totalMarks > 0
-        ? 100 * earned / assessment.totalMarks
+    final pct = assessment.effectiveTotal > 0
+        ? 100 * earned / assessment.effectiveTotal
         : 0.0;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -303,7 +303,7 @@ class _ResultView extends StatelessWidget {
         Text('Mock submitted', style: _t),
         const SizedBox(height: 4),
         Text(
-          '${earned.toStringAsFixed(1)} / ${assessment.totalMarks.toStringAsFixed(1)} '
+          '${earned.toStringAsFixed(1)} / ${assessment.effectiveTotal.toStringAsFixed(1)} '
           '  ·  ${pct.toStringAsFixed(1)}%  ·  Grade ${schoolGrade(pct, assessment.classId)}',
           style: TextStyle(
               fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.brand),

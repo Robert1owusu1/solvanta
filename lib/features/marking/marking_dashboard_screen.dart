@@ -114,7 +114,7 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                    '${selected.totalMarks.toStringAsFixed(0)} marks · '
+                    '${selected.effectiveTotal.toStringAsFixed(0)} marks · '
                     '${selected.questions.length} questions · ${roster.length} students',
                     style: TextStyle(color: AppColors.muted)),
               ),
@@ -145,7 +145,7 @@ class _MarkingDashboardScreenState extends State<MarkingDashboardScreen> {
                         child: SvAvatarTile(
                       title: s.fullName,
                       meta: marked
-                          ? 'Marked — ${sub.earned.toStringAsFixed(1)} / ${selected.totalMarks.toStringAsFixed(1)} marks'
+                          ? 'Marked — ${sub.earned.toStringAsFixed(1)} / ${selected.effectiveTotal.toStringAsFixed(1)} marks'
                           : 'Awaiting marking',
                       initials: s.initials,
                       avatarColor: marked

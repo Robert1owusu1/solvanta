@@ -209,7 +209,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               final i = index - 1;
               final a = rows[i].assessment;
               final s = rows[i].submission;
-              final total = a.totalMarks;
+              final total = a.effectiveTotal;
               final pct = total == 0
                   ? 0
                   : ((s?.earned ?? 0) / total * 100).round();

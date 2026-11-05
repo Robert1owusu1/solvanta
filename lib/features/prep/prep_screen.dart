@@ -181,7 +181,7 @@ class _PrepScreenState extends State<PrepScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 subtitle: Text(
                     '${subjectName(a.subjectId)} · ${a.questions.length} '
-                    'questions · ${a.totalMarks.toStringAsFixed(0)} marks\n'
+                    'questions · ${a.effectiveTotal.toStringAsFixed(0)} marks\n'
                     '${best == null ? 'Not attempted yet' : 'Best: ${best.toStringAsFixed(1)}% — '
                         'grade ${d.scheme.bandFor(best).grade}'}'),
                 isThreeLine: true,
@@ -570,8 +570,8 @@ class PrepData {
     if (mine.isEmpty) return null;
     final a = assessments.firstWhere((x) => x.id == assessmentId,
         orElse: () => assessments.first);
-    if (a.totalMarks <= 0) return null;
-    final best = mine.map((s) => 100 * s.earned / a.totalMarks).reduce(_max);
+    if (a.effectiveTotal <= 0) return null;
+    final best = mine.map((s) => 100 * s.earned / a.effectiveTotal).reduce(_max);
     return best;
   }
 
@@ -583,7 +583,7 @@ class PrepData {
       for (final s in subs.where(
           (x) => x.assessmentId == a.id && x.studentId == studentId)) {
         earned += s.earned;
-        possible += a.totalMarks;
+        possible += a.effectiveTotal;
       }
     }
     return possible > 0 ? 100 * earned / possible : null;

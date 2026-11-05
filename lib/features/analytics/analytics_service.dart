@@ -78,8 +78,8 @@ class ClassPerformance {
 
   double averageFor(Assessment a) {
     final list = _for(a.id);
-    if (list.isEmpty || a.totalMarks <= 0) return 0;
-    return list.map((s) => s.earned / a.totalMarks).reduce((x, y) => x + y) /
+    if (list.isEmpty || a.effectiveTotal <= 0) return 0;
+    return list.map((s) => s.earned / a.effectiveTotal).reduce((x, y) => x + y) /
         list.length;
   }
 
@@ -89,7 +89,7 @@ class ClassPerformance {
     for (final a in rel) {
       for (final s in _for(a.id)) {
         earned += s.earned;
-        possible += a.totalMarks;
+        possible += a.effectiveTotal;
       }
     }
     return possible > 0 ? earned / possible : 0;
@@ -100,7 +100,7 @@ class ClassPerformance {
     for (final a in assessments) {
       for (final s in _for(a.id)) {
         earned += s.earned;
-        possible += a.totalMarks;
+        possible += a.effectiveTotal;
       }
     }
     return possible > 0 ? earned / possible : 0;
@@ -112,7 +112,7 @@ class ClassPerformance {
     final scheme = SchoolGrading.current.schemeFor(a.classId);
     final out = {for (final b in scheme.bands) b.grade: 0};
     for (final s in _for(a.id)) {
-      final pct = a.totalMarks > 0 ? 100 * s.earned / a.totalMarks : 0.0;
+      final pct = a.effectiveTotal > 0 ? 100 * s.earned / a.effectiveTotal : 0.0;
       final g = scheme.bandFor(pct).grade;
       out[g] = out[g]! + 1;
     }
@@ -163,7 +163,7 @@ class ClassPerformance {
         final a = _assessment(m.assessmentId);
         if (a == null) continue;
         earned += m.earned;
-        possible += a.totalMarks;
+        possible += a.effectiveTotal;
       }
       final pct = possible > 0 ? 100 * earned / possible : 0.0;
       if (pct < threshold) {

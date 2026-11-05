@@ -199,7 +199,7 @@ class _MarkingScreenState extends State<MarkingScreen> {
               Expanded(
                 child: Text(
                   'Running score\n'
-                  '${running.toStringAsFixed(1)} / ${widget.assessment.totalMarks.toStringAsFixed(1)} marks',
+                  '${running.toStringAsFixed(1)} / ${widget.assessment.effectiveTotal.toStringAsFixed(1)} marks',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 15),
                 ),

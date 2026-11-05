@@ -88,8 +88,8 @@ class _HomeChartsState extends State<HomeCharts> {
     final scored = <String, List<double>>{};
     for (final s in subs) {
       final a = byId[s.assessmentId];
-      if (a == null || a.totalMarks <= 0) continue;
-      scored.putIfAbsent(a.id, () => []).add(100 * s.earned / a.totalMarks);
+      if (a == null || a.effectiveTotal <= 0) continue;
+      scored.putIfAbsent(a.id, () => []).add(100 * s.earned / a.effectiveTotal);
     }
     final marked = scored.keys.map((id) => byId[id]!).toList()..sort((a, b) => a.date.compareTo(b.date));
     final resultPoints = [

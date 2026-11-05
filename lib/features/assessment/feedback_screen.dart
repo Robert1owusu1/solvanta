@@ -220,7 +220,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   }
 
   Widget _headerCard(Assessment a, AssessmentSubmission sub) {
-    final total = a.totalMarks;
+    final total = a.effectiveTotal;
     final pct = total == 0 ? 0.0 : 100 * sub.earned / total;
     return Card(
       color: AppTheme.brand.withValues(alpha: .05),

@@ -23,8 +23,8 @@ import '../../core/models/submission.dart';
       continue;
     }
     final a = assessmentById[sub.assessmentId];
-    if (a == null || a.subjectId != subjectId || a.totalMarks <= 0) continue;
-    final pct = 100 * sub.earned / a.totalMarks;
+    if (a == null || a.subjectId != subjectId || a.effectiveTotal <= 0) continue;
+    final pct = 100 * sub.earned / a.effectiveTotal;
     final isBefore = sub.date.compareTo(assessmentDate) <= 0;
     (isBefore ? before : after).add(pct);
   }
