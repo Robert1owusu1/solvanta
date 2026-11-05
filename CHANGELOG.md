@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Teacher cover & substitution: a new "Cover & substitution" planner (reached
+  from the Timetable header) shows a chosen date's lessons and, per lesson, lets
+  school leaders record an absence and assign a substitute (or leave it open),
+  with "covered" / "needs cover" badges so the substitute and class know who is
+  teaching. Backed by a new `cover_assignments` record kind — school-scoped
+  reads, leaders-only writes — that syncs offline-first like the timetable.
+
 - In-app student health editor: staff can add or edit a pupil's emergency
   medical record (blood group, allergies, conditions, medications,
   immunizations, notes) directly from the student profile ("Add/Edit health"),

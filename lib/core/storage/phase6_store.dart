@@ -8,6 +8,7 @@ class Phase6Store {
   static const _resourcesKey = 'solvanta.resources_v1';
   static const _safetyPacksKey = 'solvanta.safety_packs_v1';
   static const _safetyCompletionsKey = 'solvanta.safety_completions_v1';
+  static const _coverKey = 'solvanta.cover_assignments_v1';
 
   Future<List<Map<String, dynamic>>> loadLessonsJson() async {
     final prefs = await DataStore.instance();
@@ -24,6 +25,21 @@ class Phase6Store {
   Future<void> saveLessonsJson(List<Map<String, dynamic>> list) async {
     final prefs = await DataStore.instance();
     await prefs.setString(_lessonsKey, jsonEncode(list));
+  }
+
+  // Cover/substitution has no demo seed: it defaults to an empty list, so a
+  // fresh install shows "no cover today" rather than invented absences.
+  Future<List<Map<String, dynamic>>> loadCoverJson() async {
+    final prefs = await DataStore.instance();
+    final raw = prefs.getString(_coverKey);
+    if (raw == null) return <Map<String, dynamic>>[];
+    final list = jsonDecode(raw) as List;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  Future<void> saveCoverJson(List<Map<String, dynamic>> list) async {
+    final prefs = await DataStore.instance();
+    await prefs.setString(_coverKey, jsonEncode(list));
   }
 
   Future<List<Map<String, dynamic>>> loadResourcesJson() async {

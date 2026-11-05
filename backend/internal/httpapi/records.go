@@ -66,6 +66,10 @@ var recordKinds = map[string]recordKind{
 		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher, domain.RoleTeacher},
 		readable: termReportReadable, check: checkTermReport},
 	domain.RecordParentMeetings: {scope: scopeStudent, writers: staffRoles, check: checkParentMeeting},
+	// Cover/substitution: school-scoped reads (the substitute, the class and
+	// leadership all need it), and only leaders assign it.
+	domain.RecordCoverAssignments: {scope: scopeSchool, writers: []string{
+		domain.RoleSuperAdmin, domain.RoleSchoolAdmin, domain.RoleHeadteacher}},
 	// Any signed-in user registers their own device push tokens.
 	domain.RecordPushTokens: {scope: scopeOwner},
 }

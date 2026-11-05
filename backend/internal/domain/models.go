@@ -785,6 +785,12 @@ const (
 	// held (what was agreed) or cancelled. Staff write; families read their
 	// own child's.
 	RecordParentMeetings = "parent_meetings"
+	// RecordCoverAssignments holds one cover decision: on a given date, a named
+	// absent teacher's timetabled lesson is assigned to a substitute (or left
+	// open). School-scoped reads — cover is operational, not pupil data, and the
+	// substitute, the class and leadership all need to see it — and only school
+	// leaders write it.
+	RecordCoverAssignments = "cover_assignments"
 )
 
 // Record is one entry of a collection the server stores on the client's

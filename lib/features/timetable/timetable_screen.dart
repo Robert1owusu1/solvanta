@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
 import '../auth/auth_repository.dart';
 import '../students/students_repository.dart';
+import 'cover_screen.dart';
 import 'timetable_repository.dart';
 
 class TimetableScreen extends StatefulWidget {
@@ -183,7 +184,15 @@ class _TimetableScreenState extends State<TimetableScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: SvScreenHeader(title: 'Timetable'),
+      appBar: SvScreenHeader(title: 'Timetable', actions: [
+        IconButton(
+          tooltip: 'Cover & substitution',
+          icon: const Icon(Icons.swap_horiz),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const CoverScreen()),
+          ),
+        ),
+      ]),
       body: FutureBuilder(
         future: _data,
         builder: (context, snap) {

@@ -160,6 +160,8 @@ class ServerSync extends ChangeNotifier {
           (r) => FeesRepository(store: _store)
               .mirrorFromServer(invoices: r.$1, payments: r.$2)),
       mirror('timetable', () => remote.records('lessons'), _phase6.saveLessonsJson),
+      mirror('cover', () => remote.records('cover_assignments'),
+          _phase6.saveCoverJson),
       mirror('resources', () => remote.records('resources'), _phase6.saveResourcesJson),
       mirror('safety training', () => remote.records('safety_completions'),
           _mergeCompletions),
