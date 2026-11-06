@@ -172,17 +172,20 @@ type Person struct {
 
 // Student mirrors the client Student model (doc §10).
 type Student struct {
-	ID                string   `json:"id"`
-	FirstName         string   `json:"firstName"`
-	LastName          string   `json:"lastName"`
-	Gender            string   `json:"gender"`
-	DateOfBirth       string   `json:"dateOfBirth"`
-	AdmissionDate     string   `json:"admissionDate"`
-	AdmissionNo       string   `json:"admissionNo"`
-	ClassID           string   `json:"classId"`
-	SchoolID          string   `json:"schoolId"`
-	Status            string   `json:"status"`
-	ParentUserID      string   `json:"parentUserId,omitempty"`
+	ID            string `json:"id"`
+	FirstName     string `json:"firstName"`
+	LastName      string `json:"lastName"`
+	Gender        string `json:"gender"`
+	DateOfBirth   string `json:"dateOfBirth"`
+	AdmissionDate string `json:"admissionDate"`
+	AdmissionNo   string `json:"admissionNo"`
+	ClassID       string `json:"classId"`
+	SchoolID      string `json:"schoolId"`
+	Status        string `json:"status"`
+	ParentUserID  string `json:"parentUserId,omitempty"`
+	// PhotoURL is the pupil's passport photo for the ID card and report card:
+	// a data URI (data:image/jpeg;base64,...) or an http(s) URL. Empty = none.
+	PhotoURL          string   `json:"photoUrl,omitempty"`
 	Guardians         []Person `json:"guardians"`
 	EmergencyContacts []Person `json:"emergencyContacts"`
 	AuthorizedPickup  []Person `json:"authorizedPickup"`

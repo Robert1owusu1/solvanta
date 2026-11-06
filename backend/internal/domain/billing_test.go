@@ -134,3 +134,42 @@ func TestSeedTestingPlanIsFullyOpen(t *testing.T) {
 		t.Error("seed plan limits must all be unlimited")
 	}
 }
+
+func TestDefaultPlansSeedsFivePlans(t *testing.T) {
+	plans := DefaultPlans("2026-11-06 10:00")
+	if len(plans) != 5 {
+		t.Fatalf("expected 5 seeded plans, got %d", len(plans))
+	}
+	byID := map[string]Plan{}
+	for _, p := range plans {
+		byID[p.ID] = p
+		if !p.Active {
+			t.Errorf("seeded plan %s should be active", p.ID)
+		}
+		if p.Currency != "GHS" {
+			t.Errorf("seeded plan %s currency = %q, want GHS", p.ID, p.Currency)
+		}
+	}
+	// The free independent plan keeps the historical id and is a free tier.
+	free, ok := byID[PlanIndependentFree]
+	if !ok || !free.IsFreeTier || free.Kind != PlanKindIndependent {
+		t.Error("the free independent plan must exist, be free, and be independent")
+	}
+	wantKinds := map[string]string{
+		PlanIndependentFree: PlanKindIndependent,
+		PlanIndependentPro:  PlanKindIndependent,
+		PlanSchoolPro:       PlanKindSchool,
+		PlanSchoolMax:       PlanKindSchool,
+		PlanSchoolUltra:     PlanKindSchool,
+	}
+	for id, kind := range wantKinds {
+		p, ok := byID[id]
+		if !ok {
+			t.Errorf("missing seeded plan %s", id)
+			continue
+		}
+		if p.Kind != kind {
+			t.Errorf("plan %s kind = %q, want %q", id, p.Kind, kind)
+		}
+	}
+}

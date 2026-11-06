@@ -666,22 +666,59 @@ Widget _previewModern(ReportCardData d) {
               const SizedBox(height: 2),
               Container(height: 1, color: AppTheme.brandLight),
               const SizedBox(height: 14),
-              Text(
-                d.studentName,
-                style: TextStyle(
-                  color: AppPalette.light.ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SvPhotoAvatar(
+                    photoUrl: d.photoUrl,
+                    fallbackText: _pvInitials(d.studentName),
+                    size: 56,
+                    square: true,
+                    borderColor: AppPalette.light.border,
+                    fallbackColor: AppPalette.light.ink,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          d.studentName,
+                          style: TextStyle(
+                            color: AppPalette.light.ink,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text('${d.classId} · ${d.admissionNo}', style: _pvMuted),
+                        if (d.gender.isNotEmpty || d.dateOfBirth.isNotEmpty)
+                          Text(
+                            [
+                              if (d.gender.isNotEmpty) d.gender,
+                              if (d.dateOfBirth.isNotEmpty) 'DOB ${d.dateOfBirth}',
+                            ].join(' · '),
+                            style: _pvMuted,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text('${d.classId} · ${d.admissionNo}', style: _pvMuted),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  _pvStat('Class', d.classId),
+                  _pvStat('Average', d.overallLabel),
                   _pvStat('Position', d.rankLabel),
                   _pvStat('Attendance', d.attendance?.label ?? '–'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _pvStat('Passed', d.passLabel),
+                  _pvStat('Best', d.bestSubject?.name ?? '–'),
+                  _pvStat('Needs work', d.weakestSubject?.name ?? '–'),
                 ],
               ),
               const SizedBox(height: 12),
@@ -1458,6 +1495,14 @@ Widget _previewTranscript(ReportCardData d) {
     const SizedBox(height: 4),
     _pvFooter(d),
   ]);
+}
+
+/// Up-to-two initials from a full name, for the photo placeholder.
+String _pvInitials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+  if (parts.isEmpty) return '';
+  if (parts.length == 1) return parts.first[0].toUpperCase();
+  return (parts.first[0] + parts.last[0]).toUpperCase();
 }
 
 Widget _pvStat(String label, String value) => Expanded(

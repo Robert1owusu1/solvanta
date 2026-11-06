@@ -1,10 +1,111 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../settings/app_settings.dart';
 import '../theme/app_theme.dart';
+
+/// Decodes a photo string into image bytes when it is base64 (a `data:` URI or
+/// a bare base64 payload), or returns `null` when it is empty or a URL. Kept
+/// here so the report card, ID card and profile screens decode photos the same
+/// way. Never throws — a malformed payload yields `null`.
+Uint8List? svDecodePhotoBytes(String photo) {
+  final s = photo.trim();
+  if (s.isEmpty || s.startsWith('http://') || s.startsWith('https://')) {
+    return null;
+  }
+  var payload = s;
+  if (s.startsWith('data:')) {
+    final comma = s.indexOf(',');
+    if (comma < 0) return null;
+    payload = s.substring(comma + 1);
+  }
+  try {
+    return base64Decode(base64.normalize(payload));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// A pupil/person photo that accepts a base64 data URI, a bare base64 payload
+/// or an http(s) URL, and falls back to [fallbackText] initials on a brand
+/// tint when there is no usable image. Set [square] for a passport-style photo
+/// (ID card, report card); leave it off for a round avatar.
+class SvPhotoAvatar extends StatelessWidget {
+  const SvPhotoAvatar({
+    super.key,
+    required this.photoUrl,
+    this.fallbackText = '',
+    this.size = 44,
+    this.square = false,
+    this.borderColor,
+    this.fallbackColor,
+  });
+
+  final String photoUrl;
+  final String fallbackText;
+  final double size;
+  final bool square;
+  final Color? borderColor;
+
+  /// Tint for the initials/placeholder when there is no image. Defaults to the
+  /// brightness-resolving brand; pass a fixed colour on always-light surfaces
+  /// like the printable report card.
+  final Color? fallbackColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(square ? 8 : size);
+    final bytes = svDecodePhotoBytes(photoUrl);
+    final isUrl = photoUrl.startsWith('http://') || photoUrl.startsWith('https://');
+
+    Widget child;
+    if (bytes != null) {
+      child = Image.memory(bytes,
+          width: size, height: size, fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _fallback());
+    } else if (isUrl) {
+      child = Image.network(photoUrl,
+          width: size, height: size, fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _fallback());
+    } else {
+      child = _fallback();
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        border: borderColor == null
+            ? null
+            : Border.all(color: borderColor!, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+  }
+
+  Widget _fallback() {
+    final tint = fallbackColor ?? AppColors.brand;
+    return Container(
+      color: tint.withValues(alpha: .12),
+      alignment: Alignment.center,
+      child: fallbackText.trim().isEmpty
+          ? Icon(Icons.person, color: tint, size: size * .55)
+          : Text(
+              fallbackText,
+              style: TextStyle(
+                color: tint,
+                fontWeight: FontWeight.w800,
+                fontSize: size * .36,
+              ),
+            ),
+    );
+  }
+}
 
 /// Centered loading view with an optional human-friendly message.
 ///

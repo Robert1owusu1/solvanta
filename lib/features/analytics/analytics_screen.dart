@@ -278,7 +278,10 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-final _muted2 = TextStyle(color: AppColors.body, fontSize: 14);
+// A getter, not a `final`: AppColors.body resolves against the active
+// brightness, so capturing it once at load would freeze the first value and
+// read with the wrong contrast after a theme switch.
+TextStyle get _muted2 => TextStyle(color: AppColors.body, fontSize: 14);
 
 class _DistributionBar extends StatelessWidget {
   final Map<String, int> dist;

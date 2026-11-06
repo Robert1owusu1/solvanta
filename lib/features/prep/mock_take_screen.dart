@@ -151,9 +151,11 @@ class _MockTakeScreenState extends State<MockTakeScreen> {
                   style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
+                      // Brightness-resolved: the constant deep navy
+                      // (AppTheme.brand) is unreadable on the dark app bar.
                       color: _secondsLeft < 120
                           ? AppColors.warning
-                          : AppTheme.brand)),
+                          : AppColors.brand)),
             ),
           ),
         ],
@@ -205,8 +207,10 @@ class _MockTakeScreenState extends State<MockTakeScreen> {
               ),
               const SizedBox(height: 12),
               Text(q.stem,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink)),
               const SizedBox(height: 6),
               Text(q.type.label,
                   style: TextStyle(color: AppColors.muted, fontSize: 12)),
@@ -300,7 +304,7 @@ class _ResultView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Mock submitted', style: _t),
+        Text('Mock submitted', style: _t.copyWith(color: AppColors.ink)),
         const SizedBox(height: 4),
         Text(
           '${earned.toStringAsFixed(1)} / ${assessment.totalMarks.toStringAsFixed(1)} '
@@ -324,7 +328,9 @@ class _ResultView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(q.stem,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink)),
                     const SizedBox(height: 2),
                     Text(_cleanJoin([
                       if (q.isObjective) 'You answered: ${answers[q.id]}',

@@ -9,6 +9,7 @@ import '../../core/ui/ui_kit.dart';
 import '../assessment/assessment_repository.dart';
 import '../auth/auth_repository.dart';
 import '../notifications/notifications_repository.dart';
+import 'question_draft_review_screen.dart';
 import 'question_gen_repository.dart';
 
 /// AI question-generation request UI (doc §43): teachers request drafts on a
@@ -99,79 +100,27 @@ class _QuestionGenScreenState extends State<QuestionGenScreen> {
   }
 
   Future<void> _review(QuestionGenRequest r) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Review drafts — ${r.topic}'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Text('${r.count} draft question(s) · ${r.type.label}',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted)),
-              const SizedBox(height: 8),
-              for (final (i, q) in r.drafts.indexed)
-                Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${i + 1}. ${q.stem}',
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
-                        if (q.options.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              q.options.map((o) => o == q.correctAnswer ? '● $o' : '○ $o').join('  ·  '),
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          )
-                        else
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text('Answer: ${q.correctAnswer}',
-                                style: const TextStyle(fontSize: 12)),
-                          ),
-                        if (q.markingScheme.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(q.markingScheme,
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.muted)),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
+    final edited = await Navigator.of(context).push<List<Question>>(
+      MaterialPageRoute(
+        builder: (_) => QuestionDraftReviewScreen(
+          topic: r.topic,
+          drafts: r.drafts,
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _reject(r);
-            },
-            child: const Text('Reject'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _publish(r);
-            },
-            child: const Text('Approve all'),
-          ),
-        ],
       ),
     );
+    if (!mounted || edited == null) return; // backed out — leave as-is.
+    if (edited.isEmpty) {
+      await _reject(r);
+      if (mounted) svSnack(context, 'Drafts rejected — nothing was published.');
+      return;
+    }
+    await _publish(r.copyWith(drafts: edited));
   }
 
   Future<void> _publish(QuestionGenRequest r) async {
     final repo = QuestionGenRepository();
+    // Persist the teacher's edits on the request before publishing.
+    await repo.update(r.copyWith(status: QGenStatus.generated));
     final bank = await AssessmentRepository().bank();
     for (final q in r.drafts) {
       if (bank.any((e) => e.id == q.id)) continue;

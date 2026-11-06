@@ -78,6 +78,11 @@ class Student {
   final String schoolId;
   final String status; // Active | Transferred | Graduated | Leaver
   final String? parentUserId;
+
+  /// Passport photo for the ID card and report card. Holds a data URI
+  /// (`data:image/jpeg;base64,...`) or an http(s) URL; empty when none.
+  final String photoUrl;
+
   final List<Person> guardians;
   final List<Person> emergencyContacts;
   final List<Person> authorizedPickup;
@@ -95,6 +100,7 @@ class Student {
     required this.schoolId,
     this.status = 'Active',
     this.parentUserId,
+    this.photoUrl = '',
     this.guardians = const [],
     this.emergencyContacts = const [],
     this.authorizedPickup = const [],
@@ -124,6 +130,7 @@ class Student {
         schoolId: (json['schoolId'] ?? 'SCH-001') as String,
         status: (json['status'] ?? 'Active') as String,
         parentUserId: json['parentUserId'] as String?,
+        photoUrl: (json['photoUrl'] ?? '') as String,
         guardians: ((json['guardians'] ?? const []) as List)
             .map((e) => Person.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -150,6 +157,7 @@ class Student {
         'schoolId': schoolId,
         'status': status,
         'parentUserId': parentUserId,
+        if (photoUrl.isNotEmpty) 'photoUrl': photoUrl,
         'guardians': guardians.map((e) => e.toJson()).toList(),
         'emergencyContacts': emergencyContacts.map((e) => e.toJson()).toList(),
         'authorizedPickup': authorizedPickup.map((e) => e.toJson()).toList(),
@@ -167,6 +175,7 @@ class Student {
     String? schoolId,
     String? status,
     String? parentUserId,
+    String? photoUrl,
     List<Person>? guardians,
     List<Person>? emergencyContacts,
     List<Person>? authorizedPickup,
@@ -184,6 +193,7 @@ class Student {
         schoolId: schoolId ?? this.schoolId,
         status: status ?? this.status,
         parentUserId: parentUserId ?? this.parentUserId,
+        photoUrl: photoUrl ?? this.photoUrl,
         guardians: guardians ?? this.guardians,
         emergencyContacts: emergencyContacts ?? this.emergencyContacts,
         authorizedPickup: authorizedPickup ?? this.authorizedPickup,

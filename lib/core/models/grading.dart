@@ -187,6 +187,10 @@ class GradingScheme {
       interventionBelow != null && (average * 10).round() / 10 < interventionBelow!;
 
   /// The band a 0–100 [total] falls in (rounded, as printed).
+  /// Conventional pass mark for basic-school subjects (50%). Used by the
+  /// report card's statistics to count how many subjects a pupil passed.
+  double get passMark => 50;
+
   GradeBand bandFor(double total) {
     final t = total.round();
     return bands.firstWhere((b) => t >= b.min, orElse: () => bands.last);

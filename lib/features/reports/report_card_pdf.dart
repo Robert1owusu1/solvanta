@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
@@ -436,11 +437,16 @@ class ReportCardData {
     this.rollSize = 0,
     this.aggregate,
     this.scheme = gesBasicPreset,
+    this.photoUrl = '',
   });
 
   final String studentName;
   final String studentId;
   final String admissionNo;
+
+  /// The pupil's passport photo (data URI or URL) for the card header; empty
+  /// when none is on file.
+  final String photoUrl;
   final String classId;
   final String schoolName;
   final String schoolMotto;
@@ -551,6 +557,7 @@ class ReportCardData {
         'dateOfBirth': dateOfBirth,
         'admissionDate': admissionDate,
         'studentStatus': studentStatus,
+        if (photoUrl.isNotEmpty) 'photoUrl': photoUrl,
         'termName': termName,
         'academicYear': academicYear,
         'vacationDate': vacationDate,
@@ -602,6 +609,7 @@ class ReportCardData {
         generatedAt:
             DateTime.tryParse((j['generatedAt'] ?? '') as String) ?? DateTime.now(),
         gender: (j['gender'] ?? '') as String,
+        photoUrl: (j['photoUrl'] ?? '') as String,
         dateOfBirth: (j['dateOfBirth'] ?? '') as String,
         admissionDate: (j['admissionDate'] ?? '') as String,
         studentStatus: (j['studentStatus'] ?? '') as String,
@@ -667,6 +675,53 @@ class ReportCardData {
   /// `86.0%`, or `–` when nothing is marked.
   String get overallLabel =>
       overall == null ? '–' : '${overall!.toStringAsFixed(1)}%';
+
+  // --- Statistics (shared by every template's stats strip) -----------------
+
+  /// Subjects carrying a [SubjectResult.average], highest first.
+  List<SubjectResult> get _rankedByAverage {
+    final marked = subjects.where((s) => s.average != null).toList()
+      ..sort((a, b) => b.average!.compareTo(a.average!));
+    return marked;
+  }
+
+  /// The pupil's strongest subject this term, or `null` when nothing is marked.
+  SubjectResult? get bestSubject =>
+      _rankedByAverage.isEmpty ? null : _rankedByAverage.first;
+
+  /// The pupil's weakest marked subject, or `null` when nothing is marked.
+  SubjectResult? get weakestSubject =>
+      _rankedByAverage.isEmpty ? null : _rankedByAverage.last;
+
+  /// How many marked subjects reach the scheme's pass mark.
+  int get subjectsPassed => subjects
+      .where((s) => s.average != null && s.average! >= scheme.passMark)
+      .length;
+
+  /// How many subjects carry any mark.
+  int get subjectsMarked => subjects.where((s) => s.average != null).length;
+
+  /// `5 / 6` passed, or `–` when nothing is marked.
+  String get passLabel =>
+      subjectsMarked == 0 ? '–' : '$subjectsPassed / $subjectsMarked';
+
+  /// Pass rate as a percentage, or `null` when nothing is marked.
+  double? get passRate => subjectsMarked == 0
+      ? null
+      : 100 * subjectsPassed / subjectsMarked;
+
+  /// Count of each letter grade across marked subjects (`{A: 3, B: 2}`),
+  /// for the grade-spread bar.
+  Map<String, int> get gradeSpread {
+    final out = <String, int>{};
+    for (final s in subjects) {
+      if (s.average == null) continue;
+      final g = (s.termGrade ?? s.grade).trim();
+      if (g.isEmpty || g == '–') continue;
+      out[g] = (out[g] ?? 0) + 1;
+    }
+    return out;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -814,6 +869,7 @@ class ReportCardDataBuilder {
       ],
       generatedAt: DateTime.now(),
       gender: student.gender,
+      photoUrl: student.photoUrl,
       dateOfBirth: student.dateOfBirth,
       admissionDate: student.admissionDate,
       studentStatus: student.status,
@@ -1456,6 +1512,34 @@ pw.Widget _ghFrame(pw.Widget child) => pw.Container(
 
 /// Crest roundel · centred school name, contact and motto · photo box, then
 /// the navy title banner with its gold rule.
+/// The pupil's photo for the header box, or a "PHOTO" placeholder when there
+/// is no usable base64 image (a URL cannot be fetched while building the PDF).
+pw.Widget _ghPhoto(String photoUrl) {
+  final bytes = _photoBytes(photoUrl);
+  if (bytes == null) return pw.Text('PHOTO', style: _ghSmall);
+  return pw.Image(pw.MemoryImage(bytes), fit: pw.BoxFit.cover);
+}
+
+/// Decodes a base64 data-URI / bare-base64 photo to bytes, or `null` for an
+/// empty value, a URL, or anything that does not decode. Never throws.
+Uint8List? _photoBytes(String photo) {
+  final s = photo.trim();
+  if (s.isEmpty || s.startsWith('http://') || s.startsWith('https://')) {
+    return null;
+  }
+  var payload = s;
+  if (s.startsWith('data:')) {
+    final comma = s.indexOf(',');
+    if (comma < 0) return null;
+    payload = s.substring(comma + 1);
+  }
+  try {
+    return base64Decode(base64.normalize(payload));
+  } catch (_) {
+    return null;
+  }
+}
+
 pw.Widget _ghHeader(ReportCardData d, String title) {
   final level = schoolLevelFor(d.classId);
   return pw.Column(
@@ -1509,7 +1593,7 @@ pw.Widget _ghHeader(ReportCardData d, String title) {
             decoration: pw.BoxDecoration(
               border: pw.Border.all(color: _hair, width: 0.8),
             ),
-            child: pw.Text('PHOTO', style: _ghSmall),
+            child: _ghPhoto(d.photoUrl),
           ),
         ],
       ),

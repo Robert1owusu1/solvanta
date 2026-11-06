@@ -46,10 +46,13 @@ type MemoryPlatform struct {
 // NewMemoryPlatform returns a platform seeded for the testing phase: free
 // access for everyone, usage still counted.
 func NewMemoryPlatform(now string) *MemoryPlatform {
-	seed := domain.TestingIndependentPlan(now)
+	plans := map[string]domain.Plan{}
+	for _, p := range domain.DefaultPlans(now) {
+		plans[p.ID] = p
+	}
 	return &MemoryPlatform{
 		settings: domain.DefaultPlatformSettings(),
-		plans:    map[string]domain.Plan{seed.ID: seed},
+		plans:    plans,
 		subs:     map[string]domain.Subscription{},
 		usage:    map[string]domain.Usage{},
 	}

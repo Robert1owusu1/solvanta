@@ -50,6 +50,37 @@ class Question {
   bool get isObjective =>
       type == QuestionType.mcq || type == QuestionType.trueFalse;
 
+  Question copyWith({
+    String? id,
+    QuestionType? type,
+    String? subjectId,
+    String? classId,
+    String? topic,
+    int? difficulty,
+    String? cognitiveLevel,
+    double? marks,
+    String? stem,
+    List<String>? options,
+    String? correctAnswer,
+    String? explanation,
+    String? markingScheme,
+  }) =>
+      Question(
+        id: id ?? this.id,
+        type: type ?? this.type,
+        subjectId: subjectId ?? this.subjectId,
+        classId: classId ?? this.classId,
+        topic: topic ?? this.topic,
+        difficulty: difficulty ?? this.difficulty,
+        cognitiveLevel: cognitiveLevel ?? this.cognitiveLevel,
+        marks: marks ?? this.marks,
+        stem: stem ?? this.stem,
+        options: options ?? this.options,
+        correctAnswer: correctAnswer ?? this.correctAnswer,
+        explanation: explanation ?? this.explanation,
+        markingScheme: markingScheme ?? this.markingScheme,
+      );
+
   factory Question.fromJson(Map<String, dynamic> json) => Question(
         id: json['id'] as String,
         type: QuestionType.fromKey(json['type'] as String),

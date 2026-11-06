@@ -9,6 +9,7 @@ import '../../core/models/student.dart';
 import '../../core/models/subjects.dart';
 import '../../core/models/submission.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 import '../assessment/assessment_repository.dart';
 import '../attendance/attendance_repository.dart';
 import '../audit/audit_repository.dart';
@@ -547,12 +548,10 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: AppTheme.brand.withValues(alpha: .14),
-              child: Text(s.initials,
-                  style: TextStyle(
-                      fontSize: 22, fontWeight: .w800, color: AppColors.brand)),
+            SvPhotoAvatar(
+              photoUrl: s.photoUrl,
+              fallbackText: s.initials,
+              size: 72,
             ),
             const SizedBox(height: 10),
             Text(s.fullName,
@@ -611,8 +610,8 @@ class _StudentProfileScreenState extends State<StudentProfileScreen> {
             : phone == 'Check'
                 ? (name == 'Verified'
                     ? AppColors.success
-                    : AppTheme.brand)
-                : AppTheme.brand,
+                    : AppColors.brand)
+                : AppColors.brand,
       ),
       title: Text(name),
       subtitle: Text(detail.isEmpty ? phone : '$phone · $detail'),

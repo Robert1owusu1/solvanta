@@ -313,7 +313,7 @@ class _ProfileView extends StatelessWidget {
                           : Icons.support_agent,
                       color: iv.status == InterventionStatus.completed
                           ? AppColors.success
-                          : AppTheme.brand,
+                          : AppColors.brand,
                     ),
                     title: Text('${iv.topic} · ${iv.status.label}'),
                     subtitle: Text(iv.action),

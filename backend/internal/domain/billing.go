@@ -124,21 +124,65 @@ func InvoiceAmount(p Plan, cycle string, billableStudents int) int {
 // SeedTestingPlanID is the id of the seeded free testing plan.
 const SeedTestingPlanID = "plan-independent-testing"
 
-// TestingIndependentPlan is the one seeded plan: every feature enabled, every
-// limit unlimited, price 0 — what independent teachers are on during testing.
-func TestingIndependentPlan(now string) Plan {
+// Seeded plan ids. The free independent plan keeps the historical
+// SeedTestingPlanID so existing subscriptions (which default to it) resolve.
+const (
+	PlanIndependentFree = SeedTestingPlanID
+	PlanIndependentPro  = "plan-independent-pro"
+	PlanSchoolPro       = "plan-school-pro"
+	PlanSchoolMax       = "plan-school-max"
+	PlanSchoolUltra     = "plan-school-ultra"
+)
+
+// allFeaturesOn returns every catalogue feature enabled — the starting point
+// the super admin trims per plan. During the testing phase enforcement is off
+// (see FeatureAllowed), so seeding everything on blocks nothing; it just gives
+// the admin a full checklist to turn features off against before going live.
+func allFeaturesOn() map[string]bool {
 	features := map[string]bool{}
 	for _, f := range AllFeatures {
 		features[f] = true
 	}
+	return features
+}
+
+func unlimited() map[string]*int {
+	return map[string]*int{
+		LimitMaxStudents: nil, LimitMaxClasses: nil,
+		LimitAIPagesPerMonth: nil, LimitExportsPerMonth: nil,
+	}
+}
+
+// TestingIndependentPlan is the free independent plan every self-registered
+// teacher starts on: every feature enabled, every limit unlimited, price 0.
+func TestingIndependentPlan(now string) Plan {
 	return Plan{
-		ID: SeedTestingPlanID, Name: "Independent — Testing", Kind: PlanKindIndependent,
+		ID: PlanIndependentFree, Name: "Independent — Free", Kind: PlanKindIndependent,
 		IsFreeTier: true, Currency: "GHS", Active: true, CreatedAt: now, UpdatedAt: now,
-		Features: features,
-		Limits: map[string]*int{
-			LimitMaxStudents: nil, LimitMaxClasses: nil,
-			LimitAIPagesPerMonth: nil, LimitExportsPerMonth: nil,
-		},
+		Features: allFeaturesOn(),
+		Limits:   unlimited(),
+	}
+}
+
+// DefaultPlans is the catalogue seeded at first boot: a free and a paid plan
+// for independent teachers, and Pro / Max / Ultra for schools. Every plan
+// starts with all features enabled and price 0 — the super admin sets the
+// feature split and the prices per plan (and may remove a tier) before live
+// billing is switched on, with no code change.
+func DefaultPlans(now string) []Plan {
+	plan := func(id, name, kind string, free bool) Plan {
+		return Plan{
+			ID: id, Name: name, Kind: kind, IsFreeTier: free,
+			Currency: "GHS", Active: true, CreatedAt: now, UpdatedAt: now,
+			Features: allFeaturesOn(), Limits: unlimited(),
+		}
+	}
+	return []Plan{
+		TestingIndependentPlan(now),
+		plan(PlanIndependentPro, "Independent — Pro", PlanKindIndependent, false),
+		plan(PlanSchoolPro, "School — Pro", PlanKindSchool, false),
+		plan(PlanSchoolMax, "School — Max", PlanKindSchool, false),
+		plan(PlanSchoolUltra, "School — Ultra", PlanKindSchool, false),
 	}
 }
 

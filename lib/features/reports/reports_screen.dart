@@ -369,7 +369,7 @@ class _StudentReportCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: s.average == null
                               ? AppColors.muted
-                              : AppTheme.brand),
+                              : AppColors.brand),
                     ),
                     const SizedBox(width: 8),
                     SizedBox(
@@ -494,4 +494,7 @@ class ReportsData {
 }
 
 final _head2 = const TextStyle(fontSize: 16, fontWeight: FontWeight.w700);
-final _muted2 = TextStyle(fontSize: 12, color: AppColors.muted);
+// A getter, not a `final`: AppColors.muted resolves against the active
+// brightness, so capturing it once at load would freeze the light value and
+// read as dark-on-dark after the user switches to dark mode.
+TextStyle get _muted2 => TextStyle(fontSize: 12, color: AppColors.muted);

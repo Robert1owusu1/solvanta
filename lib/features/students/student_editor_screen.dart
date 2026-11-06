@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/models/class_room.dart';
 import '../../core/models/student.dart';
@@ -6,6 +9,7 @@ import '../../core/models/user.dart';
 import '../admin/admin_repository.dart';
 import 'students_repository.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/ui_kit.dart';
 
 class StudentEditorScreen extends StatefulWidget {
   const StudentEditorScreen({super.key, this.initial});
@@ -27,6 +31,9 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
   late String _gender = widget.initial?.gender.isNotEmpty == true
       ? widget.initial!.gender
       : 'M';
+  late String _photoUrl = widget.initial?.photoUrl ?? '';
+  final _picker = ImagePicker();
+  bool _pickingPhoto = false;
 
   late List<Person> _guardians =
       List.of(widget.initial?.guardians ?? const []);
@@ -56,6 +63,75 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
     super.dispose();
   }
 
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_pickingPhoto) return;
+    setState(() => _pickingPhoto = true);
+    try {
+      // Passport-sized: small enough to carry in the student record as a
+      // base64 data URI without bloating the sync payload.
+      final file = await _picker.pickImage(
+        source: source,
+        maxWidth: 600,
+        maxHeight: 800,
+        imageQuality: 80,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.length > 600 * 1024) {
+        if (mounted) {
+          svSnack(context,
+              'That photo is too large. Pick a smaller / more cropped image.',
+              error: true);
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _photoUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}');
+    } catch (_) {
+      if (mounted) svSnack(context, 'Could not add the photo.', error: true);
+    } finally {
+      if (mounted) setState(() => _pickingPhoto = false);
+    }
+  }
+
+  void _photoSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickPhoto(ImageSource.gallery);
+              },
+            ),
+            if (_photoUrl.isNotEmpty)
+              ListTile(
+                leading: Icon(Icons.delete_outline, color: AppColors.danger),
+                title: const Text('Remove photo'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() => _photoUrl = '');
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final repo = StudentsRepository();
@@ -73,11 +149,15 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
               'S-${_today().substring(0, 4)}-${(existing.length + 1).toString().padLeft(3, '0')}'
           : _admissionNo.text.trim(),
       classId: _classId,
-      schoolId: 'SCH-001',
+      schoolId: widget.initial?.schoolId ?? 'SCH-001',
+      status: widget.initial?.status ?? 'Active',
       parentUserId: _parentUserId,
+      photoUrl: _photoUrl,
       guardians: _guardians,
       emergencyContacts: _emergency,
       authorizedPickup: _pickup,
+      // Preserve the pupil's medical record, which this form does not edit.
+      health: widget.initial?.health,
     );
     await repo.saveStudent(student);
     if (_parentUserId != null &&
@@ -114,6 +194,50 @@ class _StudentEditorScreenState extends State<StudentEditorScreen> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     _section('Basic details', [
+                      Center(
+                        child: Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _pickingPhoto ? null : _photoSheet,
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  SvPhotoAvatar(
+                                    photoUrl: _photoUrl,
+                                    fallbackText:
+                                        '${_first.text.isNotEmpty ? _first.text[0] : ''}'
+                                        '${_last.text.isNotEmpty ? _last.text[0] : ''}',
+                                    size: 88,
+                                    square: true,
+                                    borderColor: AppColors.border,
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.brand,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: _pickingPhoto
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white))
+                                        : const Icon(Icons.photo_camera,
+                                            size: 16, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text('Student photo',
+                                style: TextStyle(
+                                    fontSize: 12, color: AppColors.muted)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       TextFormField(
                         controller: _first,
                         decoration: const InputDecoration(labelText: 'First name'),

@@ -221,7 +221,7 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
                   suffixIcon: IconButton(
                     icon: Icon(
                         i == 0 ? Icons.check_circle : Icons.circle_outlined,
-                        color: i == 0 ? AppTheme.brand : AppColors.muted),
+                        color: i == 0 ? AppColors.brand : AppColors.muted),
                     tooltip: 'Correct option',
                     onPressed: () => setState(() {
                       final t = _optionControllers[i].text.trim();
@@ -282,7 +282,7 @@ class _QuestionEditorScreenState extends State<QuestionEditorScreen> {
                   fontSize: 12,
                   color: _scheme.text.trim().isEmpty
                       ? AppColors.muted
-                      : AppTheme.brand),
+                      : AppColors.brand),
             ),
           ],
           const SizedBox(height: 24),

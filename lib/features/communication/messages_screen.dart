@@ -271,7 +271,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
           : AppTheme.brand.withValues(alpha: .06),
       child: ListTile(
         leading: Icon(Icons.campaign_outlined,
-            color: emergency ? AppColors.warning : AppTheme.brand),
+            color: emergency ? AppColors.warning : AppColors.brand),
         title:
             Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(

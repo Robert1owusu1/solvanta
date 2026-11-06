@@ -216,6 +216,8 @@ class _PlansScreenState extends State<PlansScreen> {
     final features = {..._togglableFeatures.keys.fold<Map<String, bool>>(
         {}, (m, k) => m..[k] = plan.includes(k))};
     var active = plan.active;
+    var kind = plan.kind.isEmpty ? 'independent' : plan.kind;
+    var freeTier = plan.isFreeTier;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -240,6 +242,30 @@ class _PlansScreenState extends State<PlansScreen> {
                     controller: name,
                     decoration: const InputDecoration(labelText: 'Name')),
                 const SizedBox(height: 10),
+                if (create) ...[
+                  Text('Who the plan is for',
+                      style: TextStyle(fontSize: 12, color: AppColors.body)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                          value: 'independent',
+                          label: Text('Independent teacher')),
+                      ButtonSegment(value: 'school', label: Text('School')),
+                    ],
+                    selected: {kind},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (sel) =>
+                        setSheet(() => kind = sel.first),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: freeTier,
+                  onChanged: (v) => setSheet(() => freeTier = v),
+                  title: const Text('Free tier (self-serve, price ignored)'),
+                ),
                 Row(children: [
                   Expanded(
                     child: TextField(
@@ -295,20 +321,38 @@ class _PlansScreenState extends State<PlansScreen> {
                   child: FilledButton(
                     onPressed: () {
                       final ms = int.tryParse(maxStudents.text.trim());
-                      final updated = plan.copyWith(
-                        name: name.text.trim(),
-                        active: active,
-                        pricePerStudentMonth:
-                            ((double.tryParse(month.text.trim()) ?? 0) * 100)
-                                .round(),
-                        pricePerStudentTerm:
-                            ((double.tryParse(term.text.trim()) ?? 0) * 100)
-                                .round(),
-                        features: features,
-                        limits: {
-                          'max_students': ms, // null when empty → unlimited
-                        },
-                      );
+                      final priceMonth =
+                          ((double.tryParse(month.text.trim()) ?? 0) * 100)
+                              .round();
+                      final priceTerm =
+                          ((double.tryParse(term.text.trim()) ?? 0) * 100)
+                              .round();
+                      final limits = {
+                        'max_students': ms, // null when empty → unlimited
+                      };
+                      // Editing keeps the plan's id and kind; creating uses the
+                      // chosen kind.
+                      final updated = create
+                          ? Plan(
+                              id: '',
+                              name: name.text.trim(),
+                              kind: kind,
+                              isFreeTier: freeTier,
+                              active: active,
+                              pricePerStudentMonth: priceMonth,
+                              pricePerStudentTerm: priceTerm,
+                              features: features,
+                              limits: limits,
+                            )
+                          : plan.copyWith(
+                              name: name.text.trim(),
+                              isFreeTier: freeTier,
+                              active: active,
+                              pricePerStudentMonth: priceMonth,
+                              pricePerStudentTerm: priceTerm,
+                              features: features,
+                              limits: limits,
+                            );
                       _savePlan(updated, create: create);
                     },
                     child: const Text('Save plan'),

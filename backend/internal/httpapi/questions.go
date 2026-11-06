@@ -438,6 +438,7 @@ func questionDraftFor(req domain.GenRequest, res *ocr.Result) []domain.Question 
 
 	var out []domain.Question
 	for i := 1; i <= req.Count; i++ {
+		marks := marksFor(req.Type)
 		out = append(out, domain.Question{
 			ID:             newID("Q"),
 			Type:           req.Type,
@@ -446,14 +447,74 @@ func questionDraftFor(req domain.GenRequest, res *ocr.Result) []domain.Question 
 			Topic:          req.Topic,
 			Difficulty:     (i % 3) + 1,
 			CognitiveLevel: levelFor(i),
-			Marks:          2.0,
+			Marks:          marks,
 			Stem:           req.Topic + " — " + source[(i-1)%len(source)],
-			Options:        []string{"Option A", "Option B", "Option C", "Option D"},
-			CorrectAnswer:  "Option A",
+			Options:        optionsFor(req.Type),
+			CorrectAnswer:  correctAnswerFor(req.Type),
 			Explanation:    provenance,
+			// Every generated draft reaches the teacher with an editable
+			// marking scheme — a draft must never arrive without one.
+			MarkingScheme: markingSchemeFor(req.Type, marks),
 		})
 	}
 	return out
+}
+
+// marksFor is a sensible default mark for each question type; the teacher
+// adjusts it on the review screen.
+func marksFor(qType string) float64 {
+	switch qType {
+	case domain.QTypeTrueFalse, domain.QTypeFillBlank:
+		return 1.0
+	case domain.QTypeEssay:
+		return 10.0
+	case domain.QTypeStructured, domain.QTypeShortAnswer, domain.QTypePractical:
+		return 4.0
+	default:
+		return 2.0
+	}
+}
+
+func optionsFor(qType string) []string {
+	switch qType {
+	case domain.QTypeMCQ:
+		return []string{"Option A", "Option B", "Option C", "Option D"}
+	case domain.QTypeTrueFalse:
+		return []string{"True", "False"}
+	default:
+		return nil
+	}
+}
+
+func correctAnswerFor(qType string) string {
+	switch qType {
+	case domain.QTypeMCQ:
+		return "Option A"
+	case domain.QTypeTrueFalse:
+		return "True"
+	default:
+		return ""
+	}
+}
+
+// markingSchemeFor produces a starting marking scheme matched to the question
+// type. It is a draft the teacher edits before publishing — never a final
+// rubric.
+func markingSchemeFor(qType string, marks float64) string {
+	m := itoa(int(marks))
+	switch qType {
+	case domain.QTypeMCQ:
+		return "Award " + m + " marks for the correct option, 0 for any other. One option only."
+	case domain.QTypeTrueFalse:
+		return "Award " + m + " mark for the correct choice (True/False). Review and edit before publishing."
+	case domain.QTypeFillBlank:
+		return "Award " + m + " mark for the correct term; accept equivalent spellings. Review and edit before publishing."
+	case domain.QTypeEssay:
+		return "Content " + itoa(int(marks*4/10)) + ", supporting points " + itoa(int(marks*4/10)) +
+			", organisation/conclusion " + itoa(int(marks*2/10)) + ". Review and edit before publishing."
+	default:
+		return "Award up to " + m + " marks against the key points expected. Review and edit before publishing."
+	}
 }
 
 // sourceExcerpts splits recognised text into the per-line excerpts drafts are

@@ -340,7 +340,7 @@ class _AcademicCalendarScreenState extends State<AcademicCalendarScreen> {
                       size: 6,
                       color: selected
                           ? Colors.white
-                          : AppTheme.brand),
+                          : AppColors.brand),
                 if (assignments > 0) ...[
                   const SizedBox(width: 3),
                   // Meaningful "has assignments" marker → needs 3:1 against
