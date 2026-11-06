@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "798998154164",
+    "project_id": "solvedu-36af6",
+    "storage_bucket": "solvedu-36af6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:798998154164:android:46f652a5f3dde466bdc0e1",
+        "android_client_info": {
+          "package_name": "com.solvanta.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDibaGMvlR972uOVsQ1xXOtl82SEGUwEuU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

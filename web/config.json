@@ -1,0 +1,4 @@
+{
+  "_comment": "Runtime API endpoint, read by the web app at startup. Set 'api' to the public HTTPS URL of the Go backend (e.g. https://api.yourdomain.com) to run against the live Neon-backed server. Leave it empty to run the fully in-browser offline-demo mode with built-in sample data (no backend required).",
+  "api": "https://solvedu.onrender.com"
+}

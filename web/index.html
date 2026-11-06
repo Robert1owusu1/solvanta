@@ -51,6 +51,29 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { #splash .spin { animation-duration: 3s; } }
   </style>
+
+  <!-- Firebase (web) — Google Analytics. Uses the modular JS SDK from the
+       gstatic CDN so it works inside the Flutter web shell without a bundler.
+       The web apiKey is a public client identifier (not a secret). -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-analytics.js";
+    const firebaseConfig = {
+      apiKey: "AIzaSyDq1OnFS-36pVH8-bSnEUfVXiqLfNePGdI",
+      authDomain: "solvedu-36af6.firebaseapp.com",
+      projectId: "solvedu-36af6",
+      storageBucket: "solvedu-36af6.firebasestorage.app",
+      messagingSenderId: "798998154164",
+      appId: "1:798998154164:web:1fb3c5159d71921cbdc0e1",
+      measurementId: "G-2VXBNFWP0T"
+    };
+    try {
+      const app = initializeApp(firebaseConfig);
+      getAnalytics(app);
+    } catch (e) {
+      console.warn("Firebase Analytics init skipped:", e);
+    }
+  </script>
 </head>
 <body>
   <div id="splash" role="status" aria-live="polite">
