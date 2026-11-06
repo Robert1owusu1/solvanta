@@ -1,0 +1,224 @@
+[25/10, 10:00] Mac: You are working in "solvanta", a Flutter client (lib/, test/) with a Go + Gin API (backend/), PostgreSQL or in-memory storage, offline-first client with a LocalStore and RemoteDataSource. Read README.md first, especially: the RBAC contract (role tests in backend/internal/httpapi/rbac_test.go and test/rbac_access_test.dart), the offline-first architecture decision, and the note that POST /api/questions/ai/... currently returns templated/simulated drafts, not real marking.
+
+GOAL (overall, across all phases)
+Replace the simulated AI marking with a real pipeline: teacher uploads a structured marking scheme → teacher photographs student assignments → system OCRs and matches answers against the scheme → produces a draft mark + per-question breakdown, flagging anything uncertain for teacher review → teacher confirms/overrides → generates a per-student and per-class feedback report.
+
+GLOBAL RULES (apply to every phase)
+• First run: git checkout -b ai-marking-feature. Never work on main.
+• Work ONE PHASE AT A TIME. Stop after each phase, summarize what changed, run the verification commands for that phase, and wait for me before starting the next phase.
+• Do not weaken, skip, or bypass any existing RBAC check or test. Marking-scheme creation is a School admin/Headteacher action; grading/review is a Teacher action — follow the same role boundaries already in the README's RBAC contract. Exam-type assessments still follow existing admin-only creation rules.
+• Keep the offline-first pattern: local-first write, mirror to API when present, consistent with how SafetyRepository/gate events already work.
+• Never silently finalize a grade. Every AI-produced mark must be reviewable and overridable by the teacher before it counts.
+• No invented data: if the scheme doesn't cover an answer format, flag it for teacher review rather than guessing a mark.
+• Never read, print, or commit secrets (.env, keys, passwords).
+• After each phase, run: flutter analyze && flutter test, and cd backend && go vet ./... && go test ./... — report results, fix anything you broke.
+
+PHASE 1 — Data model
+Design and implement the schema additions (PostgreSQL migration in backend/migrations, plus in-memory store equivalent) for:
+• marking_scheme (id, assignment_id, created_by, created_at)
+• scheme_question (scheme_id, question_number, total_marks, mark_breakdown)
+• scheme_accepted_answer (scheme_question_id, answer_text, normalized_form, marks_awarded)
+• scheme_misconception (scheme_question_id, wrong_answer_pattern, likely_cause) — optional but include it
+• a link from existing submission/answer records to scheme_question_id
+• scheme versioning: editing a scheme after submissions exist already were marked must not silently re-grade reviewed work
+Show me the schema before writing migration code. Wait for my confirmation.
+
+PHASE 2 — Marking scheme entry (teacher/admin-facing)
+Build the Flutter screens and Go API endpoints for creating/editing a marking scheme as a structured form (question number, accepted answers incl. variants, marks, mark breakdown for partial credit, optional misconception notes) — NOT a freeform PDF/photo upload. Reuse existing UI patterns from the app rather than introducing a new design system. Respect the existing role gates for who can create a scheme.
+
+PHASE 3 — Assignment photo capture improvements
+Improve student_id_scanner_screen.dart's camera approach (or add a parallel assignment-capture screen) to: detect page edges and let the teacher crop/straighten before upload, support multi-page assignments as one submission, and reject/flag photos that are too blurry or poorly lit before upload. Keep manual fallback entry where relevant, consistent with the existing scanner's typed-ID fallback.
+
+PHASE 4 — OCR integration
+Wire a real OCR step into the existing POST /api/questions/ai/... flow (replacing the templated draft). Propose which OCR approach to use (cloud API vs local model) and ASK ME to confirm before adding any new external dependency or API key requirement. Require teacher confirmation/correction of OCR output before it feeds into marking — never trust OCR output directly for a final grade.
+
+PHASE 5 — Matching engine
+Implement matching of confirmed student answers against the scheme: exact match, then normalized match (spacing, fraction formats, rounding), partial-credit scoring against the mark breakdown, and flagging anything the system can't confidently match for teacher review.
+
+PHASE 6 — Teacher review UI
+Build the screen where a teacher sees the draft marks, per-question matches, what the system read, and why a mark was given, can accept-all when the AI did well, or override individual marks. Finalizing must be an explicit teacher action.
+
+PHASE 7 — Feedback reports
+Generate the per-student report (wrong questions, likely misconception where known, suggested next step) and per-class aggregate (which questions the class struggled with). Add this to the existing dashboard/reports pattern used elsewhere in the app.
+
+After I approve each phase, continue to the next. If something in a later phase requires changing an earlier phase's design, stop and explain why before changing it.
+
+Start with Phase 1 only.
+[25/10, 10:01] Mac: Continue to Phase 4 — OCR integration. Same rules as before (branch, test
+after, ask before anything risky, never weaken RBAC, never silently
+finalize a grade).
+
+IMPORTANT: We do not have Mathpix or Google Cloud Vision API keys yet.
+Build this phase so it's fully functional and testable WITHOUT real keys,
+and ready to wire in the moment we have them.
+
+OCR PROVIDER DECISION (already made — implement this, don't re-litigate it)
+Two providers, routed by content type:
+• Mathpix OCR API — for math-notation content (equations, fractions)
+• Google Cloud Vision (DOCUMENT_TEXT_DETECTION) — for plain handwritten
+text (English, Social Studies, RME, non-equation Science/other subjects)
+
+WHAT TO BUILD
+1. An OCRProvider interface (Go) with THREE implementations:
+MathpixProvider, GoogleVisionProvider, and MockProvider. All three
+normalize output into the same internal result format (plain text +
+optional structured math notation) so nothing downstream needs to
+know which provider produced it.
+
+2. MockProvider returns deterministic fake OCR text (configurable per
+test case) instead of calling any external service. Use it for all
+tests and local development. This is what unblocks everything else
+in this phase from needing real keys.
+
+3. A routing flag deciding which provider handles a given submission:
+subject-level by default (Math = math-notation, everything else =
+plain text), with an override at the question level for mixed
+subjects. Propose where this flag lives against the Phase 1 schema
+and show me before adding any migration.
+
+4. Wire the interface into the existing POST /api/questions/ai/...
+endpoint, replacing the templated/simulated draft. Which
+implementation gets used (Mathpix/GoogleVision/Mock) is picked by
+config — default to MockProvider when the relevant API key env var
+isn't set, so the app runs fully without crashing or blocking on
+missing credentials. Log clearly which provider is active on
+startup.
+
+5. API KEYS: MathpixProvider and GoogleVisionProvider read credentials
+from environment variables only (e.g. MATHPIX_APP_ID /
+MATHPIX_APP_KEY, GOOGLE_VISION_API_KEY or service account
+credentials). Document required env vars in backend/README.md,
+including that the app falls back to MockProvider when unset. Do
+not hardcode keys, do not ask me to paste them into chat, do not
+commit them anywhere — I'll provide them separately once purchased.
+
+6. COST AWARENESS: Mathpix bills at a higher page rate above ~12 lines
+of text. If a submission crosses that, log which rate it hit — this
+only applies once real keys are in use, but build the logging now so
+it's in place from day one of real usage.
+
+7. OFFLINE QUEUE: follow the same best-effort-push-with-retry pattern
+already used for gate events (SafetyRepository → outbox). A photo
+captured offline should queue locally and trigger OCR once
+connectivity returns.
+
+8. TEACHER CONFIRMATION STEP: OCR output (real or mock) must be shown
+to the teacher for confirmation/correction before it's used for
+marking — never treated as ground truth. Minimal screen is fine for
+this phase (full review UI is Phase 6).
+
+9. DATA PRIVACY (can be done now, no keys needed): check Mathpix's and
+Google Cloud's current data retention / model-training terms for
+submitted images. Flag anything that looks like it retains or trains
+on student images. Report findings now so this is settled before we
+ever send real student data through either API.
+
+OUT OF SCOPE for this phase: the matching engine (Phase 5), the full
+teacher review UI (Phase 6), and any live call to Mathpix or Google
+Vision — we don't have keys, so those two implementations should be
+written and unit-testable in isolation (mocking the HTTP layer) but
+cannot be verified end-to-end against the real services yet. Flag
+that clearly in your report rather than claiming they're confirmed
+working.
+
+Run flutter analyze && flutter test, and cd backend && go vet ./... &&
+go test ./... after. Report results, then stop and wait for me before
+Phase 5.
+[25/10, 10:02] Mac: Phase 4 report — real OCR pipeline
+Verification gate — all green
+Check Result
+flutter analyze --no-pub No issues found
+flutter test 144 passed, 21 skipped, 0 failed
+go vet ./... clean
+go test -count=1 ./... 6/6 packages ok (fresh, not cached)
+The 21 skipped are pre-existing live-server tests that skip when SOLVANTA_API_URL isn't set.
+
+The smoke test earned its keep: it caught a real overflow I introduced — DropdownButtonFormField sizes its closed field to the widest item it holds, and "Information & Communication Technology" is wider than a 390px phone, overflowing the card by 320px. Fixed with isExpanded: true + ellipsised labels. Because the smoke test stops at the list and never pushes the confirmation screen, I added 9 phone-width layout tests that pump both screens in every status, plus a photo/warnings/chips case and a failure case.
+
+What shipped (9 items)
+1 — ocr.Provider interface, three implementations, one output shape New package backend/internal/ocr: Provider interface → mathpix.go, vision.go, mock.go, all normalising to a single Result (Text, Math, Confidence, Lines, Provider, CostTier, DurationMS, RequestID, Warnings).
+
+2 — MockProvider deterministic and configurable per test WithText / WithMath / WithConfidence / WithError / WithQueue, plus Calls and LastCall spies. Used by every test and by local dev. TestMockNeverClaimsToBeAPaidEngine pins that Kind() always returns mock even when standing in for a paid route — so the startup log can never imply a live engine that isn't there.
+
+3 — routing flag → proposal below. No migration added.
+
+4 — wired into POST /api/questions/ai/requests/:id/generate questions.go aiGenerate now takes an optional body (imageBase64, contentType, ocrProvider), picks a provider through the router, calls Recognize, logs the cost, and derives drafts from what was actually read. Config-picked implementation, MockProvider when key env vars are unset, server.OCRStatus() printed once at boot from main.go.
+
+5 — env vars only, documented in backend/README.md (new OCR providers section).
+
+6 — rate logging from day one. LogCost on every call, keys or no keys. rate=high above MathpixHighRateLines = 12, plus a separately greppable second line naming the threshold. TestGenerateLogsTheRateItHit exercises it without money attached.
+
+7 — offline queue — lib/features/ocr/ocr_repository.dart, following the SafetyRepository/AssignmentSubmissionsRepository pattern: local write first, photo parked, push now or on the next pull. Hooked alongside ScansRepository.retryUploads() in server_sync.dart. Readings mirror to a new ocr_jobs record kind (owner-scoped, server-stamped owner) so the confirmation follows the teacher across devices — no migration, it reuses the generic records store.
+
+8 — teacher confirmation screen — ocr_review_screen.dart. Engine text shown separately from an editable field; the two are never merged. Photo kept until review is over, dropped at confirm. confirmedAt is the only acceptance signal; ocr.confirmed is always false from the server.
+
+9 — privacy research — below.
+
+⚠️ NOT verified end-to-end
+MathpixProvider and GoogleVisionProvider have never been called against the real services. There are no keys in this environment and I did not create accounts or send anything anywhere.
+
+What is verified: both are unit-tested against a stubbed HTTP layer (httpstub_test.go) asserting the exact URL, headers, JSON body, auth placement and response parsing. Contracts were checked against docs.mathpix.com and Google's vision.googleapis.com reference.
+
+What that does not prove: that Mathpix's live API hasn't changed its response shape, that a real key authenticates, or that either recogniser is any good at actual Ghanaian classroom handwriting. Treat both as written-but-unproven until you put a real key in and photograph a real page.
+
+Decision needed: where the routing flag lives
+I have not added a migration. Against the Phase 1 schema, the flag splits into three things:
+
+Part Where it lives today Migration?
+Subject default (MATH → Mathpix) ocr.routeFor() in Go, derived from a fixed client-side enum — there is no subjects table to hang a column on No — nothing to store
+Question-level override (ocrProvider) request-body field, used and discarded Only if you want it remembered
+Record of which engine actually ran LogCost line now; the natural home is scan_pages.ocr_metadata No — the column already exists
+My recommendation: add no migration at all.
+
+A stored default can drift out of step with the enum; a derived one cannot.
+The override works as a per-call field — the client resends it every time. Nothing is lost by not persisting it.
+scan_pages.ocr_metadata in 005_marking_schemes.sql is literally documented as "engine, model, timings, etc." — that is the record of what ran, and Phase 5 writes it there.
+If you'd rather persist the decision with the generation request — 006_ocr_routing.sql:
+
+ALTER TABLE question_gen_requests
+ADD COLUMN IF NOT EXISTS ocr_provider TEXT
+CHECK (ocr_provider IS NULL
+OR ocr_provider IN ('mathpix','google_vision','mock'));
+Nullable, no backfill: NULL means "the subject default was used", which is truthful for every existing row.
+
+A separate companion I'd argue for more strongly (different decision, same file):
+
+ALTER TABLE question_gen_requests
+ADD COLUMN IF NOT EXISTS ocr_result JSONB;
+This closes a real gap — see issue (b) below.
+
+Data privacy findings (item 9)
+These were checked before any key exists, deliberately: these are photographs of identifiable schoolchildren.
+
+Mathpix — retention is opt-in by default, and we opt out.
+
+improve_mathpix defaults to true. In that state Mathpix retains the image up to 90 days, caches the result for 30, makes the request queryable via /v3/ocr-results, and routes processed images into an internal QA database.
+Every request we send carries metadata: {"improve_mathpix": false} (ocr.ImproveMathpix = false). Mathpix documents that in this state the image is not written to disk, the result not cached, the request not queryable — only billing/audit metadata remains.
+⚠️ Mathpix's own pages disagree: the Data Retention page says 90 days, the Snip privacy page says 60. Not resolved — if a fixed number matters to the school's policy, confirm it with them before enabling a key.
+Mathpix also exposes retention per API key. Confirm the key-level setting is off too when one is purchased.
+Because the opt-out is load-bearing, TestMathpixDisablesImprovementOptOut fails if the flag is flipped, removed, or left absent.
+Google Cloud Vision — no training on submitted content. Google states it doesn't use submitted content except to provide the service, doesn't use it to train or improve the models, doesn't claim ownership. Online BatchAnnotateImages (what we call) processes in memory, not persisted. Processing region defaults to global and is a project-level setting — constrain it deliberately if the school has a residency requirement; this code does not control it.
+
+Verdict: as configured, neither retains nor trains on student images. For Google that's their standing default; for Mathpix it holds only because we explicitly opt out of a default that would otherwise do exactly that.
+
+Known issues flagged
+(a) Image size is the most likely real-world failure. Mathpix caps src at 2MB base64 (mathpixMaxBase64Bytes, checked locally in mathpix.go:109 so you get a clean error instead of a mystery 400). The OCR queue picks via image_picker at maxWidth: 2200, imageQuality: 92 — that lands around 1.75–3.3MB once base64-encoded depending on page detail. Borderline to over. Separately, Phase 3's crop pipeline encodes lossless PNG (page_codec.dart), which will comfortably exceed the cap — that only bites when Phase 5 routes those pages here. Needs a downscale/down-encode decision with a real photo.
+
+(b) Nothing persists a reading on the server. The generate response is the only delivery. If it's lost in transit, a retry hits the server's "already generated" 409 and the reading is unrecoverable — the client reports it honestly and asks the teacher to resubmit rather than showing an empty reading as real. ocr_result (above) fixes this; scan_pages is the Phase 5 home.
+
+(c) aiPublish does not validate drafts (questions.go:330) — publishes whatever exists. Pre-existing, unchanged by me.
+
+(d) The client's own draftFor template simulation still exists (question_gen_repository.dart:52) for the offline path. Untouched — it will now disagree with what the server produces. Needs deciding in Phase 5/6.
+
+(e) Google service-account auth not implemented — API key only. A token exchange isn't a header, and faking it would be worse than leaving it out.
+
+(f) The OCR Review module is on the teacher dashboard only. The API allows headteacher/schoolAdmin too. One line in dashboards.dart if you want it visible to admins.
+
+Notes on scope choices I made
+Added a record kind without asking first: ocr_jobs needed somewhere to live for the cross-device confirmation, and it's a code-only change reusing the existing generic store — no migration, and it's strictly narrower than existing kinds (scopeOwner, server-stamped owner, verified by 5 new RBAC tests including body-spoofing and cross-teacher overwrite).
+Own retry instead of the shared outbox for OCR calls: letting the outbox replay a generate would run OCR twice per job, and the second run is refused. One owner of retry.
+A typo'd ocrProvider is ignored, not honoured — a wrong engine for a student's answer isn't a failure mode worth having.
+Stopping here
+Phase 4 is complete and verified. I'm not starting Phase 5 (matching engine).
+
+Waiting on you for: the routing-flag decision (my recommendation: no migration), and anything you want changed from the flags above.
