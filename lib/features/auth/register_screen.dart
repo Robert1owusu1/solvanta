@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/models/role.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/ui_kit.dart';
@@ -19,10 +20,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _password = TextEditingController();
-  AppRole _role = AppRole.parent;
+
+  // Against a live backend the only server-supported public sign-up is the
+  // independent-teacher workspace, so lock to it; offline (demo) keeps the
+  // full role picker.
+  final bool _configured = ApiClient.isConfigured;
+  late AppRole _role = _configured ? AppRole.teacher : AppRole.parent;
   var _busy = false;
   var _obscure = true;
-  var _independent = false;
+  late bool _independent = _configured;
   var _acceptedDataProtection = false;
 
   static const _selfRoles = [
@@ -101,99 +107,114 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: Column(
                 crossAxisAlignment: .stretch,
                 children: [
-                  const SvSectionTitle('Who are you?'),
-                  const SizedBox(height: 4),
-                  // Segmented role picker — kinder than a dropdown for three
-                  // fixed options, and one fewer tap on mobile.
-                  SegmentedButton<AppRole>(
-                    segments: [
-                      for (final r in _selfRoles)
-                        ButtonSegment(
-                          value: r,
-                          label: Text(
-                            r.label.split(' ').first,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                  if (_configured) ...[
+                    const SvSectionTitle('Independent teacher'),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Create your own workspace to use SOLVANTA with your '
+                      'class — for when your school is not on SOLVANTA yet. '
+                      'School staff accounts are created by your school admin.',
+                      style: TextStyle(fontSize: 13, color: AppColors.body),
+                    ),
+                  ] else ...[
+                    const SvSectionTitle('Who are you?'),
+                    const SizedBox(height: 4),
+                    // Segmented role picker — kinder than a dropdown for three
+                    // fixed options, and one fewer tap on mobile.
+                    SegmentedButton<AppRole>(
+                      segments: [
+                        for (final r in _selfRoles)
+                          ButtonSegment(
+                            value: r,
+                            label: Text(
+                              r.label.split(' ').first,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                      ],
+                      selected: {_role},
+                      showSelectedIcon: false,
+                      onSelectionChanged: (s) =>
+                          setState(() => _role = s.first),
+                      style: ButtonStyle(
+                        backgroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? AppTheme.brand
+                              : AppColors.surface,
                         ),
-                    ],
-                    selected: {_role},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (s) =>
-                        setState(() => _role = s.first),
-                    style: ButtonStyle(
-                      backgroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? AppTheme.brand
-                            : AppColors.surface,
-                      ),
-                      foregroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? Colors.white
-                            : AppColors.ink,
-                      ),
-                      textStyle: WidgetStateProperty.all(
-                        const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
-                      side: WidgetStateProperty.all(
-                        BorderSide(color: AppColors.border),
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                  if (_role == AppRole.teacher) ...[
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _independent,
-                      onChanged: (v) => setState(() => _independent = v),
-                      title: const Text('My school is not on SOLVANTA yet'),
-                      subtitle: Text(
-                        'Set up your own independent workspace. You can move it '
-                        'into your school later once it joins.',
-                        style: TextStyle(fontSize: 12, color: AppColors.body),
+                        foregroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? Colors.white
+                              : AppColors.ink,
+                        ),
+                        textStyle: WidgetStateProperty.all(
+                          const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                        side: WidgetStateProperty.all(
+                          BorderSide(color: AppColors.border),
+                        ),
+                        visualDensity: VisualDensity.compact,
                       ),
                     ),
-                    if (_independent)
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.infoBg,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Data-protection notice',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.ink)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'You will be registering children’s personal '
-                              'data. Use it only for your teaching, keep it '
-                              'secure, and share it with no one outside your '
-                              'class. You may export or delete it at any time.',
-                              style:
-                                  TextStyle(fontSize: 12, color: AppColors.body),
-                            ),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity:
-                                  ListTileControlAffinity.leading,
-                              value: _acceptedDataProtection,
-                              onChanged: (v) => setState(
-                                  () => _acceptedDataProtection = v ?? false),
-                              title: const Text(
-                                  'I understand and accept this notice',
-                                  style: TextStyle(fontSize: 13)),
-                            ),
-                          ],
+                    if (_role == AppRole.teacher)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _independent,
+                          onChanged: (v) => setState(() => _independent = v),
+                          title:
+                              const Text('My school is not on SOLVANTA yet'),
+                          subtitle: Text(
+                            'Set up your own independent workspace. You can '
+                            'move it into your school later once it joins.',
+                            style:
+                                TextStyle(fontSize: 12, color: AppColors.body),
+                          ),
                         ),
                       ),
                   ],
+                  // The data-protection notice applies whenever an independent
+                  // workspace is being created (always so against a backend).
+                  if (_asIndependent)
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.infoBg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Data-protection notice',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink)),
+                          const SizedBox(height: 4),
+                          Text(
+                            'You will be registering children’s personal '
+                            'data. Use it only for your teaching, keep it '
+                            'secure, and share it with no one outside your '
+                            'class. You may export or delete it at any time.',
+                            style:
+                                TextStyle(fontSize: 12, color: AppColors.body),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            value: _acceptedDataProtection,
+                            onChanged: (v) => setState(
+                                () => _acceptedDataProtection = v ?? false),
+                            title: const Text(
+                                'I understand and accept this notice',
+                                style: TextStyle(fontSize: 13)),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 20),
                   TextFormField(
                     controller: _name,
@@ -239,7 +260,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onFieldSubmitted: (_) => _submit(),
                     decoration: InputDecoration(
                       labelText: 'Password',
-                      helperText: 'At least 6 characters',
+                      helperText: _configured
+                          ? 'At least 8 characters, with a capital letter and a number'
+                          : 'At least 6 characters',
                       suffixIcon: IconButton(
                         tooltip:
                             _obscure ? 'Show password' : 'Hide password',
@@ -253,9 +276,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             setState(() => _obscure = !_obscure),
                       ),
                     ),
-                    validator: (v) => (v == null || v.length < 6)
-                        ? 'At least 6 characters'
-                        : null,
+                    validator: (v) {
+                      final t = v ?? '';
+                      if (!_configured) {
+                        return t.length < 6 ? 'At least 6 characters' : null;
+                      }
+                      // Match the server policy for live-backend sign-up.
+                      if (t.length < 8) return 'At least 8 characters';
+                      if (!RegExp(r'[a-z]').hasMatch(t) ||
+                          !RegExp(r'[A-Z]').hasMatch(t) ||
+                          !RegExp(r'\d').hasMatch(t)) {
+                        return 'Add a capital letter and a number';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 26),
                   FilledButton(

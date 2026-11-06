@@ -293,10 +293,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         delay: const Duration(milliseconds: 300),
                         child: Column(
                           children: [
-                            // Against a live backend accounts are created by
-                            // the school (the API has no public sign-up), so
-                            // a device-only account would never sync.
-                            if (ApiClient.isConfigured) ...[
+                            // "Forgot password?" only reaches the server reset
+                            // flow when a backend is configured.
+                            if (ApiClient.isConfigured)
                               TextButton(
                                 onPressed: () => Navigator.of(context).push(
                                     MaterialPageRoute(
@@ -305,20 +304,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                 child: const Text('Forgot password?',
                                     style: TextStyle(color: Colors.white)),
                               ),
-                              Text(
-                                'Need an account? Ask your school administrator.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: Colors.white.withValues(alpha: .8)),
-                              ),
-                            ]
-                            else
-                              TextButton(
-                                onPressed: () =>
-                                    Navigator.of(context).pushNamed('/register'),
-                                child: const Text('Create an account',
-                                    style: TextStyle(color: Colors.white)),
-                              ),
+                            // Public sign-up is always available: offline it
+                            // makes a demo account; against a live backend it
+                            // creates an independent teacher workspace (the one
+                            // server-supported self-registration).
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.of(context).pushNamed('/register'),
+                              child: const Text('Create an account',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
                             const SizedBox(height: 12),
                             Text('Try a demo account',
                                 style: TextStyle(
